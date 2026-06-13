@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reloj de la Inversión</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F5F6FA; --card:#FFFFFF; --card2:#ECEEF5; --border:#D0D4E8;
+    --text:#1A1D2E; --muted:#6B7280; --line:#C8CCDC;
+    --recup:#16A34A; --sobre:#DC2626; --estan:#D97706; --refl:#2563EB;
+    --pp3:#15803D; --pp2:#16A34A; --pp1:#65A30D; --neu:#9CA3AF;
+    --mm1:#F59E0B; --mm2:#EA580C; --mm3:#DC2626;
+    --shadow:0 1px 3px rgba(16,24,40,.06),0 1px 2px rgba(16,24,40,.04);
+    --shadow-lg:0 10px 30px rgba(16,24,40,.08);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{
+    background:var(--bg);color:var(--text);
+    font-family:'Inter',system-ui,sans-serif;line-height:1.5;
+    -webkit-font-smoothing:antialiased;padding-bottom:60px;
+  }
+  .wrap{max-width:1480px;margin:0 auto;padding:24px 20px}
+
+  /* ── Header ─────────────────────────────────────────────── */
+  header{
+    background:linear-gradient(135deg,#1E293B 0%,#0F172A 100%);
+    color:#fff;border-radius:18px;padding:28px 34px;margin-bottom:22px;
+    box-shadow:var(--shadow-lg);position:relative;overflow:hidden;
+  }
+  header::after{
+    content:'';position:absolute;right:-60px;top:-60px;width:280px;height:280px;
+    background:radial-gradient(circle,rgba(37,99,235,.18),transparent 70%);
+  }
+  .h-title{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:30px;letter-spacing:-.5px}
+  .h-sub{color:#94A3B8;font-size:13px;margin-top:4px;font-family:'IBM Plex Mono',monospace}
+  .h-badges{display:flex;gap:10px;margin-top:18px;flex-wrap:wrap;align-items:center}
+  .badge{
+    font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:500;
+    padding:5px 12px;border-radius:8px;background:rgba(255,255,255,.08);
+    border:1px solid rgba(255,255,255,.12);color:#CBD5E1;
+  }
+  .badge b{color:#fff}
+  .badge.live{background:rgba(22,163,74,.18);border-color:rgba(22,163,74,.4);color:#86EFAC}
+  .badge.live .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#22C55E;margin-right:6px;animation:pulse 2s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+  /* ── Layout grid ────────────────────────────────────────── */
+  .grid{display:grid;grid-template-columns:340px 1fr 1fr;gap:18px}
+  @media(max-width:1200px){.grid{grid-template-columns:1fr 1fr}.col-left{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:18px}}
+  @media(max-width:760px){.grid{grid-template-columns:1fr}.col-left{grid-template-columns:1fr}}
+
+  .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:20px;box-shadow:var(--shadow);margin-bottom:18px}
+  .card-t{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:13px;letter-spacing:.4px;text-transform:uppercase;color:var(--muted);margin-bottom:16px}
+
+  /* ── Reloj SVG ──────────────────────────────────────────── */
+  .clock-wrap{display:flex;flex-direction:column;align-items:center}
+  #clock{width:100%;max-width:300px;height:auto}
+  .clock-center-score{font-family:'Space Grotesk',sans-serif;font-weight:700}
+
+  .phase-now{text-align:center;margin-top:8px}
+  .phase-now .lbl{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+  .phase-now .val{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:26px;margin-top:2px}
+  .phase-now .conf{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--muted);margin-top:2px}
+
+  /* ── Barras scoring ─────────────────────────────────────── */
+  .score-row{margin-bottom:14px}
+  .score-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px}
+  .score-name{font-size:13px;font-weight:500}
+  .score-vals{font-family:'IBM Plex Mono',monospace;font-size:12px}
+  .score-delta{font-size:11px;margin-left:6px}
+  .score-track{height:9px;background:var(--card2);border-radius:6px;overflow:hidden}
+  .score-fill{height:100%;border-radius:6px;transition:width 1s cubic-bezier(.4,0,.2,1)}
+
+  /* ── Probabilidades modelo ──────────────────────────────── */
+  .proba-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:4px}
+  .proba-cell{background:var(--card2);border-radius:10px;padding:12px}
+  .proba-cell .p{font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:20px}
+  .proba-cell .n{font-size:11px;color:var(--muted);margin-top:2px}
+
+  /* ── Tablas de activos ──────────────────────────────────── */
+  .asset{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--card2)}
+  .asset:last-child{border-bottom:none}
+  .asset-name{font-weight:600;font-size:13.5px;min-width:130px;flex-shrink:0}
+  .asset-reason{font-size:11.5px;color:var(--muted);flex:1;line-height:1.35}
+  .rating{font-family:'IBM Plex Mono',monospace;font-weight:700;font-size:14px;padding:3px 9px;border-radius:7px;min-width:48px;text-align:center;flex-shrink:0}
+  .r-pp3{background:#DCFCE7;color:#15803D}.r-pp2{background:#DCFCE7;color:#16A34A}
+  .r-pp1{background:#ECFCCB;color:#65A30D}.r-neu{background:#F1F5F9;color:#64748B}
+  .r-mm1{background:#FEF3C7;color:#D97706}.r-mm2{background:#FFEDD5;color:#EA580C}
+  .r-mm3{background:#FEE2E2;color:#DC2626}
+
+  /* ── Panel diagnóstico ──────────────────────────────────── */
+  .diag-table{width:100%;border-collapse:collapse;font-size:12.5px}
+  .diag-table th{text-align:left;font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.3px;padding:8px 10px;border-bottom:2px solid var(--border)}
+  .diag-table td{padding:9px 10px;border-bottom:1px solid var(--card2);vertical-align:top}
+  .diag-ind{font-weight:600;white-space:nowrap}
+  .diag-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px;vertical-align:middle}
+  .diag-val{font-family:'IBM Plex Mono',monospace;font-weight:600;white-space:nowrap}
+  .diag-pct{font-family:'IBM Plex Mono',monospace;color:var(--muted);white-space:nowrap}
+  .diag-inv{color:var(--estan);font-weight:600;cursor:help}
+  .diag-arrow{font-weight:700;font-size:14px}
+  .diag-phase{font-size:11px;padding:2px 7px;border-radius:5px;white-space:nowrap}
+  .diag-why{font-size:11px;color:var(--muted);line-height:1.35;max-width:340px}
+
+  .legend-note{font-size:11px;color:var(--muted);font-style:italic;margin-top:14px;padding:12px;background:#FEF3C7;border-left:3px solid var(--estan);border-radius:0 8px 8px 0;line-height:1.5}
+
+  /* ── Interpretación ─────────────────────────────────────── */
+  .interp{font-size:14px;line-height:1.7;color:var(--text)}
+  .interp-card{background:linear-gradient(135deg,#EFF6FF,#F5F3FF);border-color:#BFDBFE}
+
+  .dual-banner{display:flex;align-items:center;gap:14px;padding:14px 18px;border-radius:12px;margin-bottom:18px;font-size:13px}
+  .dual-trans{background:#FEF3C7;border:1px solid #FCD34D;color:#92400E}
+  .dual-align{background:#DCFCE7;border:1px solid #86EFAC;color:#166534}
+  .dual-tag{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14px;padding:4px 12px;border-radius:8px;background:rgba(0,0,0,.08)}
+
+  footer{text-align:center;color:var(--muted);font-size:12px;margin-top:30px;font-family:'IBM Plex Mono',monospace}
+  .loading{text-align:center;padding:80px 20px;color:var(--muted)}
+  .spinner{width:38px;height:38px;border:3px solid var(--card2);border-top-color:var(--refl);border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 18px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .err{background:#FEE2E2;border:1px solid #FCA5A5;color:#991B1B;padding:20px;border-radius:12px;font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="app">
+    <div class="loading">
+      <div class="spinner"></div>
+      Cargando datos del Reloj de la Inversión…
+    </div>
+  </div>
+</div>
+
+<script>
+const PHASE_COLORS = {
+  "Recuperación":"#16A34A","Sobrecalentamiento":"#DC2626",
+  "Estanflación":"#D97706","Reflación/Recesión":"#2563EB"
+};
+const PHASE_SHORT = {
+  "Recuperación":"RECUP.","Sobrecalentamiento":"SOBRE-\nCALENT.",
+  "Estanflación":"ESTAN-\nFLACIÓN","Reflación/Recesión":"REFLAC./\nRECES."
+};
+// Orden en el reloj (sentido horario desde arriba-derecha)
+const CLOCK_ORDER = ["Recuperación","Sobrecalentamiento","Estanflación","Reflación/Recesión"];
+
+function esc(s){return String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+
+function buildClock(data){
+  const size=300, cx=150, cy=150, rOuter=130, rInner=52;
+  const phase=data.phase;
+  // Cada cuadrante = 90°. Empezamos arriba (-90°) y vamos en sentido horario.
+  // Recuperación: arriba-derecha (0 a 90° visual), etc.
+  const quads=[
+    {ph:"Recuperación",       a0:-90, a1:0},
+    {ph:"Sobrecalentamiento", a0:0,   a1:90},
+    {ph:"Estanflación",       a0:90,  a1:180},
+    {ph:"Reflación/Recesión", a0:180, a1:270},
+  ];
+  const rad=d=>(d-90)*Math.PI/180; // 0° del SVG está a la derecha; restamos 90 para poner 0 arriba
+  function arc(a0,a1,r){
+    const p0=[cx+r*Math.cos(rad(a0+90)),cy+r*Math.sin(rad(a0+90))];
+    const p1=[cx+r*Math.cos(rad(a1+90)),cy+r*Math.sin(rad(a1+90))];
+    const large=(a1-a0)>180?1:0;
+    return {p0,p1,large};
+  }
+  let paths="";
+  quads.forEach(q=>{
+    // Convertir a ángulos donde -90 = arriba
+    const A0=q.a0, A1=q.a1;
+    const f=v=>{const ang=(v)*Math.PI/180;return [cx+Math.sin(ang)* 1, ];};
+    // Usamos cálculo directo: ángulo medido desde arriba en sentido horario
+    const toXY=(angDeg,r)=>{const a=(angDeg-90)*Math.PI/180;return [cx+r*Math.cos(a),cy+r*Math.sin(a)];};
+    const [x0o,y0o]=toXY(A0,rOuter), [x1o,y1o]=toXY(A1,rOuter);
+    const [x0i,y0i]=toXY(A0,rInner), [x1i,y1i]=toXY(A1,rInner);
+    const large=(A1-A0)>180?1:0;
+    const active=q.ph===phase;
+    const col=PHASE_COLORS[q.ph];
+    const op=active?1:.28;
+    paths+=`<path d="M ${x0o} ${y0o} A ${rOuter} ${rOuter} 0 ${large} 1 ${x1o} ${y1o} L ${x1i} ${y1i} A ${rInner} ${rInner} 0 ${large} 0 ${x0i} ${y0i} Z" fill="${col}" opacity="${op}" stroke="#fff" stroke-width="2"/>`;
+    // etiqueta
+    const mid=(A0+A1)/2;
+    const [lx,ly]=toXY(mid,(rOuter+rInner)/2);
+    const lines=PHASE_SHORT[q.ph].split("\n");
+    let txt=`<text x="${lx}" y="${ly-(lines.length-1)*6}" text-anchor="middle" font-family="Space Grotesk" font-size="11" font-weight="700" fill="${active?'#fff':col}" opacity="${active?1:.7}">`;
+    lines.forEach((ln,i)=>{txt+=`<tspan x="${lx}" dy="${i===0?0:13}">${esc(ln)}</tspan>`;});
+    txt+=`</text>`;
+    paths+=txt;
+  });
+  // Puntero a la fase activa
+  const activeQ=quads.find(q=>q.ph===phase);
+  const ptrAng=activeQ?(activeQ.a0+activeQ.a1)/2:0;
+  const pa=(ptrAng-90)*Math.PI/180;
+  const px=cx+(rInner-6)*Math.cos(pa), py=cy+(rInner-6)*Math.sin(pa);
+  const conf=data.confidence??0;
+  return `<svg id="clock" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">
+    ${paths}
+    <circle cx="${cx}" cy="${cy}" r="${rInner-8}" fill="#fff" stroke="${PHASE_COLORS[phase]}" stroke-width="2.5"/>
+    <line x1="${cx}" y1="${cy}" x2="${px}" y2="${py}" stroke="${PHASE_COLORS[phase]}" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="${cx}" cy="${cy}" r="5" fill="${PHASE_COLORS[phase]}"/>
+    <text x="${cx}" y="${cy-6}" text-anchor="middle" class="clock-center-score" font-size="26" fill="${PHASE_COLORS[phase]}">${conf}%</text>
+    <text x="${cx}" y="${cy+12}" text-anchor="middle" font-size="10" fill="#6B7280" font-family="Inter">confianza</text>
+  </svg>`;
+}
+
+function render(data){
+  const pc=PHASE_COLORS[data.phase]||"#333";
+
+  // ── Barras scoring ──
+  let scoreBars="";
+  data.phase_scores.forEach(s=>{
+    const col=PHASE_COLORS[s.phase];
+    let delta="";
+    if(s.delta!==null&&s.delta!==undefined){
+      const up=s.delta>=0;
+      delta=`<span class="score-delta" style="color:${up?'#16A34A':'#DC2626'}">${up?'▲':'▼'} ${Math.abs(s.delta).toFixed(1)}pp</span>`;
+    }
+    scoreBars+=`<div class="score-row">
+      <div class="score-head">
+        <span class="score-name">${esc(s.phase)}</span>
+        <span class="score-vals" style="color:${col}">${s.pct.toFixed(1)}%${delta}</span>
+      </div>
+      <div class="score-track"><div class="score-fill" style="width:${s.pct}%;background:${col}"></div></div>
+    </div>`;
+  });
+
+  // ── Probabilidades del modelo ──
+  let probaHTML="";
+  if(data.probas){
+    let cells="";
+    CLOCK_ORDER.forEach(ph=>{
+      const v=data.probas[ph]; if(v===undefined)return;
+      cells+=`<div class="proba-cell">
+        <div class="p" style="color:${PHASE_COLORS[ph]}">${(v*100).toFixed(1)}%</div>
+        <div class="n">${esc(ph)}</div>
+      </div>`;
+    });
+    probaHTML=`<div class="card"><div class="card-t">Probabilidades del Modelo Logístico</div>
+      <div class="proba-grid">${cells}</div></div>`;
+  }
+
+  // ── Diagnóstico ──
+  let diagRows="";
+  data.diagnostics.forEach(d=>{
+    const col=d.phase&&PHASE_COLORS[d.phase]?PHASE_COLORS[d.phase]:"#9CA3AF";
+    const pctTxt=d.pct_eff!==null&&d.pct_eff!==undefined
+      ? `pct ${Math.round(d.pct_eff)}°${d.invert?' <span class="diag-inv" title="Percentil invertido: valor alto = señal negativa">⟳</span>':''}`
+      : '—';
+    const phaseTag=d.phase&&d.phase!=='neutro'
+      ? `<span class="diag-phase" style="background:${col}22;color:${col}">${esc(d.phase)}</span>`
+      : `<span class="diag-phase" style="background:#F1F5F9;color:#94A3B8">neutro</span>`;
+    diagRows+=`<tr>
+      <td class="diag-ind"><span class="diag-dot" style="background:${col}"></span>${esc(d.label)}</td>
+      <td class="diag-val">${esc(d.value)}</td>
+      <td class="diag-pct">${pctTxt}</td>
+      <td><span class="diag-arrow" style="color:${col}">${esc(d.arrow)}</span></td>
+      <td>${phaseTag}</td>
+      <td class="diag-why">${esc(d.explain)}</td>
+    </tr>`;
+  });
+  const invNames=(data.diag_legend||[]).map(x=>Array.isArray(x)?x[1]:x).join(", ");
+
+  // ── Activos ──
+  const assetRows=arr=>arr.map(a=>`<div class="asset">
+    <span class="asset-name">${esc(a.asset)}</span>
+    <span class="rating ${a.cls}">${esc(a.rating_str)}</span>
+    <span class="asset-reason">${esc(a.reason)}</span>
+  </div>`).join("");
+
+  // ── Dual banner ──
+  let dualHTML="";
+  if(data.dual){
+    const trans=data.dual.diverge;
+    dualHTML=`<div class="dual-banner ${trans?'dual-trans':'dual-align'}">
+      <span class="dual-tag">${esc(data.dual.signal)}</span>
+      <span>${esc(data.dual.signal_detail)}</span>
+    </div>`;
+  }
+
+  const app=`
+    <header>
+      <div class="h-title">RELOJ DE LA INVERSIÓN</div>
+      <div class="h-sub">Análisis sistemático del ciclo económico · ${esc(data.diagnostics.length)} indicadores · modelo logístico supervisado</div>
+      <div class="h-badges">
+        <span class="badge live"><span class="dot"></span>FASE ACTUAL: <b>${esc(data.phase).toUpperCase()}</b></span>
+        <span class="badge">MOTOR: <b>${esc((data.engine||'').toUpperCase())}</b></span>
+        ${data.cv_accuracy?`<span class="badge">CV: <b>${data.cv_accuracy}%</b></span>`:''}
+        ${data.n_samples?`<span class="badge">N: <b>${data.n_samples}</b> meses</span>`:''}
+        <span class="badge">Datos: <b>${esc(data.data_date)}</b></span>
+        <span class="badge">Actualizado: <b>${esc(data.generated_at)}</b></span>
+      </div>
+    </header>
+
+    ${dualHTML}
+
+    <div class="grid">
+      <div class="col-left">
+        <div class="card">
+          <div class="card-t">Reloj del Ciclo</div>
+          <div class="clock-wrap">
+            ${buildClock(data)}
+            <div class="phase-now">
+              <div class="val" style="color:${pc}">${esc(data.phase)}</div>
+              ${data.secondary?`<div class="conf">secundaria: ${esc(data.secondary)}</div>`:''}
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-t">Scoring por Fase (ponderado)</div>
+          ${scoreBars}
+        </div>
+        ${probaHTML}
+      </div>
+
+      <div class="card" style="grid-column:auto">
+        <div class="card-t" style="color:${pc}">Renta Fija — ${esc(data.phase)}</div>
+        ${assetRows(data.fixed_income)}
+      </div>
+
+      <div class="card" style="grid-column:auto">
+        <div class="card-t" style="color:${pc}">Renta Variable — ${esc(data.phase)}</div>
+        ${assetRows(data.equity)}
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:18px">
+      <div class="card-t">Panel de Diagnóstico — Indicadores Clave y su Influencia</div>
+      <div style="overflow-x:auto">
+        <table class="diag-table">
+          <thead><tr>
+            <th>Indicador</th><th>Valor</th><th>Hist. ⟳=inv</th>
+            <th>Dir</th><th>→ Fase</th><th>Por qué importa</th>
+          </tr></thead>
+          <tbody>${diagRows}</tbody>
+        </table>
+      </div>
+      <div class="legend-note">
+        <b>⟳ = percentil invertido</b>: para ${esc(invNames)}, un valor ALTO del indicador es señal NEGATIVA.
+        El percentil mostrado ya viene corregido — por ejemplo, <b>pct 95°</b> en HY Spread significa que el spread
+        está en zona de euforia extrema (solo el 5% de meses históricos tuvo spreads más bajos). La flecha y la fase
+        son coherentes con ese percentil.
+      </div>
+    </div>
+
+    ${data.interpretation?`<div class="card interp-card" style="margin-top:18px">
+      <div class="card-t">Interpretación</div>
+      <div class="interp">${esc(data.interpretation)}</div>
+    </div>`:''}
+
+    <footer>
+      Reloj de la Inversión · datos FRED · generado automáticamente vía GitHub Actions<br>
+      No constituye asesoramiento financiero · Modelo cuantitativo con fines analíticos
+    </footer>
+  `;
+  document.getElementById("app").innerHTML=app;
+
+  // Animar barras
+  requestAnimationFrame(()=>{
+    document.querySelectorAll(".score-fill").forEach(el=>{
+      const w=el.style.width; el.style.width="0"; requestAnimationFrame(()=>el.style.width=w);
+    });
+  });
+}
+
+// ── Cargar data.json ──
+fetch("data.json?t="+Date.now())
+  .then(r=>{if(!r.ok)throw new Error("No se encontró data.json (HTTP "+r.status+")");return r.json();})
+  .then(render)
+  .catch(e=>{
+    document.getElementById("app").innerHTML=
+      `<div class="err"><b>Error cargando los datos:</b> ${esc(e.message)}<br><br>
+      Asegúrate de que <code>data.json</code> está en la misma carpeta que este HTML.
+      Si acabas de subir el repositorio, espera a que GitHub Actions genere el archivo
+      (pestaña <b>Actions</b> de tu repo).</div>`;
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,370 @@
+{
+  "generated_at": "2026-02-23 20:40",
+  "data_date": "2026-01-01",
+  "phase": "Estanflación",
+  "engine": "logístico",
+  "confidence": 74.9,
+  "cv_accuracy": 81.0,
+  "n_samples": 351,
+  "secondary": "Recuperación",
+  "probas": {
+    "Recuperación": 0.149,
+    "Sobrecalentamiento": 0.038,
+    "Estanflación": 0.749,
+    "Reflación/Recesión": 0.001
+  },
+  "phase_scores": [
+    {
+      "phase": "Recuperación",
+      "pct": 21.2,
+      "delta": 9.9
+    },
+    {
+      "phase": "Sobrecalentamiento",
+      "pct": 3.8,
+      "delta": 6.2
+    },
+    {
+      "phase": "Estanflación",
+      "pct": 74.9,
+      "delta": -5.7
+    },
+    {
+      "phase": "Reflación/Recesión",
+      "pct": 0.1,
+      "delta": -10.5
+    }
+  ],
+  "diagnostics": [
+    {
+      "key": "yield_curve_10_3",
+      "label": "Curva 10Y-3M",
+      "value": "+0.47%",
+      "pct": 43,
+      "pct_eff": 43,
+      "invert": false,
+      "arrow": "→",
+      "phase": "neutro",
+      "explain": "La mejor predictora de recesión (Fed SF): invertida = recesión en 12-18m"
+    },
+    {
+      "key": "yield_curve",
+      "label": "Curva 10Y-2Y",
+      "value": "+0.67%",
+      "pct": 43,
+      "pct_eff": 43,
+      "invert": false,
+      "arrow": "→",
+      "phase": "neutro",
+      "explain": "Positiva = mercado espera expansión; negativa = contracción futura"
+    },
+    {
+      "key": "proxy_pmi",
+      "label": "Proxy PMI (z)",
+      "value": "+1.27σ",
+      "pct": 86,
+      "pct_eff": 86,
+      "invert": false,
+      "arrow": "↑",
+      "phase": "Recuperación",
+      "explain": "z-score combinando horas mfg + pedidos + claims; proxy del ISM sin suscripción"
+    },
+    {
+      "key": "awhman_yoy",
+      "label": "Horas Mfg YoY",
+      "value": "+1.7%",
+      "pct": 61,
+      "pct_eff": 61,
+      "invert": false,
+      "arrow": "↑",
+      "phase": "Recuperación",
+      "explain": "Empresas recortan horas ANTES de despedir: adelanta 2-3m a las nóminas"
+    },
+    {
+      "key": "core_yoy",
+      "label": "Core CPI YoY",
+      "value": "2.5%",
+      "pct": 78,
+      "pct_eff": 78,
+      "invert": false,
+      "arrow": "↑",
+      "phase": "Estanflación",
+      "explain": "Inflación estructural: alta + crecimiento débil = estanflación clásica"
+    },
+    {
+      "key": "inflation_trend",
+      "label": "Aceler. CPI",
+      "value": "+0.04pp",
+      "pct": 72,
+      "pct_eff": 72,
+      "invert": false,
+      "arrow": "↑",
+      "phase": "Estanflación",
+      "explain": "+ = inflación acelerando (últimos 6m vs anteriores): señal estanflacionaria"
+    },
+    {
+      "key": "inf_exp",
+      "label": "Breakeven 5Y",
+      "value": "2.47%",
+      "pct": 81,
+      "pct_eff": 81,
+      "invert": false,
+      "arrow": "↑",
+      "phase": "Estanflación",
+      "explain": "Expectativas de inflación del mercado: >2.5% = presión persistente"
+    },
+    {
+      "key": "hy_spread",
+      "label": "HY Spread",
+      "value": "2.88%",
+      "pct": 5,
+      "pct_eff": 95,
+      "invert": true,
+      "arrow": "↑",
+      "phase": "Sobrecalentamiento",
+      "explain": "Spreads altos = mercado descuenta defaults; bajos = apetito de riesgo pleno"
+    },
+    {
+      "key": "ig_spread",
+      "label": "IG Spread",
+      "value": "0.77%",
+      "pct": 7,
+      "pct_eff": 93,
+      "invert": true,
+      "arrow": "↑",
+      "phase": "Sobrecalentamiento",
+      "explain": "Estrés en grado inversión confirma que el problema es sistémico, no solo HY"
+    },
+    {
+      "key": "jobless_claims_yoy",
+      "label": "Claims YoY",
+      "value": "-0.1%",
+      "pct": 22,
+      "pct_eff": 78,
+      "invert": true,
+      "arrow": "↑",
+      "phase": "Reflación/Recesión",
+      "explain": "Subiendo = deterioro laboral inminente; adelanta 3-6 semanas a la tasa de paro"
+    },
+    {
+      "key": "houst_yoy",
+      "label": "Viviendas YoY",
+      "value": "-7.3%",
+      "pct": 26,
+      "pct_eff": 26,
+      "invert": false,
+      "arrow": "↓",
+      "phase": "Reflación/Recesión",
+      "explain": "Primer sector en reaccionar a tipos: cayendo ya antes de que el ciclo gire"
+    },
+    {
+      "key": "fed_chg",
+      "label": "Fed Funds Δ1Y",
+      "value": "-0.88%",
+      "pct": 23,
+      "pct_eff": 77,
+      "invert": true,
+      "arrow": "↑",
+      "phase": "Recuperación",
+      "explain": "Bajando = Fed ve riesgo recesivo e inflación controlada; subiendo = freno al ciclo"
+    }
+  ],
+  "fixed_income": [
+    {
+      "asset": "Gubernamental",
+      "rating": 3,
+      "rating_str": "+++",
+      "cls": "r-pp3",
+      "reason": "Safe haven + eventual pivot dovish"
+    },
+    {
+      "asset": "Corporativo IG",
+      "rating": -1,
+      "rating_str": "–",
+      "cls": "r-mm1",
+      "reason": "Spreads ampliándose — recesión ahead"
+    },
+    {
+      "asset": "High Yield",
+      "rating": -3,
+      "rating_str": "– – –",
+      "cls": "r-mm3",
+      "reason": "Worst case: inflación alta + defaults"
+    },
+    {
+      "asset": "TIPS",
+      "rating": 2,
+      "rating_str": "++",
+      "cls": "r-pp2",
+      "reason": "Inflación alta compensa algo"
+    },
+    {
+      "asset": "Emergentes RF",
+      "rating": -3,
+      "rating_str": "– – –",
+      "cls": "r-mm3",
+      "reason": "Capital flight + commodity shock"
+    },
+    {
+      "asset": "Municipal",
+      "rating": 3,
+      "rating_str": "+++",
+      "cls": "r-pp3",
+      "reason": "Tax-exempt + estabilidad relativa"
+    },
+    {
+      "asset": "MBS",
+      "rating": -1,
+      "rating_str": "–",
+      "cls": "r-mm1",
+      "reason": "Tasas volátiles, prepagos inciertos"
+    },
+    {
+      "asset": "RF Corto Plazo",
+      "rating": 2,
+      "rating_str": "++",
+      "cls": "r-pp2",
+      "reason": "Preservación capital + liquidez"
+    },
+    {
+      "asset": "RF Largo Plazo",
+      "rating": 0,
+      "rating_str": "0",
+      "cls": "r-neu",
+      "reason": "Inflación vs. eventual recesión"
+    }
+  ],
+  "equity": [
+    {
+      "asset": "Tecnología",
+      "rating": -1,
+      "rating_str": "–",
+      "cls": "r-mm1",
+      "reason": "Valuación alta + gasto IT recortado"
+    },
+    {
+      "asset": "Salud",
+      "rating": 3,
+      "rating_str": "+++",
+      "cls": "r-pp3",
+      "reason": "No-cíclico + pricing power inelástico"
+    },
+    {
+      "asset": "Financiero",
+      "rating": -3,
+      "rating_str": "– – –",
+      "cls": "r-mm3",
+      "reason": "NIM + credit losses + regulación"
+    },
+    {
+      "asset": "Consumo Discrecional",
+      "rating": -3,
+      "rating_str": "– – –",
+      "cls": "r-mm3",
+      "reason": "Peor entorno posible para el sector"
+    },
+    {
+      "asset": "Consumo Básico",
+      "rating": 2,
+      "rating_str": "++",
+      "cls": "r-pp2",
+      "reason": "Pricing power real + demanda inelástica"
+    },
+    {
+      "asset": "Industria",
+      "rating": -1,
+      "rating_str": "–",
+      "cls": "r-mm1",
+      "reason": "Demanda débil + costos laborales altos"
+    },
+    {
+      "asset": "Energía",
+      "rating": 2,
+      "rating_str": "++",
+      "cls": "r-pp2",
+      "reason": "Commodities + inflación persistente"
+    },
+    {
+      "asset": "Materiales",
+      "rating": 2,
+      "rating_str": "++",
+      "cls": "r-pp2",
+      "reason": "Inflación favorece aunque demanda débil"
+    },
+    {
+      "asset": "Utilities",
+      "rating": 3,
+      "rating_str": "+++",
+      "cls": "r-pp3",
+      "reason": "Defensivo + pricing regulado = refugio"
+    },
+    {
+      "asset": "Inmobiliario (REITs)",
+      "rating": -3,
+      "rating_str": "– – –",
+      "cls": "r-mm3",
+      "reason": "Tasas altas + demanda colapsa"
+    },
+    {
+      "asset": "Comunicaciones",
+      "rating": 0,
+      "rating_str": "0",
+      "cls": "r-neu",
+      "reason": "Publicidad débil vs. pricing power"
+    },
+    {
+      "asset": "Small Cap",
+      "rating": -2,
+      "rating_str": "– –",
+      "cls": "r-mm2",
+      "reason": "Alta sensibilidad a ciclo — evitar"
+    },
+    {
+      "asset": "Emergentes RV",
+      "rating": -3,
+      "rating_str": "– – –",
+      "cls": "r-mm3",
+      "reason": "Worst case para mercados emergentes"
+    },
+    {
+      "asset": "Commodities ex Oro",
+      "rating": 2,
+      "rating_str": "++",
+      "cls": "r-pp2",
+      "reason": "Inflación favorece aunque selectivo"
+    },
+    {
+      "asset": "Oro",
+      "rating": 3,
+      "rating_str": "+++",
+      "cls": "r-pp3",
+      "reason": "Única protección real efectiva"
+    }
+  ],
+  "dual": {
+    "signal": "TRANSICIÓN",
+    "signal_detail": "Adelantados→Recuperación | Coincidentes→Estanflación",
+    "phase_lead": "Recuperación",
+    "phase_coin": "Estanflación",
+    "diverge": true
+  },
+  "interpretation": "El modelo sitúa la economía en Estanflación con 74.9% de confianza. El Core CPI en 2.5% acelerando y el breakeven a 5 años en 2.47% confirman presión inflacionaria persistente, mientras los spreads de crédito en mínimos históricos (HY 2.88%, percentil efectivo 95°) reflejan complacencia del mercado. La divergencia entre indicadores adelantados (apuntan a Recuperación) y coincidentes (Estanflación) sugiere un momento de transición: el Proxy PMI positivo y la curva no invertida insinúan mejora futura, pero la inflación estructural aún domina el régimen actual. Posicionamiento defensivo con oro, utilities y salud; evitar cíclicos y duración larga.",
+  "diag_legend": [
+    [
+      "hy_spread",
+      "HY Spread"
+    ],
+    [
+      "ig_spread",
+      "IG Spread"
+    ],
+    [
+      "jobless_claims_yoy",
+      "Claims YoY"
+    ],
+    [
+      "fed_chg",
+      "Fed Funds Δ1Y"
+    ]
+  ]
+}
