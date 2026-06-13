@@ -150,31 +150,73 @@ FRED_ID_MAP = {
 def fetch_fred(series_id: str, start: str, end: str,
                max_retries: int = 3, retry_delay: float = 2.0) -> pd.Series:
     """
-    Descarga una serie de FRED en formato CSV. Devuelve pd.Series con índice de fechas.
-    Reintenta automáticamente hasta max_retries veces ante fallos del servidor.
+    Descarga una serie de FRED. Usa la API oficial (api.stlouisfed.org) si hay
+    una clave en la variable de entorno FRED_API_KEY; si no, recurre al endpoint
+    CSV público (fred.stlouisfed.org). Reintenta ante fallos del servidor.
+
+    La API oficial es mucho más fiable desde servidores (GitHub Actions) porque
+    el endpoint de gráficos suele bloquear o ralentizar peticiones automatizadas.
     """
-    import time
+    import time, os, json as _json
     fred_id = FRED_ID_MAP.get(series_id, series_id)
+    api_key = os.environ.get("FRED_API_KEY", "").strip()
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "application/json,text/csv,text/plain,*/*",
+    }
+
+    # ── Método 1: API oficial JSON (preferido si hay clave) ────────
+    if api_key:
+        api_url = (
+            f"https://api.stlouisfed.org/fred/series/observations"
+            f"?series_id={fred_id}&api_key={api_key}&file_type=json"
+            f"&observation_start={start}&observation_end={end}"
+        )
+        for attempt in range(1, max_retries + 1):
+            try:
+                r = requests.get(api_url, timeout=30, headers=headers)
+                r.raise_for_status()
+                obs = r.json().get("observations", [])
+                if not obs:
+                    print(f"  ⚠  {series_id} ({fred_id}): sin datos en API")
+                    return pd.Series(dtype=float)
+                dates, vals = [], []
+                for o in obs:
+                    v = o.get("value", ".")
+                    if v in (".", "", None):
+                        continue
+                    try:
+                        vals.append(float(v)); dates.append(o["date"])
+                    except (ValueError, KeyError):
+                        continue
+                s = pd.Series(vals, index=pd.to_datetime(dates)).dropna()
+                if len(s) == 0:
+                    print(f"  ⚠  {series_id} ({fred_id}): sin valores válidos")
+                    return pd.Series(dtype=float)
+                return s
+            except Exception as e:
+                if attempt < max_retries:
+                    print(f"  ↻  {series_id} (API): intento {attempt}/{max_retries} fallido — {e}")
+                    time.sleep(retry_delay)
+                else:
+                    print(f"  ⚠  {series_id} (API): falló, probando CSV público — {e}")
+
+    # ── Método 2: CSV público (fallback o si no hay clave) ─────────
     url = (
         f"https://fred.stlouisfed.org/graph/fredgraph.csv"
         f"?id={fred_id}&cosd={start}&coed={end}"
     )
     for attempt in range(1, max_retries + 1):
         try:
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                              "AppleWebKit/537.36 (KHTML, like Gecko) "
-                              "Chrome/124.0.0.0 Safari/537.36",
-                "Accept": "text/csv,text/plain,*/*",
-            }
             r = requests.get(url, timeout=60, headers=headers)
             r.raise_for_status()
-            # Leer sin asumir nombre de columna — FRED a veces cambia "DATE" por otro nombre
             raw_text = r.text.strip()
             if not raw_text or raw_text.startswith("<") or raw_text.startswith("{"):
                 raise ValueError(f"FRED devolvió respuesta no-CSV: {raw_text[:120]}")
             df = pd.read_csv(StringIO(raw_text))
-            # La primera columna es siempre la fecha, la segunda el valor
             date_col  = df.columns[0]
             value_col = df.columns[1]
             df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
