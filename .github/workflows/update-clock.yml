@@ -32,6 +32,8 @@ jobs:
           pip install pandas numpy scikit-learn requests matplotlib
 
       - name: Generar data.json
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
         run: |
           python -u ic_export_json.py docs
 
