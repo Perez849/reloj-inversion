@@ -148,7 +148,7 @@ FRED_ID_MAP = {
 #  DESCARGA FRED
 # ══════════════════════════════════════════════════════════════════
 def fetch_fred(series_id: str, start: str, end: str,
-               max_retries: int = 4, retry_delay: float = 3.0) -> pd.Series:
+               max_retries: int = 2, retry_delay: float = 1.5) -> pd.Series:
     """
     Descarga una serie de FRED en formato CSV. Devuelve pd.Series con índice de fechas.
     Reintenta automáticamente hasta max_retries veces ante fallos del servidor.
