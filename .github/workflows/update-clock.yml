@@ -33,7 +33,7 @@ jobs:
 
       - name: Generar data.json
         run: |
-          python ic_export_json.py docs
+          python -u ic_export_json.py docs
 
       - name: Commit y push si hay cambios
         run: |
