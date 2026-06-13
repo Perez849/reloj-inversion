@@ -148,7 +148,7 @@ FRED_ID_MAP = {
 #  DESCARGA FRED
 # ══════════════════════════════════════════════════════════════════
 def fetch_fred(series_id: str, start: str, end: str,
-               max_retries: int = 2, retry_delay: float = 1.5) -> pd.Series:
+               max_retries: int = 3, retry_delay: float = 2.0) -> pd.Series:
     """
     Descarga una serie de FRED en formato CSV. Devuelve pd.Series con índice de fechas.
     Reintenta automáticamente hasta max_retries veces ante fallos del servidor.
@@ -167,7 +167,7 @@ def fetch_fred(series_id: str, start: str, end: str,
                               "Chrome/124.0.0.0 Safari/537.36",
                 "Accept": "text/csv,text/plain,*/*",
             }
-            r = requests.get(url, timeout=20, headers=headers)
+            r = requests.get(url, timeout=60, headers=headers)
             r.raise_for_status()
             # Leer sin asumir nombre de columna — FRED a veces cambia "DATE" por otro nombre
             raw_text = r.text.strip()
