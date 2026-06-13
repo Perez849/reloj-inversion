@@ -161,7 +161,13 @@ def fetch_fred(series_id: str, start: str, end: str,
     )
     for attempt in range(1, max_retries + 1):
         try:
-            r = requests.get(url, timeout=20)
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                              "AppleWebKit/537.36 (KHTML, like Gecko) "
+                              "Chrome/124.0.0.0 Safari/537.36",
+                "Accept": "text/csv,text/plain,*/*",
+            }
+            r = requests.get(url, timeout=20, headers=headers)
             r.raise_for_status()
             # Leer sin asumir nombre de columna — FRED a veces cambia "DATE" por otro nombre
             raw_text = r.text.strip()
