@@ -1,17 +1,17 @@
 {
-  "generated_at": "2026-06-15 12:50",
+  "generated_at": "2026-06-16 11:43",
   "data_date": "2026-06-01",
   "phase": "Recuperación",
   "engine": "logístico",
-  "confidence": 95.9,
-  "cv_accuracy": 81.6,
+  "confidence": 97.1,
+  "cv_accuracy": 80.8,
   "n_samples": 255,
   "secondary": "Estanflación",
   "probas": {
-    "Recuperación": 0.9587964132374569,
-    "Sobrecalentamiento": 0.013299152791380343,
-    "Estanflación": 0.027870018834515432,
-    "Reflación/Recesión": 3.441513664732483e-05
+    "Recuperación": 0.9712338430087235,
+    "Sobrecalentamiento": 0.00869792900193705,
+    "Estanflación": 0.02003347440491893,
+    "Reflación/Recesión": 3.47535844204152e-05
   },
   "phase_scores": [
     {
@@ -39,7 +39,7 @@
     {
       "key": "yield_curve_10_3",
       "label": "Curva 10Y-3M",
-      "value": "+0.72%",
+      "value": "+0.71%",
       "pct": 35.7,
       "pct_eff": 35.7,
       "invert": false,
@@ -105,9 +105,9 @@
     {
       "key": "inf_exp",
       "label": "Breakeven 5Y",
-      "value": "2.47%",
-      "pct": 87.6,
-      "pct_eff": 87.6,
+      "value": "2.46%",
+      "pct": 86.7,
+      "pct_eff": 86.7,
       "invert": false,
       "arrow": "↑",
       "phase": "Estanflación",
