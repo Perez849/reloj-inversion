@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-19 11:06",
+  "generated_at": "2026-06-20 09:51",
   "data_date": "2026-06-01",
   "phase": "Recuperación",
   "engine": "logístico",
@@ -8,10 +8,10 @@
   "n_samples": 255,
   "secondary": "Estanflación",
   "probas": {
-    "Recuperación": 0.950236153135567,
-    "Sobrecalentamiento": 0.011601049469047544,
-    "Estanflación": 0.038114922612991396,
-    "Reflación/Recesión": 4.7874782394115596e-05
+    "Recuperación": 0.9502660591322424,
+    "Sobrecalentamiento": 0.011623004864553017,
+    "Estanflación": 0.038062946482091374,
+    "Reflación/Recesión": 4.798952111313941e-05
   },
   "phase_scores": [
     {
@@ -139,8 +139,8 @@
       "key": "jobless_claims_yoy",
       "label": "Claims YoY",
       "value": "-7.9%",
-      "pct": 40.6,
-      "pct_eff": 59.4,
+      "pct": 40.8,
+      "pct_eff": 59.2,
       "invert": true,
       "arrow": "→",
       "phase": "neutro",
