@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-27 09:13",
+  "generated_at": "2026-06-28 09:44",
   "data_date": "2026-06-01",
   "phase": "Recuperación",
   "engine": "logístico",
@@ -9,9 +9,9 @@
   "secondary": "Estanflación",
   "probas": {
     "Recuperación": 0.939813621026651,
-    "Sobrecalentamiento": 0.007501698147245461,
-    "Estanflación": 0.05170489287289687,
-    "Reflación/Recesión": 0.000979787953206703
+    "Sobrecalentamiento": 0.007501698147245687,
+    "Estanflación": 0.05170489287289673,
+    "Reflación/Recesión": 0.0009797879532067438
   },
   "phase_scores": [
     {
