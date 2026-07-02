@@ -1,17 +1,17 @@
 {
-  "generated_at": "2026-07-01 10:34",
-  "data_date": "2026-06-01",
+  "generated_at": "2026-07-02 09:45",
+  "data_date": "2026-07-01",
   "phase": "Recuperación",
   "engine": "logístico",
-  "confidence": 85.4,
-  "cv_accuracy": 82.0,
+  "confidence": 80.1,
+  "cv_accuracy": 82.4,
   "n_samples": 255,
   "secondary": "Estanflación",
   "probas": {
-    "Recuperación": 0.8541538453525483,
-    "Sobrecalentamiento": 0.030075084133908376,
-    "Estanflación": 0.11266649604973256,
-    "Reflación/Recesión": 0.0031045744638107855
+    "Recuperación": 0.8005348085430652,
+    "Sobrecalentamiento": 0.031786470709982126,
+    "Estanflación": 0.16323480614165975,
+    "Reflación/Recesión": 0.004443914605292871
   },
   "phase_scores": [
     {
@@ -31,7 +31,7 @@
     },
     {
       "phase": "Reflación/Recesión",
-      "pct": 12.4,
+      "pct": 12.3,
       "delta": null
     }
   ],
@@ -39,9 +39,9 @@
     {
       "key": "yield_curve_10_3",
       "label": "Curva 10Y-3M",
-      "value": "+0.66%",
-      "pct": 35.0,
-      "pct_eff": 35.0,
+      "value": "+0.63%",
+      "pct": 34.9,
+      "pct_eff": 34.9,
       "invert": false,
       "arrow": "↓",
       "phase": "Reflación/Recesión",
@@ -50,9 +50,9 @@
     {
       "key": "yield_curve",
       "label": "Curva 10Y-2Y",
-      "value": "+0.36%",
-      "pct": 29.2,
-      "pct_eff": 29.2,
+      "value": "+0.31%",
+      "pct": 28.2,
+      "pct_eff": 28.2,
       "invert": false,
       "arrow": "↓",
       "phase": "Reflación/Recesión",
@@ -105,9 +105,9 @@
     {
       "key": "inf_exp",
       "label": "Breakeven 5Y",
-      "value": "2.37%",
-      "pct": 80.0,
-      "pct_eff": 80.0,
+      "value": "2.26%",
+      "pct": 72.2,
+      "pct_eff": 72.2,
       "invert": false,
       "arrow": "↑",
       "phase": "Estanflación",
@@ -161,8 +161,8 @@
       "key": "fed_chg",
       "label": "Fed Funds Δ1Y",
       "value": "-0.70%",
-      "pct": 22.9,
-      "pct_eff": 77.1,
+      "pct": 22.8,
+      "pct_eff": 77.2,
       "invert": true,
       "arrow": "↑",
       "phase": "Recuperación",
