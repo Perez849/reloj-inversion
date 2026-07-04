@@ -1,17 +1,17 @@
 {
-  "generated_at": "2026-07-03 09:43",
+  "generated_at": "2026-07-04 09:06",
   "data_date": "2026-07-01",
   "phase": "Recuperación",
   "engine": "logístico",
-  "confidence": 93.6,
+  "confidence": 93.9,
   "cv_accuracy": 83.9,
   "n_samples": 255,
   "secondary": "Estanflación",
   "probas": {
-    "Recuperación": 0.9364059906526966,
-    "Sobrecalentamiento": 0.009800722928242474,
-    "Estanflación": 0.05008059273912518,
-    "Reflación/Recesión": 0.0037126936799358433
+    "Recuperación": 0.9394904424164292,
+    "Sobrecalentamiento": 0.009259154000990007,
+    "Estanflación": 0.04782453135948184,
+    "Reflación/Recesión": 0.0034258722230991567
   },
   "phase_scores": [
     {
@@ -21,7 +21,7 @@
     },
     {
       "phase": "Sobrecalentamiento",
-      "pct": 29.6,
+      "pct": 29.5,
       "delta": null
     },
     {
@@ -116,9 +116,9 @@
     {
       "key": "hy_spread",
       "label": "HY Spread",
-      "value": "2.74%",
-      "pct": 10.8,
-      "pct_eff": 89.2,
+      "value": "2.75%",
+      "pct": 13.5,
+      "pct_eff": 86.5,
       "invert": true,
       "arrow": "↑",
       "phase": "Reflación/Recesión",
@@ -128,8 +128,8 @@
       "key": "ig_spread",
       "label": "IG Spread",
       "value": "0.76%",
-      "pct": 5.4,
-      "pct_eff": 94.6,
+      "pct": 2.7,
+      "pct_eff": 97.3,
       "invert": true,
       "arrow": "↑",
       "phase": "Reflación/Recesión",
