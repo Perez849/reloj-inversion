@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-06 11:13",
+  "generated_at": "2026-07-07 10:07",
   "data_date": "2026-07-01",
   "phase": "Recuperación",
   "engine": "logístico",
@@ -8,10 +8,10 @@
   "n_samples": 255,
   "secondary": "Estanflación",
   "probas": {
-    "Recuperación": 0.9388677291382788,
-    "Sobrecalentamiento": 0.009552751347991849,
-    "Estanflación": 0.04810336847876378,
-    "Reflación/Recesión": 0.003476151034965601
+    "Recuperación": 0.9389784705792327,
+    "Sobrecalentamiento": 0.010366668539514281,
+    "Estanflación": 0.04727771357844135,
+    "Reflación/Recesión": 0.003377147302811676
   },
   "phase_scores": [
     {
@@ -39,7 +39,7 @@
     {
       "key": "yield_curve_10_3",
       "label": "Curva 10Y-3M",
-      "value": "+0.65%",
+      "value": "+0.64%",
       "pct": 34.9,
       "pct_eff": 34.9,
       "invert": false,
@@ -50,7 +50,7 @@
     {
       "key": "yield_curve",
       "label": "Curva 10Y-2Y",
-      "value": "+0.33%",
+      "value": "+0.34%",
       "pct": 28.6,
       "pct_eff": 28.6,
       "invert": false,
@@ -105,9 +105,9 @@
     {
       "key": "inf_exp",
       "label": "Breakeven 5Y",
-      "value": "2.25%",
-      "pct": 71.0,
-      "pct_eff": 71.0,
+      "value": "2.26%",
+      "pct": 72.2,
+      "pct_eff": 72.2,
       "invert": false,
       "arrow": "↑",
       "phase": "Estanflación",
@@ -116,7 +116,7 @@
     {
       "key": "hy_spread",
       "label": "HY Spread",
-      "value": "2.75%",
+      "value": "2.74%",
       "pct": 13.5,
       "pct_eff": 86.5,
       "invert": true,
@@ -127,7 +127,7 @@
     {
       "key": "ig_spread",
       "label": "IG Spread",
-      "value": "0.76%",
+      "value": "0.75%",
       "pct": 2.7,
       "pct_eff": 97.3,
       "invert": true,
