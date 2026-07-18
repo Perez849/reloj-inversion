@@ -1,37 +1,37 @@
 {
-  "generated_at": "2026-07-17 08:37",
+  "generated_at": "2026-07-18 08:22",
   "data_date": "2026-07-01",
   "phase": "Recuperación",
   "engine": "logístico",
-  "confidence": 89.6,
-  "cv_accuracy": 81.6,
+  "confidence": 95.4,
+  "cv_accuracy": 80.0,
   "n_samples": 255,
-  "secondary": "Estanflación",
+  "secondary": "Sobrecalentamiento",
   "probas": {
-    "Recuperación": 0.8956158404771921,
-    "Sobrecalentamiento": 0.0380395840660274,
-    "Estanflación": 0.05920948685236805,
-    "Reflación/Recesión": 0.007135088604412566
+    "Recuperación": 0.9537361113894411,
+    "Sobrecalentamiento": 0.020452341854577786,
+    "Estanflación": 0.02006439221521662,
+    "Reflación/Recesión": 0.005747154540764489
   },
   "phase_scores": [
     {
       "phase": "Recuperación",
-      "pct": 47.0,
+      "pct": 49.1,
       "delta": null
     },
     {
       "phase": "Sobrecalentamiento",
-      "pct": 26.3,
+      "pct": 27.0,
       "delta": null
     },
     {
       "phase": "Estanflación",
-      "pct": 8.3,
+      "pct": 6.8,
       "delta": null
     },
     {
       "phase": "Reflación/Recesión",
-      "pct": 18.3,
+      "pct": 17.2,
       "delta": null
     }
   ],
@@ -149,12 +149,12 @@
     {
       "key": "houst_yoy",
       "label": "Viviendas YoY",
-      "value": "-8.7%",
-      "pct": 22.9,
-      "pct_eff": 22.9,
+      "value": "+3.5%",
+      "pct": 53.5,
+      "pct_eff": 53.5,
       "invert": false,
-      "arrow": "↓",
-      "phase": "Reflación/Recesión",
+      "arrow": "→",
+      "phase": "neutro",
       "explain": "Primer sector en reaccionar a tipos: cayendo ya antes de que el ciclo gire"
     },
     {
@@ -348,7 +348,7 @@
     "phase_coin": "Recuperación",
     "diverge": false
   },
-  "interpretation": "El modelo sitúa el ciclo en fase de Recuperación con una confianza del 44%. Adelantados y coincidentes están parcialmente alineados.",
+  "interpretation": "El modelo sitúa el ciclo en fase de Recuperación con una confianza del 45%. Adelantados y coincidentes están parcialmente alineados.",
   "diag_legend": [
     [
       "hy_spread",
