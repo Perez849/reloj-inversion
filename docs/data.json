@@ -1,17 +1,17 @@
 {
-  "generated_at": "2026-07-23 09:10",
+  "generated_at": "2026-07-24 09:05",
   "data_date": "2026-07-01",
   "phase": "Recuperación",
   "engine": "logístico",
-  "confidence": 94.8,
+  "confidence": 94.7,
   "cv_accuracy": 80.0,
   "n_samples": 255,
   "secondary": "Estanflación",
   "probas": {
-    "Recuperación": 0.94837624344595,
-    "Sobrecalentamiento": 0.02181964729489525,
-    "Estanflación": 0.023043565826514224,
-    "Reflación/Recesión": 0.006760543432640541
+    "Recuperación": 0.9467529223075608,
+    "Sobrecalentamiento": 0.02245918700915476,
+    "Estanflación": 0.023897432256317852,
+    "Reflación/Recesión": 0.0068904584269666525
   },
   "phase_scores": [
     {
@@ -21,17 +21,17 @@
     },
     {
       "phase": "Sobrecalentamiento",
-      "pct": 27.0,
+      "pct": 28.4,
       "delta": null
     },
     {
       "phase": "Estanflación",
-      "pct": 6.8,
+      "pct": 6.4,
       "delta": null
     },
     {
       "phase": "Reflación/Recesión",
-      "pct": 17.2,
+      "pct": 16.1,
       "delta": null
     }
   ],
@@ -61,7 +61,7 @@
     {
       "key": "proxy_pmi",
       "label": "Proxy PMI (z)",
-      "value": "+1.13σ",
+      "value": "+1.21σ",
       "pct": 79.9,
       "pct_eff": 79.9,
       "invert": false,
@@ -117,8 +117,8 @@
       "key": "hy_spread",
       "label": "HY Spread",
       "value": "2.71%",
-      "pct": 5.4,
-      "pct_eff": 94.6,
+      "pct": 2.7,
+      "pct_eff": 97.3,
       "invert": true,
       "arrow": "↑",
       "phase": "Reflación/Recesión",
@@ -138,9 +138,9 @@
     {
       "key": "jobless_claims_yoy",
       "label": "Claims YoY",
-      "value": "-4.7%",
-      "pct": 54.1,
-      "pct_eff": 45.9,
+      "value": "-6.0%",
+      "pct": 51.5,
+      "pct_eff": 48.5,
       "invert": true,
       "arrow": "→",
       "phase": "neutro",
@@ -348,7 +348,7 @@
     "phase_coin": "Recuperación",
     "diverge": false
   },
-  "interpretation": "El modelo sitúa el ciclo en fase de Recuperación con una confianza del 45%. Adelantados y coincidentes están parcialmente alineados.",
+  "interpretation": "El modelo sitúa el ciclo en fase de Recuperación con una confianza del 42%. Adelantados y coincidentes están parcialmente alineados.",
   "diag_legend": [
     [
       "hy_spread",
