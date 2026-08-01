@@ -1,37 +1,37 @@
 {
-  "generated_at": "2026-07-31 09:25",
+  "generated_at": "2026-08-01 08:41",
   "data_date": "2026-07-01",
   "phase": "Recuperación",
   "engine": "logístico",
-  "confidence": 91.7,
-  "cv_accuracy": 80.8,
+  "confidence": 92.6,
+  "cv_accuracy": 81.2,
   "n_samples": 255,
   "secondary": "Estanflación",
   "probas": {
-    "Recuperación": 0.917014947892801,
-    "Sobrecalentamiento": 0.021689979873310797,
-    "Estanflación": 0.055277916834323364,
-    "Reflación/Recesión": 0.0060171553995649685
+    "Recuperación": 0.9259293091992373,
+    "Sobrecalentamiento": 0.011912320617129652,
+    "Estanflación": 0.056750344090299276,
+    "Reflación/Recesión": 0.005408026093333819
   },
   "phase_scores": [
     {
       "phase": "Recuperación",
-      "pct": 55.4,
+      "pct": 54.1,
       "delta": null
     },
     {
       "phase": "Sobrecalentamiento",
-      "pct": 29.5,
+      "pct": 28.8,
       "delta": null
     },
     {
       "phase": "Estanflación",
-      "pct": 3.8,
+      "pct": 5.0,
       "delta": null
     },
     {
       "phase": "Reflación/Recesión",
-      "pct": 11.2,
+      "pct": 12.2,
       "delta": null
     }
   ],
@@ -39,7 +39,7 @@
     {
       "key": "yield_curve_10_3",
       "label": "Curva 10Y-3M",
-      "value": "+0.72%",
+      "value": "+0.73%",
       "pct": 35.4,
       "pct_eff": 35.4,
       "invert": false,
@@ -50,7 +50,7 @@
     {
       "key": "yield_curve",
       "label": "Curva 10Y-2Y",
-      "value": "+0.37%",
+      "value": "+0.38%",
       "pct": 29.6,
       "pct_eff": 29.6,
       "invert": false,
@@ -116,9 +116,9 @@
     {
       "key": "hy_spread",
       "label": "HY Spread",
-      "value": "2.73%",
-      "pct": 10.8,
-      "pct_eff": 89.2,
+      "value": "2.74%",
+      "pct": 11.1,
+      "pct_eff": 88.9,
       "invert": true,
       "arrow": "↑",
       "phase": "Reflación/Recesión",
@@ -128,8 +128,8 @@
       "key": "ig_spread",
       "label": "IG Spread",
       "value": "0.78%",
-      "pct": 13.5,
-      "pct_eff": 86.5,
+      "pct": 13.9,
+      "pct_eff": 86.1,
       "invert": true,
       "arrow": "↑",
       "phase": "Reflación/Recesión",
@@ -342,13 +342,13 @@
     }
   ],
   "dual": {
-    "signal": "DÉBILMENTE ALINEADOS",
-    "signal_detail": "Misma fase pero con intensidades distintas",
+    "signal": "ALINEADOS",
+    "signal_detail": "Ambos confirman Recuperación",
     "phase_lead": "Recuperación",
     "phase_coin": "Recuperación",
     "diverge": false
   },
-  "interpretation": "El modelo sitúa el ciclo en fase de Recuperación con una confianza del 47%. Adelantados y coincidentes están parcialmente alineados.",
+  "interpretation": "El modelo sitúa el ciclo en fase de Recuperación con una confianza del 47%. Adelantados y coincidentes están alineados.",
   "diag_legend": [
     [
       "hy_spread",
