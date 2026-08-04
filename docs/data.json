@@ -1,37 +1,37 @@
 {
-  "generated_at": "2026-08-03 10:25",
-  "data_date": "2026-07-01",
+  "generated_at": "2026-08-04 09:22",
+  "data_date": "2026-08-01",
   "phase": "Recuperación",
   "engine": "logístico",
-  "confidence": 92.6,
-  "cv_accuracy": 81.2,
+  "confidence": 92.0,
+  "cv_accuracy": 82.0,
   "n_samples": 255,
   "secondary": "Estanflación",
   "probas": {
-    "Recuperación": 0.9260413582198667,
-    "Sobrecalentamiento": 0.01186560221137386,
-    "Estanflación": 0.056675283507751154,
-    "Reflación/Recesión": 0.005417756061008432
+    "Recuperación": 0.9195352819784609,
+    "Sobrecalentamiento": 0.00930147615719214,
+    "Estanflación": 0.0646839091520419,
+    "Reflación/Recesión": 0.006479332712305024
   },
   "phase_scores": [
     {
       "phase": "Recuperación",
-      "pct": 54.1,
+      "pct": 54.0,
       "delta": null
     },
     {
       "phase": "Sobrecalentamiento",
-      "pct": 28.8,
+      "pct": 27.8,
       "delta": null
     },
     {
       "phase": "Estanflación",
-      "pct": 5.0,
+      "pct": 4.8,
       "delta": null
     },
     {
       "phase": "Reflación/Recesión",
-      "pct": 12.2,
+      "pct": 13.4,
       "delta": null
     }
   ],
@@ -39,9 +39,9 @@
     {
       "key": "yield_curve_10_3",
       "label": "Curva 10Y-3M",
-      "value": "+0.73%",
-      "pct": 35.4,
-      "pct_eff": 35.4,
+      "value": "+0.79%",
+      "pct": 36.5,
+      "pct_eff": 36.5,
       "invert": false,
       "arrow": "↓",
       "phase": "Reflación/Recesión",
@@ -50,9 +50,9 @@
     {
       "key": "yield_curve",
       "label": "Curva 10Y-2Y",
-      "value": "+0.38%",
-      "pct": 29.6,
-      "pct_eff": 29.6,
+      "value": "+0.45%",
+      "pct": 31.1,
+      "pct_eff": 31.1,
       "invert": false,
       "arrow": "↓",
       "phase": "Reflación/Recesión",
@@ -105,9 +105,9 @@
     {
       "key": "inf_exp",
       "label": "Breakeven 5Y",
-      "value": "2.26%",
-      "pct": 72.5,
-      "pct_eff": 72.5,
+      "value": "2.23%",
+      "pct": 68.5,
+      "pct_eff": 68.5,
       "invert": false,
       "arrow": "↑",
       "phase": "Estanflación",
@@ -161,8 +161,8 @@
       "key": "fed_chg",
       "label": "Fed Funds Δ1Y",
       "value": "-0.70%",
-      "pct": 22.9,
-      "pct_eff": 77.1,
+      "pct": 22.8,
+      "pct_eff": 77.2,
       "invert": true,
       "arrow": "↑",
       "phase": "Recuperación",
@@ -342,13 +342,13 @@
     }
   ],
   "dual": {
-    "signal": "ALINEADOS",
-    "signal_detail": "Ambos confirman Recuperación",
+    "signal": "DÉBILMENTE ALINEADOS",
+    "signal_detail": "Misma fase pero con intensidades distintas",
     "phase_lead": "Recuperación",
     "phase_coin": "Recuperación",
     "diverge": false
   },
-  "interpretation": "El modelo sitúa el ciclo en fase de Recuperación con una confianza del 47%. Adelantados y coincidentes están alineados.",
+  "interpretation": "El modelo sitúa el ciclo en fase de Recuperación con una confianza del 49%. Adelantados y coincidentes están parcialmente alineados.",
   "diag_legend": [
     [
       "hy_spread",
