@@ -1,22 +1,22 @@
 {
-  "generated_at": "2026-08-06 09:24",
+  "generated_at": "2026-08-07 07:53",
   "data_date": "2026-08-01",
   "phase": "Recuperación",
   "engine": "logístico",
-  "confidence": 96.8,
-  "cv_accuracy": 82.4,
+  "confidence": 97.3,
+  "cv_accuracy": 81.6,
   "n_samples": 255,
   "secondary": "Estanflación",
   "probas": {
-    "Recuperación": 0.9683466630629863,
-    "Sobrecalentamiento": 0.006499541638208006,
-    "Estanflación": 0.023100672153105583,
-    "Reflación/Recesión": 0.0020531231457000328
+    "Recuperación": 0.9733686724447852,
+    "Sobrecalentamiento": 0.005811349700676386,
+    "Estanflación": 0.019042228359176613,
+    "Reflación/Recesión": 0.0017777494953618892
   },
   "phase_scores": [
     {
       "phase": "Recuperación",
-      "pct": 56.7,
+      "pct": 62.1,
       "delta": null
     },
     {
@@ -26,12 +26,12 @@
     },
     {
       "phase": "Estanflación",
-      "pct": 3.0,
+      "pct": 1.2,
       "delta": null
     },
     {
       "phase": "Reflación/Recesión",
-      "pct": 11.3,
+      "pct": 7.7,
       "delta": null
     }
   ],
@@ -39,7 +39,7 @@
     {
       "key": "yield_curve_10_3",
       "label": "Curva 10Y-3M",
-      "value": "+0.76%",
+      "value": "+0.77%",
       "pct": 36.1,
       "pct_eff": 36.1,
       "invert": false,
@@ -61,7 +61,7 @@
     {
       "key": "proxy_pmi",
       "label": "Proxy PMI (z)",
-      "value": "+1.31σ",
+      "value": "+1.60σ",
       "pct": 80.3,
       "pct_eff": 80.3,
       "invert": false,
@@ -105,9 +105,9 @@
     {
       "key": "inf_exp",
       "label": "Breakeven 5Y",
-      "value": "2.20%",
-      "pct": 66.0,
-      "pct_eff": 66.0,
+      "value": "2.21%",
+      "pct": 66.4,
+      "pct_eff": 66.4,
       "invert": false,
       "arrow": "↑",
       "phase": "Estanflación",
@@ -138,12 +138,12 @@
     {
       "key": "jobless_claims_yoy",
       "label": "Claims YoY",
-      "value": "-7.1%",
-      "pct": 43.9,
-      "pct_eff": 56.1,
+      "value": "-11.8%",
+      "pct": 24.9,
+      "pct_eff": 75.1,
       "invert": true,
-      "arrow": "→",
-      "phase": "neutro",
+      "arrow": "↑",
+      "phase": "Reflación/Recesión",
       "explain": "Subiendo = deterioro laboral inminente; adelanta 3-6 semanas a la tasa de paro"
     },
     {
@@ -348,7 +348,7 @@
     "phase_coin": "Recuperación",
     "diverge": false
   },
-  "interpretation": "El modelo sitúa el ciclo en fase de Recuperación con una confianza del 49%. Adelantados y coincidentes están parcialmente alineados.",
+  "interpretation": "El modelo sitúa el ciclo en fase de Recuperación con una confianza del 53%. Adelantados y coincidentes están parcialmente alineados.",
   "diag_legend": [
     [
       "hy_spread",
