@@ -1,37 +1,37 @@
 {
-  "generated_at": "2026-08-07 07:53",
+  "generated_at": "2026-08-08 07:31",
   "data_date": "2026-08-01",
   "phase": "Recuperación",
   "engine": "logístico",
-  "confidence": 97.3,
-  "cv_accuracy": 81.6,
+  "confidence": 96.9,
+  "cv_accuracy": 83.9,
   "n_samples": 255,
   "secondary": "Estanflación",
   "probas": {
-    "Recuperación": 0.9733686724447852,
-    "Sobrecalentamiento": 0.005811349700676386,
-    "Estanflación": 0.019042228359176613,
-    "Reflación/Recesión": 0.0017777494953618892
+    "Recuperación": 0.969031528787937,
+    "Sobrecalentamiento": 0.004696110000055564,
+    "Estanflación": 0.024986512990181328,
+    "Reflación/Recesión": 0.0012858482218259689
   },
   "phase_scores": [
     {
       "phase": "Recuperación",
-      "pct": 62.1,
+      "pct": 59.6,
       "delta": null
     },
     {
       "phase": "Sobrecalentamiento",
-      "pct": 29.0,
+      "pct": 28.1,
       "delta": null
     },
     {
       "phase": "Estanflación",
-      "pct": 1.2,
+      "pct": 1.1,
       "delta": null
     },
     {
       "phase": "Reflación/Recesión",
-      "pct": 7.7,
+      "pct": 11.2,
       "delta": null
     }
   ],
@@ -50,7 +50,7 @@
     {
       "key": "yield_curve",
       "label": "Curva 10Y-2Y",
-      "value": "+0.44%",
+      "value": "+0.45%",
       "pct": 31.1,
       "pct_eff": 31.1,
       "invert": false,
@@ -61,9 +61,9 @@
     {
       "key": "proxy_pmi",
       "label": "Proxy PMI (z)",
-      "value": "+1.60σ",
-      "pct": 80.3,
-      "pct_eff": 80.3,
+      "value": "+1.63σ",
+      "pct": 80.8,
+      "pct_eff": 80.8,
       "invert": false,
       "arrow": "↑",
       "phase": "Recuperación",
@@ -73,8 +73,8 @@
       "key": "awhman_yoy",
       "label": "Horas Mfg YoY",
       "value": "+1.5%",
-      "pct": 89.0,
-      "pct_eff": 89.0,
+      "pct": 88.6,
+      "pct_eff": 88.6,
       "invert": false,
       "arrow": "↑",
       "phase": "Recuperación",
@@ -106,8 +106,8 @@
       "key": "inf_exp",
       "label": "Breakeven 5Y",
       "value": "2.21%",
-      "pct": 66.4,
-      "pct_eff": 66.4,
+      "pct": 66.8,
+      "pct_eff": 66.8,
       "invert": false,
       "arrow": "↑",
       "phase": "Estanflación",
@@ -116,9 +116,9 @@
     {
       "key": "hy_spread",
       "label": "HY Spread",
-      "value": "2.75%",
-      "pct": 16.2,
-      "pct_eff": 83.8,
+      "value": "2.74%",
+      "pct": 13.5,
+      "pct_eff": 86.5,
       "invert": true,
       "arrow": "↑",
       "phase": "Reflación/Recesión",
