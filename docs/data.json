@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-11 07:47",
+  "generated_at": "2026-08-12 08:02",
   "data_date": "2026-08-01",
   "phase": "Recuperación",
   "engine": "logístico",
@@ -8,10 +8,10 @@
   "n_samples": 255,
   "secondary": "Estanflación",
   "probas": {
-    "Recuperación": 0.9694172203441018,
-    "Sobrecalentamiento": 0.004745279290384173,
-    "Estanflación": 0.02456879816975521,
-    "Reflación/Recesión": 0.0012687021957587304
+    "Recuperación": 0.9692299360104586,
+    "Sobrecalentamiento": 0.004917150927588259,
+    "Estanflación": 0.024561126211471027,
+    "Reflación/Recesión": 0.0012917868504819712
   },
   "phase_scores": [
     {
@@ -31,7 +31,7 @@
     },
     {
       "phase": "Reflación/Recesión",
-      "pct": 11.2,
+      "pct": 11.1,
       "delta": null
     }
   ],
@@ -40,8 +40,8 @@
       "key": "yield_curve_10_3",
       "label": "Curva 10Y-3M",
       "value": "+0.78%",
-      "pct": 36.1,
-      "pct_eff": 36.1,
+      "pct": 36.5,
+      "pct_eff": 36.5,
       "invert": false,
       "arrow": "↓",
       "phase": "Reflación/Recesión",
@@ -117,8 +117,8 @@
       "key": "hy_spread",
       "label": "HY Spread",
       "value": "2.73%",
-      "pct": 10.8,
-      "pct_eff": 89.2,
+      "pct": 8.1,
+      "pct_eff": 91.9,
       "invert": true,
       "arrow": "↑",
       "phase": "Reflación/Recesión",
