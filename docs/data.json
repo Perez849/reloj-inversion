@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-13 08:02",
+  "generated_at": "2026-08-14 07:58",
   "data_date": "2026-08-01",
   "phase": "Recuperación",
   "engine": "logístico",
@@ -8,10 +8,10 @@
   "n_samples": 255,
   "secondary": "Estanflación",
   "probas": {
-    "Recuperación": 0.880193831924568,
-    "Sobrecalentamiento": 0.026911332712173566,
-    "Estanflación": 0.09017998096912594,
-    "Reflación/Recesión": 0.002714854394132359
+    "Recuperación": 0.8800999537179576,
+    "Sobrecalentamiento": 0.027213625881994736,
+    "Estanflación": 0.08995475651771269,
+    "Reflación/Recesión": 0.0027316638823348077
   },
   "phase_scores": [
     {
@@ -39,7 +39,7 @@
     {
       "key": "yield_curve_10_3",
       "label": "Curva 10Y-3M",
-      "value": "+0.79%",
+      "value": "+0.78%",
       "pct": 36.5,
       "pct_eff": 36.5,
       "invert": false,
@@ -61,7 +61,7 @@
     {
       "key": "proxy_pmi",
       "label": "Proxy PMI (z)",
-      "value": "+1.63σ",
+      "value": "+1.62σ",
       "pct": 80.8,
       "pct_eff": 80.8,
       "invert": false,
@@ -138,9 +138,9 @@
     {
       "key": "jobless_claims_yoy",
       "label": "Claims YoY",
-      "value": "-11.8%",
-      "pct": 24.9,
-      "pct_eff": 75.1,
+      "value": "-11.7%",
+      "pct": 25.3,
+      "pct_eff": 74.7,
       "invert": true,
       "arrow": "↑",
       "phase": "Reflación/Recesión",
