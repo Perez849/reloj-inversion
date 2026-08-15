@@ -1,27 +1,27 @@
 {
-  "generated_at": "2026-08-14 07:58",
+  "generated_at": "2026-08-15 07:08",
   "data_date": "2026-08-01",
   "phase": "Recuperación",
   "engine": "logístico",
-  "confidence": 88.0,
-  "cv_accuracy": 81.6,
+  "confidence": 92.6,
+  "cv_accuracy": 81.2,
   "n_samples": 255,
   "secondary": "Estanflación",
   "probas": {
-    "Recuperación": 0.8800999537179576,
-    "Sobrecalentamiento": 0.027213625881994736,
-    "Estanflación": 0.08995475651771269,
-    "Reflación/Recesión": 0.0027316638823348077
+    "Recuperación": 0.9262322871923179,
+    "Sobrecalentamiento": 0.014953976051312632,
+    "Estanflación": 0.05636574558244478,
+    "Reflación/Recesión": 0.0024479911739247583
   },
   "phase_scores": [
     {
       "phase": "Recuperación",
-      "pct": 60.3,
+      "pct": 61.7,
       "delta": null
     },
     {
       "phase": "Sobrecalentamiento",
-      "pct": 27.2,
+      "pct": 25.3,
       "delta": null
     },
     {
@@ -31,7 +31,7 @@
     },
     {
       "phase": "Reflación/Recesión",
-      "pct": 11.4,
+      "pct": 11.8,
       "delta": null
     }
   ],
@@ -39,7 +39,7 @@
     {
       "key": "yield_curve_10_3",
       "label": "Curva 10Y-3M",
-      "value": "+0.78%",
+      "value": "+0.79%",
       "pct": 36.5,
       "pct_eff": 36.5,
       "invert": false,
@@ -50,7 +50,7 @@
     {
       "key": "yield_curve",
       "label": "Curva 10Y-2Y",
-      "value": "+0.46%",
+      "value": "+0.47%",
       "pct": 31.1,
       "pct_eff": 31.1,
       "invert": false,
@@ -116,7 +116,7 @@
     {
       "key": "hy_spread",
       "label": "HY Spread",
-      "value": "2.73%",
+      "value": "2.72%",
       "pct": 8.1,
       "pct_eff": 91.9,
       "invert": true,
@@ -348,7 +348,7 @@
     "phase_coin": "Recuperación",
     "diverge": false
   },
-  "interpretation": "El modelo sitúa el ciclo en fase de Recuperación con una confianza del 55%. Adelantados y coincidentes están parcialmente alineados.",
+  "interpretation": "El modelo sitúa el ciclo en fase de Recuperación con una confianza del 59%. Adelantados y coincidentes están parcialmente alineados.",
   "diag_legend": [
     [
       "hy_spread",
