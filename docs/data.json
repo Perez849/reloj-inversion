@@ -1,37 +1,37 @@
 {
-  "generated_at": "2026-08-18 07:21",
+  "generated_at": "2026-08-19 07:21",
   "data_date": "2026-08-01",
   "phase": "Recuperación",
   "engine": "logístico",
-  "confidence": 92.5,
-  "cv_accuracy": 81.2,
+  "confidence": 91.0,
+  "cv_accuracy": 80.4,
   "n_samples": 255,
   "secondary": "Estanflación",
   "probas": {
-    "Recuperación": 0.9253460997819312,
-    "Sobrecalentamiento": 0.015182564644604853,
-    "Estanflación": 0.05700519716923644,
-    "Reflación/Recesión": 0.002466138404227341
+    "Recuperación": 0.9099262510241881,
+    "Sobrecalentamiento": 0.013764296982654075,
+    "Estanflación": 0.07238205266443035,
+    "Reflación/Recesión": 0.003927399328727237
   },
   "phase_scores": [
     {
       "phase": "Recuperación",
-      "pct": 61.6,
+      "pct": 60.3,
       "delta": null
     },
     {
       "phase": "Sobrecalentamiento",
-      "pct": 25.4,
+      "pct": 24.7,
       "delta": null
     },
     {
       "phase": "Estanflación",
-      "pct": 1.1,
+      "pct": 2.8,
       "delta": null
     },
     {
       "phase": "Reflación/Recesión",
-      "pct": 11.8,
+      "pct": 12.2,
       "delta": null
     }
   ],
@@ -39,9 +39,9 @@
     {
       "key": "yield_curve_10_3",
       "label": "Curva 10Y-3M",
-      "value": "+0.79%",
-      "pct": 36.5,
-      "pct_eff": 36.5,
+      "value": "+0.80%",
+      "pct": 36.9,
+      "pct_eff": 36.9,
       "invert": false,
       "arrow": "↓",
       "phase": "Reflación/Recesión",
@@ -50,7 +50,7 @@
     {
       "key": "yield_curve",
       "label": "Curva 10Y-2Y",
-      "value": "+0.47%",
+      "value": "+0.48%",
       "pct": 31.5,
       "pct_eff": 31.5,
       "invert": false,
@@ -105,9 +105,9 @@
     {
       "key": "inf_exp",
       "label": "Breakeven 5Y",
-      "value": "2.22%",
-      "pct": 67.6,
-      "pct_eff": 67.6,
+      "value": "2.23%",
+      "pct": 68.5,
+      "pct_eff": 68.5,
       "invert": false,
       "arrow": "↑",
       "phase": "Estanflación",
@@ -128,8 +128,8 @@
       "key": "ig_spread",
       "label": "IG Spread",
       "value": "0.79%",
-      "pct": 16.2,
-      "pct_eff": 83.8,
+      "pct": 21.6,
+      "pct_eff": 78.4,
       "invert": true,
       "arrow": "↑",
       "phase": "Reflación/Recesión",
@@ -149,12 +149,12 @@
     {
       "key": "houst_yoy",
       "label": "Viviendas YoY",
-      "value": "+3.5%",
-      "pct": 53.3,
-      "pct_eff": 53.3,
+      "value": "-13.5%",
+      "pct": 18.0,
+      "pct_eff": 18.0,
       "invert": false,
-      "arrow": "→",
-      "phase": "neutro",
+      "arrow": "↓",
+      "phase": "Reflación/Recesión",
       "explain": "Primer sector en reaccionar a tipos: cayendo ya antes de que el ciclo gire"
     },
     {
