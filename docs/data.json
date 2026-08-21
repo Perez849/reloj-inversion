@@ -1,17 +1,17 @@
 {
-  "generated_at": "2026-08-20 07:24",
+  "generated_at": "2026-08-21 07:25",
   "data_date": "2026-08-01",
   "phase": "Recuperación",
   "engine": "logístico",
-  "confidence": 90.7,
+  "confidence": 90.6,
   "cv_accuracy": 80.4,
   "n_samples": 255,
   "secondary": "Estanflación",
   "probas": {
-    "Recuperación": 0.9072115741223352,
-    "Sobrecalentamiento": 0.014149430960263101,
-    "Estanflación": 0.07462451670160147,
-    "Reflación/Recesión": 0.004014478215799981
+    "Recuperación": 0.9064980566194241,
+    "Sobrecalentamiento": 0.01462000130766225,
+    "Estanflación": 0.07485474977965419,
+    "Reflación/Recesión": 0.004027192293259523
   },
   "phase_scores": [
     {
@@ -31,7 +31,7 @@
     },
     {
       "phase": "Reflación/Recesión",
-      "pct": 12.2,
+      "pct": 12.3,
       "delta": null
     }
   ],
@@ -40,8 +40,8 @@
       "key": "yield_curve_10_3",
       "label": "Curva 10Y-3M",
       "value": "+0.80%",
-      "pct": 36.9,
-      "pct_eff": 36.9,
+      "pct": 37.3,
+      "pct_eff": 37.3,
       "invert": false,
       "arrow": "↓",
       "phase": "Reflación/Recesión",
@@ -50,9 +50,9 @@
     {
       "key": "yield_curve",
       "label": "Curva 10Y-2Y",
-      "value": "+0.47%",
-      "pct": 31.5,
-      "pct_eff": 31.5,
+      "value": "+0.48%",
+      "pct": 32.0,
+      "pct_eff": 32.0,
       "invert": false,
       "arrow": "↓",
       "phase": "Reflación/Recesión",
@@ -61,7 +61,7 @@
     {
       "key": "proxy_pmi",
       "label": "Proxy PMI (z)",
-      "value": "+1.62σ",
+      "value": "+1.57σ",
       "pct": 80.8,
       "pct_eff": 80.8,
       "invert": false,
@@ -105,9 +105,9 @@
     {
       "key": "inf_exp",
       "label": "Breakeven 5Y",
-      "value": "2.23%",
-      "pct": 68.9,
-      "pct_eff": 68.9,
+      "value": "2.24%",
+      "pct": 70.1,
+      "pct_eff": 70.1,
       "invert": false,
       "arrow": "↑",
       "phase": "Estanflación",
@@ -138,9 +138,9 @@
     {
       "key": "jobless_claims_yoy",
       "label": "Claims YoY",
-      "value": "-11.7%",
-      "pct": 25.3,
-      "pct_eff": 74.7,
+      "value": "-10.8%",
+      "pct": 27.1,
+      "pct_eff": 72.9,
       "invert": true,
       "arrow": "↑",
       "phase": "Reflación/Recesión",
