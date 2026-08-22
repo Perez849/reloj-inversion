@@ -1,17 +1,17 @@
 {
-  "generated_at": "2026-08-21 07:25",
+  "generated_at": "2026-08-22 07:10",
   "data_date": "2026-08-01",
   "phase": "Recuperación",
   "engine": "logístico",
-  "confidence": 90.6,
+  "confidence": 90.3,
   "cv_accuracy": 80.4,
   "n_samples": 255,
   "secondary": "Estanflación",
   "probas": {
-    "Recuperación": 0.9064980566194241,
-    "Sobrecalentamiento": 0.01462000130766225,
-    "Estanflación": 0.07485474977965419,
-    "Reflación/Recesión": 0.004027192293259523
+    "Recuperación": 0.9033993429072043,
+    "Sobrecalentamiento": 0.014967567961273359,
+    "Estanflación": 0.07752035117372535,
+    "Reflación/Recesión": 0.004112737957797164
   },
   "phase_scores": [
     {
@@ -21,7 +21,7 @@
     },
     {
       "phase": "Sobrecalentamiento",
-      "pct": 24.7,
+      "pct": 24.6,
       "delta": null
     },
     {
@@ -105,9 +105,9 @@
     {
       "key": "inf_exp",
       "label": "Breakeven 5Y",
-      "value": "2.24%",
-      "pct": 70.1,
-      "pct_eff": 70.1,
+      "value": "2.25%",
+      "pct": 70.5,
+      "pct_eff": 70.5,
       "invert": false,
       "arrow": "↑",
       "phase": "Estanflación",
@@ -117,8 +117,8 @@
       "key": "hy_spread",
       "label": "HY Spread",
       "value": "2.72%",
-      "pct": 5.4,
-      "pct_eff": 94.6,
+      "pct": 8.1,
+      "pct_eff": 91.9,
       "invert": true,
       "arrow": "↑",
       "phase": "Reflación/Recesión",
@@ -139,8 +139,8 @@
       "key": "jobless_claims_yoy",
       "label": "Claims YoY",
       "value": "-10.8%",
-      "pct": 27.1,
-      "pct_eff": 72.9,
+      "pct": 27.2,
+      "pct_eff": 72.8,
       "invert": true,
       "arrow": "↑",
       "phase": "Reflación/Recesión",
