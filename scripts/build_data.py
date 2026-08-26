@@ -35,11 +35,16 @@ import requests
 
 OUT_PATH = os.environ.get("OUT_PATH", "docs/data/data.json")
 START = "1959-01-01"
-HTTP_TIMEOUT = 60
-RETRIES = 4
+HTTP_TIMEOUT = 20
+RETRIES = 3
 HORIZON_M = 3
 MIN_MONTHS = 60
+# Presupuesto de tiempo para fuentes opcionales. Stooq bloquea las IP de los
+# runners de GitHub dejando la conexión abierta en vez de rechazarla: sin este
+# tope, la ejecución se queda colgada hasta que el job expira.
+OPTIONAL_BUDGET_S = 180
 
+T_START = time.time()
 WARNINGS: list[str] = []
 ASSET_LOG: list[dict] = []
 
@@ -444,7 +449,7 @@ def stooq_monthly(ticker: str):
     last = "sin respuesta"
     for interval, needs_resample in (("m", False), ("d", True)):
         r = http_get(f"https://stooq.com/q/d/l/?s={ticker}&i={interval}",
-                     tries=2, expect="Date")
+                     tries=1, expect="Date")
         if isinstance(r, tuple):
             last = r[1]
             continue
@@ -549,6 +554,10 @@ def fetch_assets(df: pd.DataFrame):
             "FRED / TB3MS")
 
     for tick, (lab, cls) in STOOQ.items():
+        if time.time() - T_START > OPTIONAL_BUDGET_S:
+            add(lab, None, cls, f"Stooq / {tick}",
+                err="omitido: presupuesto de tiempo agotado")
+            continue
         s, e = stooq_monthly(tick)
         add(lab, s, cls, f"Stooq / {tick}", err=e if s is None else None)
 
