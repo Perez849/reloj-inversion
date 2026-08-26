@@ -18,7 +18,8 @@ const PHASE_HINT = {
 const BLOCK_TITLE = {
   growth: "Crecimiento (coincidente)",
   inflation: "Inflación",
-  leading: "Condiciones adelantadas",
+  leading: "Condiciones financieras",
+  standalone: "Aparte del PCA",
 };
 const MONTHS = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
 
@@ -91,9 +92,11 @@ function render() {
   renderIndicators();
   renderTimeline();
   renderMatrix();
+  renderRobustness();
   renderConsensus();
   renderBacktest();
   renderValidation();
+  renderDiagnostics();
   renderMethod();
   renderFooter();
   wireControls();
@@ -341,7 +344,7 @@ function planeHover(ev, S) {
 function renderIndicators() {
   const host = $("#indicators");
   host.innerHTML = "";
-  for (const block of ["growth", "inflation", "leading"]) {
+  for (const block of ["growth", "inflation", "leading", "standalone"]) {
     const rows = D.indicators.filter(i => i.block === block);
     if (!rows.length) continue;
     rows.sort((a, b) => Math.abs(b.z) - Math.abs(a.z));
@@ -351,7 +354,7 @@ function renderIndicators() {
     box.innerHTML = `
       <header>
         <h3>${BLOCK_TITLE[block]}</h3>
-        <div class="pc">${rows.length} series${pc ? `<br>1er componente: ${fmtPct(pc.explained_var, 0)} de la varianza` : ""}</div>
+        <div class="pc">${rows.length} series${pc ? `<br>1er componente: ${fmtPct(pc.explained_var, 0)} de la varianza` : "<br>no entran en ningún factor"}</div>
       </header>
       ${rows.map(indRow).join("")}`;
     host.appendChild(box);
@@ -521,7 +524,7 @@ function drawMatrix() {
         const txtCol = d.rel >= 0 ? "var(--pos)" : "var(--neg)";
         body += `<td class="cell ${p === cur ? "active" : ""} ${sig ? "" : "dim"}"
             style="background:${col}"
-            title="anualizado ${fmtNum(d.ann, 1)}% · exceso ${signed(d.rel, 1)} pp · t=${fmtNum(d.t, 2)}${d.q != null ? ` · q=${fmtNum(d.q, 2)}` : ""} · ${d.n} meses · aciertos ${fmtPct(d.hit, 0)}">
+            title="anualizado ${fmtNum(d.ann, 1)}% · exceso ${signed(d.rel, 1)} pp${d.rel_shrunk != null ? ` (contraído ${signed(d.rel_shrunk, 1)})` : ""} · t=${fmtNum(d.t, 2)}${d.q != null ? ` · q=${fmtNum(d.q, 3)}` : ""} · ${d.n} meses · aciertos ${fmtPct(d.hit, 0)}">
             <span class="g" style="color:${sig ? txtCol : "var(--muted-2)"}">${d.grade}</span>
             <span class="r">${signed(d.rel, 1)}</span></td>`;
       }
@@ -572,22 +575,108 @@ function renderConsensus() {
     </div>`;
 }
 
+
+/* ------------------------ robustez de las notas ------------------------- */
+function renderRobustness() {
+  const st = D.asset_stats || {};
+  const cur = D.current.phase;
+  const strong = D.assets
+    .map(a => ({ a, d: a.phases[cur] || {} }))
+    .filter(x => x.d.q != null && x.d.q <= 0.10)
+    .sort((x, y) => (y.d.rel ?? 0) - (x.d.rel ?? 0));
+  const share = st.cells ? st.fdr_survivors / st.cells : 0;
+  const ok = share >= 0.08 && strong.length > 0;
+
+  $("#robustBlock").innerHTML = `
+    <div class="block-head">
+      <span class="eyebrow">Lo que aguanta</span>
+      <h2>Qué comprar, según lo que resiste el contraste</h2>
+      <p class="cap">De ${st.cells ?? "—"} casillas contrastadas, <b>${st.graded ?? "—"}</b> tienen nota
+        y <b>${st.fdr_survivors ?? "—"}</b> sobreviven al control de falsos descubrimientos.
+        Con cientos de pruebas simultáneas, unas cuantas "señales" salen por azar: solo estas últimas
+        son defendibles.</p>
+    </div>
+    ${ok ? `
+      <div class="cons-grid">
+        ${strong.slice(0, 8).map(x => `
+          <div class="cons-card" style="border-color:${x.d.rel >= 0 ? "var(--recuperacion)" : "var(--estanflacion)"}">
+            <span class="cls">${x.a.class}</span>
+            <h4>${x.a.name}</h4>
+            <div class="pair">
+              <div><span>exceso</span><br>${signed(x.d.rel, 1)} pp${
+                x.d.rel_shrunk != null ? ` <span style="color:var(--muted-2)">(${signed(x.d.rel_shrunk, 1)} tras contraer)</span>` : ""}</div>
+              <div><span>t · q</span><br>${fmtNum(x.d.t, 1)} · ${fmtNum(x.d.q, 3)}</div>
+            </div>
+          </div>`).join("")}
+      </div>
+      <p class="foot">Estas son las posiciones con base empírica en ${cur}. El resto de la matriz
+        es informativo, no accionable.</p>`
+      : `<div class="errbox" style="border-color:var(--sobrecalentamiento);background:rgba(242,163,60,.06)">
+          <h2>Ninguna recomendación aguanta el contraste</h2>
+          <p>En ${cur}, ningún activo del universo tiene un exceso sobre su propia media que sobreviva
+          al control de falsos descubrimientos. Eso no es un fallo del panel: es el resultado.</p>
+          <p style="margin-top:10px">Lo honesto entonces es no rotar por fase. La cartera estratégica,
+          la diversificación y el coste mandan más que el cuadrante. El reloj sigue sirviendo para
+          saber dónde estás y para el modelo de recesión, no para decidir la cartera.</p>
+        </div>`}`;
+}
+
+/* ----------------------------- diagnóstico ------------------------------ */
+function renderDiagnostics() {
+  const m = D.meta;
+  const log = m.asset_log || [];
+  const bad = log.filter(a => a.status !== "ok");
+  const w = m.warnings || [];
+  $("#diagBlock").innerHTML = `
+    <div class="block-head">
+      <span class="eyebrow">Diagnóstico</span>
+      <h2>Qué entró y qué se quedó fuera</h2>
+      <p class="cap">Ninguna fuente puede fallar en silencio: cada intento de descarga deja rastro.
+        Si un activo no aparece en la matriz, aquí está el motivo.</p>
+    </div>
+    <div class="val-grid">
+      <div class="val-card">
+        <h3>Cobertura</h3>
+        <table>
+          <tr><td>Series macro</td><td>${m.series_ok}/${m.series_total}</td></tr>
+          <tr><td>Activos cargados</td><td>${m.assets_ok}/${m.assets_tried}</td></tr>
+          <tr><td>Tiempo de construcción</td><td>${fmtNum(m.build_seconds, 0)} s</td></tr>
+          <tr><td>Avisos</td><td style="color:${w.length ? "var(--sobrecalentamiento)" : "var(--muted)"}">${w.length}</td></tr>
+        </table>
+      </div>
+      <div class="val-card" style="grid-column:span 2">
+        <h3>Activos no incorporados (${bad.length})</h3>
+        ${bad.length ? `<table>${bad.map(a => `
+          <tr><td>${a.name}<div style="color:var(--muted-2);font-family:var(--mono);font-size:10.5px">${a.source}</div></td>
+          <td style="color:${a.status === "fallo" ? "var(--estanflacion)" : "var(--muted)"}">${a.status}<div style="color:var(--muted-2);font-size:10.5px">${a.detail}</div></td></tr>`).join("")}</table>`
+          : `<p class="cap">Todos los activos del universo se han cargado.</p>`}
+      </div>
+    </div>
+    ${w.length ? `<details class="limits" style="margin-top:16px"><summary>Avisos de la última construcción (${w.length})</summary>
+      <div><ul>${w.map(x => `<li>${x}</li>`).join("")}</ul></div></details>` : ""}`;
+}
+
 /* -------------------------------- backtest ------------------------------ */
 function renderBacktest() {
   const bt = D.backtest || {};
-  if (!bt.oos) {
+  if (!bt.long) {
     $("#btStats").innerHTML = `<p class="cap">No hay histórico suficiente para el backtest.</p>`;
     return;
   }
   drawBtChart(bt);
   const rows = [
-    ["Fuera de muestra", bt.oos],
-    ["En muestra (referencia)", bt.in_sample],
+    ["Larga, fuera de muestra", bt.long],
+    ["Larga, volatilidad igualada", bt.scaled],
+    ["Larga menos corta (señal pura)", bt.spread],
     ["60/40 estático", bt.bench_6040],
     ["Equiponderada", bt.equal_weight],
+    ["Larga, en muestra (trampa)", bt.in_sample],
   ].filter(r => r[1] && r[1].cagr != null);
 
-  const gap = bt.in_sample && bt.oos ? bt.in_sample.cagr - bt.oos.cagr : null;
+  const gap = bt.in_sample && bt.long ? bt.in_sample.cagr - bt.long.cagr : null;
+  const bench = bt.bench_6040 || {};
+  const edge = bt.scaled && bench.sharpe != null
+    ? bt.scaled.sharpe - bench.sharpe : null;
   $("#btStats").innerHTML = `
     <table>
       <thead><tr><th>Cartera</th><th>Anual</th><th>Vol</th><th>Sharpe</th><th>Caída máx.</th><th>t</th></tr></thead>
@@ -597,9 +686,19 @@ function renderBacktest() {
       </tbody>
     </table>
     <p class="gap-note">${gap == null ? "" : `Optimizar con la muestra completa habría dado
-      <b>${fmtNum(gap, 1)} puntos</b> más al año. Esa diferencia es sobreajuste puro: no existía
-      en tiempo real. La cifra que cuenta es la de fuera de muestra
-      (${bt.oos.months} meses desde ${bt.oos.from.slice(0, 7)}, ${bt.top_k} activos equiponderados).`}</p>`;
+      <b>${fmtNum(gap, 1)} puntos</b> más al año. Esa diferencia es sobreajuste: no existía
+      en tiempo real. ${bt.long.months} meses fuera de muestra desde ${bt.long.from.slice(0, 7)},
+      ${bt.top_k} activos equiponderados.`}</p>
+    ${edge == null ? "" : `<p class="gap-note" style="border-left-color:${edge > 0.05 ? "var(--recuperacion)" : "var(--estanflacion)"}">
+      Comparación limpia: con la volatilidad igualada al 60/40, el Sharpe es
+      <b>${fmtNum(bt.scaled.sharpe, 2)}</b> frente a <b>${fmtNum(bench.sharpe, 2)}</b>.
+      ${edge > 0.05
+        ? "La fase aporta información más allá de asumir más riesgo."
+        : "Sin ventaja ajustada por riesgo: la rentabilidad extra viene de cargar más riesgo, no de acertar la fase."}
+      La cartera larga-corta aísla la señal sin beta de mercado: ${
+        bt.spread && bt.spread.t != null
+          ? `t = ${fmtNum(bt.spread.t, 1)} sobre ${bt.spread.months} meses.`
+          : "sin datos."}</p>`}`;
 }
 
 function drawBtChart(bt) {
@@ -672,6 +771,8 @@ function renderValidation() {
         ${D.phases.map(p => `<tr><td><span style="color:${PHASE_COLOR[p]}">■</span> ${p}</td>
           <td>${fmtPct(v.share?.[p], 0)} · ${fmtNum(v.duration_months?.[p], 1)} m</td></tr>`).join("")}
         <tr><td>Correlación entre los dos ejes</td><td>${fmtNum(v.factor_corr, 2)}</td></tr>
+        ${v.rotation ? `<tr><td>Transiciones en el sentido del reloj</td>
+          <td style="color:${v.rotation.clockwise_share < 0.4 ? "var(--estanflacion)" : "var(--text)"}">${fmtPct(v.rotation.clockwise_share, 0)} de ${v.rotation.n_transitions}</td></tr>` : ""}
       </table>
     </div>
     <div class="val-card">
