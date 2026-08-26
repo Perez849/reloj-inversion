@@ -93,6 +93,7 @@ function render() {
   renderTimeline();
   renderMatrix();
   renderRobustness();
+  renderRotation();
   renderDefensive();
   renderConsensus();
   renderBacktest();
@@ -657,6 +658,95 @@ function renderDiagnostics() {
       <div><ul>${w.map(x => `<li>${x}</li>`).join("")}</ul></div></details>` : ""}`;
 }
 
+
+
+/* ------------------------- cartera por fase (solo largo) ----------------------- */
+let pbPhase = null;
+
+function renderRotation() {
+  const r = D.rotation || {};
+  if (!r.portfolio) { $("#rotationBlock").innerHTML = ""; return; }
+  pbPhase = pbPhase || D.current.phase;
+  const p = r.portfolio, b = r.bench_6040 || {};
+  const wins = p.sharpe != null && b.sharpe != null && p.sharpe > b.sharpe;
+  const rows = r.playbook[pbPhase] || [];
+  const sleeves = [...new Set(rows.map(x => x.sleeve))];
+
+  $("#rotationBlock").innerHTML = `
+    <div class="block-head">
+      <span class="eyebrow">Asignación</span>
+      <h2>La cartera, fase a fase</h2>
+      <p class="cap">Solo compras, siempre invertida al 100 %, sin apalancar y sin cortos.
+        El reparto por bloques es fijo — 60 % renta variable, 30 % renta fija, 10 % activos
+        reales — igual en las cuatro fases. Lo único que cambia con la fase es qué hay dentro
+        de cada bloque. Así la comparación con el 60/40 es limpia: misma postura de riesgo.</p>
+    </div>
+
+    <div class="matrix-holder" style="margin-bottom:22px">
+      <table class="matrix">
+        <thead><tr>
+          <th>Cartera</th><th style="text-align:right">Anual</th><th style="text-align:right">Vol</th>
+          <th style="text-align:right">Sharpe</th><th style="text-align:right">Caída máx.</th>
+          <th style="text-align:right">Peor año</th><th style="text-align:right">t</th>
+        </tr></thead>
+        <tbody>
+          <tr><td class="asset" style="color:${wins ? "var(--recuperacion)" : ""}">Rotación por fase</td>
+            <td style="text-align:right;font-family:var(--mono)">${fmtNum(p.cagr, 1)}%</td>
+            <td style="text-align:right;font-family:var(--mono)">${fmtNum(p.vol, 1)}%</td>
+            <td style="text-align:right;font-family:var(--mono);font-weight:600;color:${wins ? "var(--recuperacion)" : "var(--muted)"}">${fmtNum(p.sharpe, 2)}</td>
+            <td style="text-align:right;font-family:var(--mono)">${fmtNum(p.maxdd, 1)}%</td>
+            <td style="text-align:right;font-family:var(--mono)">${fmtNum(p.worst12, 1)}%</td>
+            <td style="text-align:right;font-family:var(--mono);color:var(--muted)">${fmtNum(p.t, 1)}</td></tr>
+          <tr style="background:rgba(255,255,255,.03)"><td class="asset">60/40 estático</td>
+            <td style="text-align:right;font-family:var(--mono)">${fmtNum(b.cagr, 1)}%</td>
+            <td style="text-align:right;font-family:var(--mono)">${fmtNum(b.vol, 1)}%</td>
+            <td style="text-align:right;font-family:var(--mono);font-weight:600">${fmtNum(b.sharpe, 2)}</td>
+            <td style="text-align:right;font-family:var(--mono)">${fmtNum(b.maxdd, 1)}%</td>
+            <td style="text-align:right;font-family:var(--mono)">${fmtNum(b.worst12, 1)}%</td>
+            <td style="text-align:right;font-family:var(--mono);color:var(--muted)">${fmtNum(b.t, 1)}</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 style="font-family:var(--display);font-size:17px;margin-bottom:6px">Dónde gana y dónde no</h3>
+    <div class="scores-grid" style="margin-bottom:26px">
+      ${D.phases.filter(x => r.by_phase[x]).map(x => {
+        const e = r.by_phase[x];
+        const good = (e.edge ?? 0) > 0;
+        return `<div class="score-card" style="background:${PHASE_COLOR[x]};opacity:${x === D.current.phase ? 1 : .62}">
+          <div style="font-size:.85em">${x}</div>
+          <div style="font-size:1.5em">${signed(e.edge, 1)} pp</div>
+          <div style="font-size:.78em;opacity:.85">${e.n} meses · ${good ? "por delante" : "por detrás"} del 60/40</div>
+        </div>`;
+      }).join("")}
+    </div>
+
+    <h3 style="font-family:var(--display);font-size:17px;margin-bottom:10px">Qué comprar en cada fase</h3>
+    <div class="seg" style="margin-bottom:14px">
+      ${D.phases.map(x => `<button type="button" data-p="${x}" aria-pressed="${x === pbPhase}"
+        style="${x === pbPhase ? `border-color:${PHASE_COLOR[x]};color:${PHASE_COLOR[x]}` : ""}">${x}</button>`).join("")}
+    </div>
+    <div class="cons-grid">
+      ${sleeves.map(sl => {
+        const items = rows.filter(x => x.sleeve === sl);
+        const tot = items.reduce((a, x) => a + x.weight, 0);
+        return `<div class="cons-card">
+          <span class="cls">${sl} · ${fmtNum(tot, 0)}%</span>
+          ${items.map(x => `<div style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid rgba(38,49,79,.4);font-size:12.8px">
+            <span>${x.name}</span>
+            <b style="font-family:var(--mono)">${fmtNum(x.weight, 1)}%</b></div>`).join("")}
+        </div>`;
+      }).join("")}
+    </div>
+    <p class="foot">Selección por rentabilidad contraída dividida entre volatilidad dentro de cada
+      bloque, y reparto por inverso de la volatilidad. Las primas largo-corto (value, tamaño,
+      momentum) quedan fuera: no se pueden comprar en una cartera solo larga.
+      ${pbPhase === D.current.phase ? "Esta es la fase vigente." : `La fase vigente es ${D.current.phase}.`}</p>`;
+
+  $("#rotationBlock .seg").querySelectorAll("button").forEach(btn => {
+    btn.onclick = () => { pbPhase = btn.dataset.p; renderRotation(); };
+  });
+}
 
 /* --------------------------- superposición defensiva -------------------------- */
 const DEF_LABEL = {
