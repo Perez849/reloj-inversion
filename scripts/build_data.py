@@ -886,9 +886,11 @@ def perf(series: pd.Series) -> dict:
     cagr = curve.iloc[-1] ** (12 / s.size) - 1
     vol = s.std() * math.sqrt(12)
     _, _, t = newey_west(s.values * 100)
+    roll12 = (1 + s).rolling(12).apply(np.prod, raw=True) - 1
     return {"cagr": round(float(cagr * 100), 2), "vol": round(float(vol * 100), 2),
             "sharpe": round(float(cagr / vol), 2) if vol > 0 else None,
             "maxdd": round(float((curve / curve.cummax() - 1).min() * 100), 2),
+            "worst12": round(float(roll12.min() * 100), 2) if roll12.notna().any() else None,
             "hit": round(float((s > 0).mean()), 3),
             "t": round(float(t), 2) if t == t else None,
             "months": int(s.size), "from": str(s.index[0].date())}
@@ -942,7 +944,12 @@ def backtest(X: pd.DataFrame, phases: pd.Series, top_k: int = 5, min_train: int 
         hist, hph = X.iloc[:k], ph.iloc[:k]
         mu = means(hist, hph, sig)
         avail = X.loc[t].dropna().index
-        rank = mu.reindex(avail).dropna().sort_values(ascending=False)
+        # Ordenar por media contraída dividida por volatilidad, no por media bruta.
+        # Con media bruta el ranking lo copan siempre los activos más volátiles y
+        # la cartera acaba siendo una apuesta apalancada disfrazada de rotación.
+        vol_h = hist.std().replace(0, np.nan)
+        score = (mu / vol_h).replace([np.inf, -np.inf], np.nan)
+        rank = score.reindex(avail).dropna().sort_values(ascending=False)
         if rank.size < 2 * top_k:
             continue
         top, bot = rank.head(top_k).index, rank.tail(top_k).index
@@ -984,6 +991,66 @@ def backtest(X: pd.DataFrame, phases: pd.Series, top_k: int = 5, min_train: int 
             "bench_6040": perf(bench) if bench is not None else {},
             "equal_weight": perf(X.reindex(dates).mean(axis=1)),
             "top_k": top_k, "curve": curve[-460:]}
+
+
+def defensive(X: pd.DataFrame, growth: pd.Series) -> dict:
+    """Superposición defensiva sobre un 60/40.
+
+    Tres reglas fijadas ANTES de mirar el resultado, todas con el mismo disparador:
+    el signo del eje de crecimiento del mes anterior, que es información disponible
+    en tiempo real porque los z-scores ya llevan aplicado el retraso de publicación.
+    No hay ningún umbral ajustado: el umbral es cero, que por construcción significa
+    "crecimiento en tendencia".
+
+    Se prueban tres variantes. Elegir la mejor de tres infla el Sharpe, así que se
+    publican las tres y el número de variantes probadas.
+    """
+    need = ["Renta variable EE.UU. (mercado)", "Treasury 10 años", "Treasury 2 años"]
+    if any(c not in X.columns for c in need):
+        return {}
+    gold = next((c for c in ("Metales preciosos (mineras)", "Oro (lingote)",
+                             "Oro (ETF físico)") if c in X.columns), None)
+    eq, b10, b2 = need
+    idx = X.index.intersection(growth.dropna().index)
+    sig = (growth.reindex(idx).shift(1) < 0)
+    D = X.reindex(idx)
+
+    def run(defensive_w):
+        base = {eq: 0.6, b10: 0.4}
+        out = []
+        for t in idx:
+            w = defensive_w if bool(sig.get(t, False)) else base
+            cols = [c for c in w if c in D.columns and D.loc[t, c] == D.loc[t, c]]
+            if not cols:
+                out.append(np.nan)
+                continue
+            tot = sum(w[c] for c in cols)
+            out.append(sum(w[c] / tot * float(D.loc[t, c]) for c in cols))
+        return pd.Series(out, index=idx).dropna()
+
+    variants = {
+        "base_6040": None,
+        "a_bonos": {eq: 0.30, b10: 0.70},
+        "b_corto": {eq: 0.30, b2: 0.70},
+    }
+    if gold:
+        variants["c_oro"] = {eq: 0.30, b10: 0.50, gold: 0.20}
+
+    res = {}
+    base_series = None
+    for name, w in variants.items():
+        if w is None:
+            cols = [eq, b10]
+            base_series = (0.6 * D[eq] + 0.4 * D[b10]).dropna()
+            res[name] = perf(base_series)
+        else:
+            res[name] = perf(run(w))
+
+    res["n_variants"] = len(variants) - 1
+    res["months_defensive"] = int(sig.sum())
+    res["share_defensive"] = round(float(sig.mean()), 3)
+    res["trigger"] = "eje de crecimiento del mes anterior por debajo de cero"
+    return res
 
 
 # ======================================================================================
@@ -1059,6 +1126,7 @@ def main() -> None:
     X, ameta = fetch_assets(df)
     assets, astats = conditional_stats(X, phases, ameta)
     bt = backtest(X, phases)
+    prot = defensive(X, F["growth"])
     val = validation(df, F, phases)
     rec = recession_model(df, F.index)
 
@@ -1139,7 +1207,7 @@ def main() -> None:
         },
         "pca": pca, "indicators": indicators, "history": history, "nber": nber,
         "assets": assets, "asset_stats": astats, "consensus": consensus[:14],
-        "backtest": bt, "validation": val,
+        "backtest": bt, "defensive": prot, "validation": val,
         "phases": PHASES, "phase_long": PHASE_LONG,
     }
 
