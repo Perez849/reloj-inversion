@@ -47,7 +47,7 @@ RETRIES = 3
 # de GitHub dejando la conexión abierta en vez de rechazarla: sin este tope, la
 # ejecución se queda colgada hasta que el job expira.
 OPTIONAL_TIMEOUT = 12
-OPTIONAL_BUDGET_S = 180
+OPTIONAL_BUDGET_S = 90
 HORIZON_M = 3
 MIN_MONTHS = 60
 
@@ -125,7 +125,9 @@ SERIES: list[Series] = [
 
     Series("NFCI", "Condiciones financieras (Chicago Fed)", "leading", "lvl", 0,
            invert=True, note="0 = condiciones medias por construcción"),
-    Series("BAMLH0A0HYM2", "Diferencial High Yield", "leading", "lvl", 0, invert=True),
+    Series("BAA_AAA", "Diferencial de crédito Baa-Aaa", "leading", "lvl", 1, invert=True,
+           note="Calculado de los rendimientos de Moody's: historia desde 1919. "
+                "Sustituye al diferencial ICE, truncado a 3 años en abril de 2026"),
     Series("PERMIT", "Permisos de construcción", "leading", "yoy", 1),
     Series("USSLIND", "Índice adelantado (Philadelphia Fed)", "leading", "lvl", 2),
     Series("VIXCLS", "VIX", "leading", "lvl", 0, invert=True),
@@ -138,6 +140,8 @@ SERIES: list[Series] = [
 
 FRED_EXTRA = ["USREC", "TB3MS", "DGS2", "DGS10", "DGS30", "UNRATE", "FEDFUNDS",
               "BAA", "AAA", "DFII10"]
+# Series que no se descargan: se calculan a partir de otras.
+DERIVED = {"BAA_AAA"}
 
 PHASES = ["Recuperación", "Sobrecalentamiento", "Estanflación", "Reflación"]
 PHASE_LONG = {
@@ -196,11 +200,15 @@ def _fred_csv(series_id: str):
 
 
 def fred_series(series_id: str):
-    """API oficial si hay clave; CSV público como respaldo."""
+    """API oficial si hay clave; CSV público como respaldo.
+    Un 400 de la API significa que la serie no existe: insistir por CSV solo
+    gasta minutos de reloj, así que se corta ahí."""
     if FRED_API_KEY:
         s, err = _fred_api(series_id)
         if s is not None:
             return s, None
+        if "HTTP 400" in err:
+            return None, f"{err} (la serie no existe en FRED)"
         s2, err2 = _fred_csv(series_id)
         return (s2, None) if s2 is not None else (None, f"{err} | {err2}")
     return _fred_csv(series_id)
@@ -222,7 +230,7 @@ def to_monthly(s: pd.Series, how: str = "mean") -> pd.Series:
 def fetch_macro():
     print(f"1. Descargando FRED… ({'API oficial con clave' if FRED_API_KEY else 'CSV público, sin clave'})")
     raw, meta = {}, {}
-    for sid in [s.fred_id for s in SERIES] + FRED_EXTRA:
+    for sid in [s.fred_id for s in SERIES if s.fred_id not in DERIVED] + FRED_EXTRA:
         s, err = fred_series(sid)
         if s is None:
             warn(f"FRED {sid}: {err}")
@@ -234,6 +242,10 @@ def fetch_macro():
         raise SystemExit("Datos insuficientes de FRED; abortando.")
     df = pd.DataFrame(raw)
     df.index = df.index.to_period("M").to_timestamp("M")
+    if "BAA" in df.columns and "AAA" in df.columns:
+        df["BAA_AAA"] = df["BAA"] - df["AAA"]
+        meta["BAA_AAA"] = {"last_obs": meta.get("BAA", {}).get("last_obs")}
+        print("  ✓ BAA_AAA               derivada de BAA - AAA")
     return df, meta
 
 
@@ -260,8 +272,13 @@ def transform(s: pd.Series, kind: str) -> pd.Series:
 
 
 def expanding_z(s: pd.Series, min_periods: int = 120) -> pd.Series:
-    mu = s.expanding(min_periods=min_periods).mean()
-    sd = s.expanding(min_periods=min_periods).std()
+    """Ventana adaptativa: 120 meses es lo deseable, pero una serie más corta no
+    debe quedarse fuera en silencio. Se exige un tercio de su historia con un
+    suelo de 48 meses."""
+    n = int(s.notna().sum())
+    mp = min(min_periods, max(48, n // 3))
+    mu = s.expanding(min_periods=mp).mean()
+    sd = s.expanding(min_periods=mp).std()
     return ((s - mu) / sd).clip(-4, 4)
 
 
@@ -277,13 +294,15 @@ def build_blocks(df: pd.DataFrame):
             x = -x
         z = expanding_z(x).shift(spec.lag_m)
         if z.dropna().empty:
-            warn(f"{spec.fred_id}: sin z-score utilizable (historia insuficiente)")
+            warn(f"{spec.fred_id}: sin z-score utilizable "
+                 f"({int(x.notna().sum())} observaciones tras transformar)")
             continue
         zs[spec.fred_id] = z
         info[spec.fred_id] = {
             "id": spec.fred_id, "name": spec.name, "block": spec.block,
             "transform": spec.transform, "lag_m": spec.lag_m,
             "invert": spec.invert, "note": spec.note,
+            "obs": int(x.notna().sum()),
         }
     return pd.DataFrame(zs), info
 
@@ -410,21 +429,40 @@ FRENCH_IND = {
     "Hlth": "Salud", "Money": "Financiero", "Other": "Otros sectores",
 }
 
+FRENCH_49 = {
+    "Gold": ("Metales preciosos (mineras)", "Real / alternativos",
+             "mineras de oro, no lingote: el oro físico ya no está en FRED"),
+    "Mines": ("Minería no férrea", "Real / alternativos", ""),
+    "RlEst": ("Inmobiliario", "Real / alternativos",
+              "sector inmobiliario cotizado; sustituye al índice Wilshire retirado"),
+    "Oil": ("Petróleo y gas", "Real / alternativos", ""),
+    "Banks": ("Bancos", "Renta variable", ""),
+    "Softw": ("Software", "Renta variable", ""),
+    "Chips": ("Semiconductores", "Renta variable", ""),
+}
+
+# Un solo ID es frágil: ICE truncó a 3 años los índices generales en abril de 2026
+# y FRED retiró todas las series Wilshire en junio de 2024. Cada activo lleva una
+# lista de candidatos y se queda con el primero que traiga historia suficiente.
 FRED_TR = {
-    "BAMLCC0A0CMTRIV": ("Crédito Investment Grade", "Renta fija"),
-    "BAMLHYH0A0HYM2TRIV": ("Crédito High Yield", "Renta fija"),
-    "BAMLEMCBPITRIV": ("Deuda emergente corporativa", "Renta fija"),
-    "BAMLCC1A013YTRIV": ("Crédito IG 1-3 años", "Renta fija"),
-    "BAMLCC8A015PYTRIV": ("Crédito IG 15+ años", "Renta fija"),
+    "Crédito Investment Grade": ("Renta fija", [
+        "BAMLCC0A3ATRIV", "BAMLCC0A1AAATRIV", "BAMLCC0A4BBBTRIV",
+        "BAMLCC0A0CMTRIV",
+    ]),
+    "Crédito High Yield": ("Renta fija", [
+        "BAMLHYH0A1BBTRIV", "BAMLHYH0A2BTRIV", "BAMLHYH0A3CMTRIV",
+        "BAMLHYH0A0HYM2TRIV",
+    ]),
+    "Deuda emergente": ("Renta fija", [
+        "BAMLEMCBPITRIV", "BAMLEMHBHYCRPITRIV",
+    ]),
 }
 
 FRED_PX = {
-    "GOLDAMGBD228NLBM": ("Oro", "Real / alternativos", "London fix"),
-    "WTISPLC": ("Petróleo WTI (spot)", "Real / alternativos", "mensual desde 1946"),
-    "PPIACO": ("Cesta de producción (PPI)", "Real / alternativos",
-               "proxy de precios, no invertible directamente"),
-    "WILLREITIND": ("Inmobiliario (REITs)", "Real / alternativos", "Wilshire REIT"),
-    "WILL5000IND": ("Renta variable EE.UU. (Wilshire)", "Renta variable", ""),
+    "Petróleo WTI (spot)": ("Real / alternativos", ["WTISPLC", "MCOILWTICO"],
+                            "spot mensual desde 1946"),
+    "Cesta de producción (PPI)": ("Real / alternativos", ["PPIACO"],
+                                  "proxy de precios, no invertible directamente"),
 }
 
 FRED_YIELD = {
@@ -562,27 +600,44 @@ def fetch_assets(df: pd.DataFrame):
     else:
         warn(f"Ken French industrias: {err}")
 
+    ind49, err = french_zip(FRENCH_BASE + "49_Industry_Portfolios_CSV.zip", "49 industrias")
+    if ind49 is not None:
+        for col, (lab, cls, note) in FRENCH_49.items():
+            if col in ind49.columns:
+                add(lab, ind49[col], cls, "Ken French (49 industrias)", note)
+            else:
+                add(lab, None, cls, "Ken French (49 industrias)", note,
+                    err=f"columna {col} ausente")
+    else:
+        warn(f"Ken French 49 industrias: {err}")
+
     mom, err = french_zip(FRENCH_BASE + "F-F_Momentum_Factor_CSV.zip", "momentum")
     if mom is not None:
         c = [x for x in mom.columns if "Mom" in x]
         if c:
             add("Prima Momentum", mom[c[0]], "Estilo", "Ken French")
 
-    for sid, (lab, cls) in FRED_TR.items():
-        s, e = fred_series(sid)
-        if s is None:
-            add(lab, None, cls, f"ICE BofA / {sid}", err=e)
-        else:
-            add(lab, to_monthly(s, how="last").pct_change() * 100.0, cls,
-                f"ICE BofA / {sid}")
+    def first_usable(candidates, label, cls, prefix, note=""):
+        """Prueba los IDs en orden y se queda con el primero que traiga historia."""
+        errs = []
+        for sid in candidates:
+            raw, e = fred_series(sid)
+            if raw is None:
+                errs.append(f"{sid}: {e}")
+                continue
+            r = to_monthly(raw, how="last").pct_change() * 100.0
+            if r.dropna().size >= MIN_MONTHS:
+                add(label, r, cls, f"{prefix} / {sid}", note)
+                return
+            errs.append(f"{sid}: solo {r.dropna().size} meses")
+        add(label, None, cls, f"{prefix} / {candidates[0]}", note,
+            err=" · ".join(errs)[:200])
 
-    for sid, (lab, cls, note) in FRED_PX.items():
-        s, e = fred_series(sid)
-        if s is None:
-            add(lab, None, cls, f"FRED / {sid}", note, err=e)
-        else:
-            add(lab, to_monthly(s, how="last").pct_change() * 100.0, cls,
-                f"FRED / {sid}", note)
+    for lab, (cls, cands) in FRED_TR.items():
+        first_usable(cands, lab, cls, "ICE BofA")
+
+    for lab, (cls, cands, note) in FRED_PX.items():
+        first_usable(cands, lab, cls, "FRED", note)
 
     for sid, (dur, cvx, lab, cls) in FRED_YIELD.items():
         if sid not in df.columns:
@@ -595,8 +650,9 @@ def fetch_assets(df: pd.DataFrame):
         add("Liquidez (letras 3m)", (df["TB3MS"] / 12.0).dropna(), "Liquidez",
             "FRED / TB3MS")
 
+    t_opt = time.time()
     for tick, (lab, cls) in STOOQ.items():
-        if time.time() - T_START > OPTIONAL_BUDGET_S:
+        if time.time() - t_opt > OPTIONAL_BUDGET_S:
             add(lab, None, cls, f"Stooq / {tick}",
                 err="omitido: presupuesto de tiempo agotado")
             continue
