@@ -666,6 +666,7 @@ function renderBacktest() {
   drawBtChart(bt);
   const rows = [
     ["Larga, fuera de muestra", bt.long],
+    ["Inclinada (80% 60/40 + 20% fase)", bt.tilt],
     ["Larga, volatilidad igualada", bt.scaled],
     ["Larga menos corta (señal pura)", bt.spread],
     ["60/40 estático", bt.bench_6040],
@@ -695,6 +696,8 @@ function renderBacktest() {
       ${edge > 0.05
         ? "La fase aporta información más allá de asumir más riesgo."
         : "Sin ventaja ajustada por riesgo: la rentabilidad extra viene de cargar más riesgo, no de acertar la fase."}
+      La inclinada es la versión implementable en una cartera real: un 60/40 de base con un
+      20 % desviado hacia lo mejor de la fase.
       La cartera larga-corta aísla la señal sin beta de mercado: ${
         bt.spread && bt.spread.t != null
           ? `t = ${fmtNum(bt.spread.t, 1)} sobre ${bt.spread.months} meses.`
