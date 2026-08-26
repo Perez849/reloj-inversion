@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reloj de inversión · fase del ciclo y asignación</title>
+<meta name="description" content="Clasificación del ciclo económico a partir de factores macro estimados por componentes principales, con retornos condicionales contrastados estadísticamente.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap top-inner">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <div>
+        <h1>Reloj de inversión</h1>
+        <p class="brand-sub">Crecimiento e inflación medidos, no opinados</p>
+      </div>
+    </div>
+    <dl class="vitals" id="vitals"></dl>
+  </div>
+</header>
+
+<main class="wrap" id="app">
+  <div class="loading" id="loading">
+    <div class="loading-bars"><i></i><i></i><i></i><i></i></div>
+    <p>Cargando el panel…</p>
+  </div>
+</main>
+
+<template id="tpl-main">
+<section class="hero">
+  <figure class="plane-card">
+    <figcaption>
+      <span class="eyebrow">Plano de fase</span>
+      <h2>Dónde está la economía y hacia dónde se mueve</h2>
+      <p class="cap">Cada punto es un mes. El rastro recorre los últimos <b id="trailLen">36</b>; la elipse marca el margen de error de la medición actual.</p>
+    </figcaption>
+    <div class="plane-holder">
+      <svg id="plane" viewBox="0 0 720 620" role="img" aria-label="Plano crecimiento-inflación"></svg>
+      <div class="tooltip" id="planeTip" hidden></div>
+    </div>
+    <div class="plane-controls">
+      <label class="ctl"><input type="range" id="trailRange" min="6" max="120" step="6" value="36"><span>Meses de rastro</span></label>
+      <button class="ghost" id="playBtn" type="button">Recorrer el histórico</button>
+    </div>
+  </figure>
+
+  <aside class="verdict" id="verdict"></aside>
+</section>
+
+<section class="band" id="outlookBand"></section>
+
+<section class="block">
+  <div class="block-head">
+    <span class="eyebrow">Los factores por dentro</span>
+    <h2>Qué está empujando cada eje</h2>
+    <p class="cap">Cada serie entra estandarizada con su propia historia. El peso no lo elijo yo: sale del primer componente principal de cada bloque.</p>
+  </div>
+  <div class="ind-grid" id="indicators"></div>
+</section>
+
+<section class="block">
+  <div class="block-head">
+    <span class="eyebrow">Histórico</span>
+    <h2>Fases desde <span id="histFrom"></span></h2>
+    <p class="cap">Franja superior: fase asignada cada mes. Las bandas grises son recesiones oficiales del NBER, que el modelo no ve.</p>
+  </div>
+  <div class="timeline-holder">
+    <svg id="timeline" viewBox="0 0 1200 300" role="img" aria-label="Histórico de fases"></svg>
+    <div class="tooltip" id="tlTip" hidden></div>
+  </div>
+</section>
+
+<section class="block">
+  <div class="block-head">
+    <span class="eyebrow">Asignación</span>
+    <h2>Qué ha pagado cada activo en cada fase</h2>
+    <p class="cap">Exceso anualizado sobre el comportamiento medio del propio activo. La nota resume el contraste estadístico: <b>+++</b> exige p&lt;0,01 y superar el control de falsos descubrimientos.</p>
+  </div>
+  <div class="matrix-tools">
+    <div class="seg" id="classFilter"></div>
+    <label class="ctl inline"><input type="checkbox" id="onlySig"><span>Solo casillas significativas</span></label>
+  </div>
+  <div class="matrix-holder">
+    <table class="matrix" id="matrix"></table>
+  </div>
+  <p class="foot" id="matrixFoot"></p>
+</section>
+
+<section class="block" id="consensusBlock"></section>
+
+<section class="block">
+  <div class="block-head">
+    <span class="eyebrow">Prueba de fuego</span>
+    <h2>¿Sirve de algo o es sobreajuste?</h2>
+    <p class="cap">La cartera se reconstruye mes a mes usando solo información pasada. La versión con la muestra completa se muestra al lado a propósito: la diferencia es la medida del sobreajuste.</p>
+  </div>
+  <div class="bt-grid">
+    <div class="bt-chart">
+      <svg id="btChart" viewBox="0 0 900 340" role="img" aria-label="Curva de resultados"></svg>
+    </div>
+    <div class="bt-stats" id="btStats"></div>
+  </div>
+</section>
+
+<section class="block">
+  <div class="block-head">
+    <span class="eyebrow">Control de calidad</span>
+    <h2>Cómo se comporta el clasificador</h2>
+  </div>
+  <div class="val-grid" id="validation"></div>
+</section>
+
+<section class="block method">
+  <div class="block-head">
+    <span class="eyebrow">Metodología</span>
+    <h2>Las reglas, una por una</h2>
+  </div>
+  <ol class="rules" id="rules"></ol>
+  <details class="limits">
+    <summary>Lo que este panel no puede hacer</summary>
+    <div id="limits"></div>
+  </details>
+</section>
+</template>
+
+<footer class="foot-bar">
+  <div class="wrap">
+    <p id="footMeta"></p>
+    <p class="disclaimer">Herramienta de análisis. No es recomendación de inversión ni asesoramiento financiero.</p>
+  </div>
+</footer>
+
+<script src="assets/app.js"></script>
+</body>
+</html>
