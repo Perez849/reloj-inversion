@@ -139,7 +139,7 @@ SERIES: list[Series] = [
 ]
 
 FRED_EXTRA = ["USREC", "TB3MS", "DGS2", "DGS10", "DGS30", "UNRATE", "FEDFUNDS",
-              "BAA", "AAA", "DFII10"]
+              "BAA", "AAA", "DFII10", "MORTGAGE30US"]
 # Series que no se descargan: se calculan a partir de otras.
 DERIVED = {"BAA_AAA"}
 
@@ -441,22 +441,10 @@ FRENCH_49 = {
     "Chips": ("Semiconductores", "Renta variable", ""),
 }
 
-# Un solo ID es frágil: ICE truncó a 3 años los índices generales en abril de 2026
-# y FRED retiró todas las series Wilshire en junio de 2024. Cada activo lleva una
-# lista de candidatos y se queda con el primero que traiga historia suficiente.
-FRED_TR = {
-    "Crédito Investment Grade": ("Renta fija", [
-        "BAMLCC0A3ATRIV", "BAMLCC0A1AAATRIV", "BAMLCC0A4BBBTRIV",
-        "BAMLCC0A0CMTRIV",
-    ]),
-    "Crédito High Yield": ("Renta fija", [
-        "BAMLHYH0A1BBTRIV", "BAMLHYH0A2BTRIV", "BAMLHYH0A3CMTRIV",
-        "BAMLHYH0A0HYM2TRIV",
-    ]),
-    "Deuda emergente": ("Renta fija", [
-        "BAMLEMCBPITRIV", "BAMLEMHBHYCRPITRIV",
-    ]),
-}
+# ICE truncó a 3 años TODOS sus índices de retorno total en FRED en abril de 2026,
+# incluidos los subconjuntos por rating. El crédito se cubre con los rendimientos de
+# Moody's (duración, desde 1919) y con ETF reales vía Yahoo para el tramo moderno.
+FRED_TR: dict[str, tuple[str, list[str]]] = {}
 
 FRED_PX = {
     "Petróleo WTI (spot)": ("Real / alternativos", ["WTISPLC", "MCOILWTICO"],
@@ -466,6 +454,7 @@ FRED_PX = {
 }
 
 FRED_YIELD = {
+    "MORTGAGE30US": (5.5, 40.0, "Hipotecario 30 años (aprox.)", "Renta fija"),
     "DGS2": (1.9, 4.5, "Treasury 2 años", "Renta fija"),
     "DGS10": (8.2, 80.0, "Treasury 10 años", "Renta fija"),
     "DGS30": (18.5, 450.0, "Treasury 30 años", "Renta fija"),
@@ -474,17 +463,70 @@ FRED_YIELD = {
     "DFII10": (8.5, 85.0, "TIPS 10 años (aprox.)", "Renta fija"),
 }
 
-STOOQ = {
-    "xauusd": ("Oro (spot Stooq)", "Real / alternativos"),
-    "^spgsci": ("Materias primas (GSCI)", "Real / alternativos"),
-    "vnq.us": ("REITs (VNQ)", "Real / alternativos"),
-    "eem.us": ("Renta variable emergente", "Renta variable"),
-    "efa.us": ("Renta variable internacional", "Renta variable"),
-    "iwm.us": ("Small caps", "Estilo"),
-    "tip.us": ("TIPS (TIP)", "Renta fija"),
-    "mub.us": ("Municipales", "Renta fija"),
-    "mbb.us": ("Titulizaciones hipotecarias", "Renta fija"),
+# Fuentes de mercado. Yahoo primero (los runners de GitHub llegan bien), Stooq de
+# respaldo. Cada entrada: etiqueta -> (clase, símbolo Yahoo, ticker Stooq, nota).
+MARKET = {
+    "Oro (lingote)": ("Real / alternativos", "GC=F", "xauusd",
+                      "futuro continuo de oro; el histórico largo lo cubren las mineras"),
+    "Oro (ETF físico)": ("Real / alternativos", "GLD", "gld.us", "respaldado por lingote"),
+    "Plata": ("Real / alternativos", "SI=F", "xagusd", ""),
+    "Materias primas (índice)": ("Real / alternativos", "^SPGSCI", "^spgsci", "GSCI"),
+    "Materias primas (ETF)": ("Real / alternativos", "DBC", "dbc.us", ""),
+    "Cobre": ("Real / alternativos", "HG=F", "hg.f", ""),
+    "REITs": ("Real / alternativos", "VNQ", "vnq.us", ""),
+    "Crédito Investment Grade (LQD)": ("Renta fija", "LQD", "lqd.us",
+                                       "retorno total real, desde 2002"),
+    "Crédito High Yield (HYG)": ("Renta fija", "HYG", "hyg.us",
+                                 "retorno total real, desde 2007"),
+    "Deuda emergente (EMB)": ("Renta fija", "EMB", "emb.us", ""),
+    "TIPS (TIP)": ("Renta fija", "TIP", "tip.us", ""),
+    "Municipales (MUB)": ("Renta fija", "MUB", "mub.us", ""),
+    "Titulizaciones hipotecarias (MBB)": ("Renta fija", "MBB", "mbb.us", ""),
+    "Renta variable emergente": ("Renta variable", "EEM", "eem.us", ""),
+    "Renta variable internacional": ("Renta variable", "EFA", "efa.us", ""),
+    "Small caps": ("Estilo", "IWM", "iwm.us", ""),
+    "Bitcoin": ("Real / alternativos", "BTC-USD", "btcusd", "desde 2014"),
 }
+
+# Carteras internacionales de Ken French: misma fuente que ya funciona, historia
+# desde 1990, sin depender de proveedores que bloquean servidores.
+FRENCH_INTL = {
+    "Desarrollados ex EE.UU. (French)": ("Renta variable",
+                                         "Developed_ex_US_3_Factors_CSV.zip"),
+    "Emergentes (French)": ("Renta variable", "Emerging_5_Factors_CSV.zip"),
+}
+
+
+def yahoo_monthly(symbol: str):
+    """Serie mensual de retornos desde el endpoint de gráficos de Yahoo.
+    Se prueban los dos hosts porque uno de ellos limita por IP con frecuencia."""
+    last = "sin respuesta"
+    for host in ("query1", "query2"):
+        url = (f"https://{host}.finance.yahoo.com/v8/finance/chart/{symbol}"
+               "?range=max&interval=1mo")
+        r = http_get(url, tries=1, timeout=OPTIONAL_TIMEOUT)
+        if isinstance(r, tuple):
+            last = r[1]
+            continue
+        try:
+            res = r.json()["chart"]["result"][0]
+            ts = res["timestamp"]
+            ind = res["indicators"]
+            vals = None
+            if "adjclose" in ind and ind["adjclose"]:
+                vals = ind["adjclose"][0].get("adjclose")
+            if not vals:
+                vals = ind["quote"][0].get("close")
+            px = pd.Series(vals, index=pd.to_datetime(ts, unit="s")).dropna()
+            px.index = px.index.to_period("M").to_timestamp("M")
+            px = px[~px.index.duplicated(keep="last")]
+            if px.size < MIN_MONTHS + 1:
+                last = f"solo {px.size} meses"
+                continue
+            return px.pct_change().dropna() * 100.0, None
+        except Exception as exc:  # noqa: BLE001
+            last = f"parseo: {exc}"
+    return None, last
 
 
 def french_zip(url: str, tag: str):
@@ -650,14 +692,37 @@ def fetch_assets(df: pd.DataFrame):
         add("Liquidez (letras 3m)", (df["TB3MS"] / 12.0).dropna(), "Liquidez",
             "FRED / TB3MS")
 
+    # Carteras internacionales de French (fuente fiable, historia desde 1990)
+    for lab, (cls, fname) in FRENCH_INTL.items():
+        d, e = french_zip(FRENCH_BASE + fname, lab)
+        if d is None:
+            add(lab, None, cls, "Ken French (internacional)", err=e)
+            continue
+        cols = [c for c in d.columns if "Mkt" in c]
+        rfc = [c for c in d.columns if c.strip() == "RF"]
+        if not cols:
+            add(lab, None, cls, "Ken French (internacional)", err="sin columna de mercado")
+            continue
+        serie = d[cols[0]] + (d[rfc[0]] if rfc else 0)
+        add(lab, serie, cls, "Ken French (internacional)")
+
+    # Fuentes de mercado: Yahoo primero, Stooq de respaldo
     t_opt = time.time()
-    for tick, (lab, cls) in STOOQ.items():
+    for lab, (cls, ysym, stick, note) in MARKET.items():
         if time.time() - t_opt > OPTIONAL_BUDGET_S:
-            add(lab, None, cls, f"Stooq / {tick}",
+            add(lab, None, cls, "mercado", note,
                 err="omitido: presupuesto de tiempo agotado")
             continue
-        s, e = stooq_monthly(tick)
-        add(lab, s, cls, f"Stooq / {tick}", err=e if s is None else None)
+        r, e1 = yahoo_monthly(ysym)
+        if r is not None:
+            add(lab, r, cls, f"Yahoo / {ysym}", note)
+            continue
+        r2, e2 = stooq_monthly(stick)
+        if r2 is not None:
+            add(lab, r2, cls, f"Stooq / {stick}", note)
+        else:
+            add(lab, None, cls, f"Yahoo {ysym} · Stooq {stick}", note,
+                err=f"yahoo: {e1} | stooq: {e2}"[:200])
 
     R = pd.DataFrame(rets)
     if rf is None:
@@ -855,28 +920,54 @@ def backtest(X: pd.DataFrame, phases: pd.Series, top_k: int = 5, min_train: int 
         w = (tau2 / (tau2 + se ** 2)).fillna(0.0)
         return grand + w * (mu - grand)
 
-    lg, sp, ins, dates = [], [], [], []
+    def inv_vol_weights(hist, names):
+        """Pesos por inverso de la volatilidad. Es un criterio a priori, no ajustado
+        a los datos: evita que la cartera sea de facto una apuesta apalancada a
+        renta variable solo porque es lo más volátil del universo."""
+        v = hist[list(names)].std()
+        v = v.replace(0, np.nan).dropna()
+        if v.empty:
+            return pd.Series(1.0 / len(names), index=list(names))
+        w = 1.0 / v
+        return w / w.sum()
+
+    lg, sp, ins, tl, dates = [], [], [], [], []
     full = {p: means(X, ph, p) for p in PHASES}
+    eq_col = "Renta variable EE.UU. (mercado)"
+    bd_col = "Treasury 10 años"
+
     for k in range(min_train, len(common)):
         t = common[k]
         sig = ph.iloc[k - 1]
-        mu = means(X.iloc[:k], ph.iloc[:k], sig)
+        hist, hph = X.iloc[:k], ph.iloc[:k]
+        mu = means(hist, hph, sig)
         avail = X.loc[t].dropna().index
         rank = mu.reindex(avail).dropna().sort_values(ascending=False)
         if rank.size < 2 * top_k:
             continue
         top, bot = rank.head(top_k).index, rank.tail(top_k).index
-        lg.append(float(X.loc[t, top].mean()))
+        wt = inv_vol_weights(hist, top)
+        lg.append(float((X.loc[t, top] * wt).sum()))
         sp.append(float(X.loc[t, top].mean() - X.loc[t, bot].mean()))
         rk = full[sig].reindex(avail).dropna().sort_values(ascending=False)
-        ins.append(float(X.loc[t, rk.head(top_k).index].mean()))
+        wi = inv_vol_weights(hist, rk.head(top_k).index)
+        ins.append(float((X.loc[t, rk.head(top_k).index] * wi).sum()))
+
+        # Inclinación realista: 60/40 de base, ±20 puntos hacia lo mejor de la fase
+        if eq_col in avail and bd_col in avail:
+            base = 0.6 * float(X.loc[t, eq_col]) + 0.4 * float(X.loc[t, bd_col])
+            tilt = float((X.loc[t, top] * wt).sum())
+            tl.append(0.8 * base + 0.2 * tilt)
+        else:
+            tl.append(float("nan"))
         dates.append(t)
 
     L = pd.Series(lg, index=dates)
     S = pd.Series(sp, index=dates)
     I = pd.Series(ins, index=dates)
-    eq = X.get("Renta variable EE.UU. (mercado)")
-    bd = X.get("Treasury 10 años")
+    T = pd.Series(tl, index=dates).dropna()
+    eq = X.get(eq_col)
+    bd = X.get(bd_col)
     bench = (0.6 * eq + 0.4 * bd).reindex(dates) if eq is not None and bd is not None else None
     scaled = L * float(bench.std() / L.std()) if bench is not None and L.std() > 0 else None
 
@@ -887,7 +978,7 @@ def backtest(X: pd.DataFrame, phases: pd.Series, top_k: int = 5, min_train: int 
                     and bench.loc[d] == bench.loc[d] else None)} for d in dates]
 
     print(f"  ✓ {len(L)} meses fuera de muestra desde {dates[0].date()}")
-    return {"long": perf(L), "spread": perf(S),
+    return {"long": perf(L), "spread": perf(S), "tilt": perf(T),
             "scaled": perf(scaled) if scaled is not None else {},
             "in_sample": perf(I),
             "bench_6040": perf(bench) if bench is not None else {},

@@ -74,6 +74,15 @@ def fake_french(url, hint=""):
     return pd.DataFrame(data, index=IDX_M), None
 
 
+def fake_yahoo(sym):
+    if sym in ("MUB", "MBB", "BTC-USD"):
+        return None, "429 Too Many Requests (simulado)"
+    n = len(IDX_M) if sym not in ("HYG", "LQD", "TIP") else 240
+    idx = IDX_M[-n:]
+    return pd.Series(0.5 + 2.0 * np.gradient(cycle)[-n:] + rng.normal(0, 3.0, n),
+                     index=idx), None
+
+
 def fake_stooq(ticker):
     if ticker in ("mub.us", "mbb.us"):
         return None, "limite diario excedido (simulado)"
@@ -84,6 +93,7 @@ def fake_stooq(ticker):
 bd.fred_series = lambda sid: (synth(sid), None) if synth(sid) is not None else (None, "sintetico")
 bd.french_zip = fake_french
 bd.stooq_monthly = fake_stooq
+bd.yahoo_monthly = fake_yahoo
 bd.main()
 
 d = json.load(open("/tmp/test_data.json", encoding="utf-8"))
@@ -108,7 +118,10 @@ clases = {}
 for a in d["assets"]:
     clases[a["class"]] = clases.get(a["class"], 0) + 1
 print("por clase:", clases)
+nombres = {a["name"] for a in d["assets"]}
+assert any("Oro" in n for n in nombres), "falta el oro"
 assert any(a["class"] == "Real / alternativos" for a in d["assets"]), "sin activos reales"
+assert d["backtest"].get("tilt"), "falta la cartera inclinada"
 ids = {i["id"] for i in d["indicators"]}
 assert "BAA_AAA" in ids, "falta el diferencial derivado"
 print("indicadores:", len(d["indicators"]), "/", d["meta"]["series_total"])
