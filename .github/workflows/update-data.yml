@@ -2,6 +2,8 @@ name: Actualizar datos
 
 on:
   schedule:
+    # 13:10 UTC de lunes a viernes: después de la ventana habitual de publicación
+    # de datos macro en EE.UU. (8:30 ET).
     - cron: "10 13 * * 1-5"
   workflow_dispatch:
   push:
@@ -20,7 +22,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -33,18 +35,18 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Autotest sin red
-        run: python scripts/_selftest.py
+        run: python -u scripts/_selftest.py
 
       - name: Generar data.json
-        run: python scripts/build_data.py
+        run: python -u scripts/build_data.py
 
-      - name: Comprobar que el fichero es valido
+      - name: Comprobar que el fichero es válido
         run: |
           python - <<'PY'
-          import json
+          import json, sys
           d = json.load(open("docs/data/data.json", encoding="utf-8"))
           assert d["current"]["phase"], "sin fase"
-          assert len(d["history"]) > 300, "historico corto"
+          assert len(d["history"]) > 300, "histórico corto"
           assert len(d["assets"]) > 5, "pocos activos"
           print("fase:", d["current"]["phase"],
                 "| confianza:", d["current"]["confidence"],
