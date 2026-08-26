@@ -46,7 +46,7 @@ peticiones de desempleo, ventas reales de manufactura y comercio, renta personal
 real sin transferencias, ventas minoristas reales, utilización de capacidad,
 sentimiento del consumidor y viviendas iniciadas.
 
-El ancla es el **CFNAI** del Chicago Fed: es a su vez el primer componente principal
+El ancla conceptual es el **CFNAI** del Chicago Fed: es a su vez el primer componente principal
 de 85 indicadores mensuales y está construido para que cero sea el crecimiento
 tendencial. Eso resuelve el problema del «output gap» sin tener que estimar el PIB
 potencial. Las cuatro series del comité de fechado del NBER (empleo, renta,
@@ -59,14 +59,20 @@ producción, salarios por hora, breakeven a 5 años, breakeven 5a5a y petróleo.
 Se mezclan deliberadamente medidas realizadas y expectativas de mercado: las
 primeras dicen dónde está la inflación, las segundas si el mercado cree que se queda.
 
-**Condiciones adelantadas.** Curva 10a-3m, curva 10a-2a, NFCI del Chicago Fed,
-diferencial high yield, permisos de construcción, índice adelantado de la Fed de
-Filadelfia, VIX y horas semanales en manufactura.
+**Condiciones financieras.** NFCI del Chicago Fed, diferencial high yield,
+permisos de construcción, índice adelantado de la Fed de Filadelfia, VIX y horas
+semanales en manufactura.
 
 Este bloque **no entra en la clasificación de la fase actual**. Es una decisión
 consciente: mezclar indicadores adelantados con coincidentes contamina el
-diagnóstico del presente con una previsión. Se usa solo para el panel de
-perspectiva y para el modelo de recesión.
+diagnóstico del presente con una previsión.
+
+**Aparte del PCA: la curva de tipos.** La curva 10a-3m y la 10a-2a se muestran
+solas y alimentan el modelo de recesión, pero no entran en ningún componente
+principal. El motivo es empírico: al incluirlas, su carga salía prácticamente
+nula. Tiene sentido — la curva *anticipa* 12-18 meses, no co-mueve con lo que
+está pasando ahora, y un componente principal solo captura lo que co-mueve.
+Forzarla dentro daba un factor que parecía incluirla y en realidad la ignoraba.
 
 ### 2.3 Retrasos de publicación
 
@@ -93,10 +99,14 @@ domine la extracción del componente principal.
 ## 3. Los factores
 
 Para cada bloque se calcula la matriz de correlaciones de los z-scores y se toma el
-autovector asociado al mayor autovalor. Ese vector es el peso de cada serie. El
-signo se ancla a una serie de referencia (CFNAI en crecimiento, PCE subyacente en
-inflación, curva en el bloque adelantado) para que el factor sea interpretable en la
-dirección esperada.
+autovector asociado al mayor autovalor. Ese vector es el peso de cada serie.
+
+El signo se ancla **por correlación con la media simple del bloque**. Todas las
+series entran ya orientadas en el mismo sentido (las que van al revés se invierten
+explícitamente: paro, VIX, diferenciales), así que el factor tiene que co-moverse
+con su propio promedio. Anclar a una serie concreta, como hacía la primera versión,
+falla cuando esa serie sale con carga casi nula: el signo queda a merced del ruido.
+El panel publica esa correlación como "coherencia" para que se vea.
 
 La proyección tolera huecos: cada mes promedia las series disponibles con sus pesos
 en lugar de exigir el panel completo. Así el histórico arranca en los años sesenta
@@ -178,7 +188,14 @@ Para cada activo y cada fase:
    | `0` | indistinguible de su propia media |
    | `s/d` | menos de 12 meses en esa fase |
 
-5. Como se contrastan del orden de 150 casillas a la vez, se aplica
+5. Además del contraste se publica la **media contraída** (James-Stein): las medias
+   por fase se estiman con pocas observaciones y son ruidosas, así que se acercan a
+   la media del propio activo en proporción al ruido de estimación. Si la dispersión
+   entre fases no supera al ruido, la contracción es total y las cuatro fases se
+   igualan — que es la respuesta correcta cuando no hay señal. El backtest usa las
+   medias contraídas, no las crudas.
+
+6. Como se contrastan del orden de 150 casillas a la vez, se aplica
    **Benjamini-Hochberg** sobre el conjunto: con 150 pruebas al 5 %, siete u ocho
    «hallazgos» son puro azar. El q-value aparece en el tooltip de cada celda.
 
@@ -201,10 +218,19 @@ En el mes *t*:
 Se necesitan 240 meses de entrenamiento antes de la primera operación, así que el
 resultado fuera de muestra arranca dos décadas después del inicio del histórico.
 
-En paralelo se calcula la misma estrategia **con las medias de la muestra completa**,
+Se publican tres versiones de la cartera, porque comparar rentabilidad bruta contra
+un 60/40 es tramposo si la cartera del reloj lleva más riesgo:
+
+- **Larga**: los 5 mejores de la fase, equiponderados.
+- **Volatilidad igualada**: la misma cartera escalada para tener la volatilidad del
+  60/40. Es la única comparación limpia de rentabilidad frente al índice.
+- **Larga menos corta**: compra los 5 mejores y vende los 5 peores. Elimina el beta
+  de mercado y deja solo la señal de fase. Si esta cartera no gana dinero, el reloj
+  no aporta información: lo que aportaba era exposición.
+
+En paralelo se calcula la cartera larga **con las medias de la muestra completa**,
 que es lo que hace un backtest ingenuo. La diferencia entre ambas curvas es la
-medida directa del sobreajuste, y se publica en el panel en lugar de esconderse. Las
-referencias son un 60/40 estático y la cartera equiponderada de todo el universo.
+medida directa del sobreajuste, y se publica en el panel en lugar de esconderse.
 
 ---
 
@@ -216,6 +242,11 @@ referencias son un 60/40 estático y la cartera equiponderada de todo el univers
   Estanflación.
 - **Persistencia**: duración media de cada tramo y matriz de transición mensual. Una
   diagonal alta indica que el clasificador no salta de cuadrante con el ruido.
+- **¿Gira el reloj?** Se cuenta qué proporción de las transiciones sigue el sentido
+  que el marco presupone (Recuperación → Sobrecalentamiento → Estanflación →
+  Reflación). Si esa proporción es baja, la premisa de rotación ordenada no se
+  sostiene con los datos, y conviene saberlo antes de usar el marco para anticipar
+  la fase siguiente.
 - **Correlación entre ejes**: al venir de bloques distintos no son ortogonales por
   construcción; si la correlación fuera alta, los cuatro cuadrantes no serían
   independientes y el marco perdería sentido.

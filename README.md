@@ -26,6 +26,17 @@ GitHub Pages sirve la página.
 
 ---
 
+## Diagnóstico incorporado
+
+El panel tiene una sección que registra **cada intento de descarga**, con su motivo
+de fallo si lo hubo. Ninguna fuente puede caerse en silencio: Stooq, por ejemplo,
+devuelve un 200 con un mensaje de error cuando se supera su límite diario, y la
+primera versión lo descartaba sin decir nada.
+
+También publica cuántas casillas de la tabla de activos sobreviven al control de
+falsos descubrimientos. Si son pocas, el panel lo dice en lugar de mostrar
+recomendaciones con aspecto de certeza.
+
 ## Puesta en marcha
 
 1. **Crea el repositorio** y sube estos archivos tal cual.
