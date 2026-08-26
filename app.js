@@ -93,6 +93,7 @@ function render() {
   renderTimeline();
   renderMatrix();
   renderRobustness();
+  renderDefensive();
   renderConsensus();
   renderBacktest();
   renderValidation();
@@ -656,6 +657,69 @@ function renderDiagnostics() {
       <div><ul>${w.map(x => `<li>${x}</li>`).join("")}</ul></div></details>` : ""}`;
 }
 
+
+/* --------------------------- superposición defensiva -------------------------- */
+const DEF_LABEL = {
+  base_6040: "60/40 estático (referencia)",
+  a_bonos: "Defensiva a bonos largos",
+  b_corto: "Defensiva a duración corta",
+  c_oro: "Defensiva a bonos y oro",
+};
+
+function renderDefensive() {
+  const p = D.defensive || {};
+  const base = p.base_6040;
+  if (!base) { $("#defensiveBlock").innerHTML = ""; return; }
+  const rows = ["base_6040", "a_bonos", "b_corto", "c_oro"]
+    .filter(k => p[k] && p[k].cagr != null)
+    .map(k => ({ k, ...p[k] }));
+  const best = rows.filter(r => r.k !== "base_6040")
+    .sort((a, b) => (b.sharpe ?? 0) - (a.sharpe ?? 0))[0];
+
+  $("#defensiveBlock").innerHTML = `
+    <div class="block-head">
+      <span class="eyebrow">Protección</span>
+      <h2>Reducir riesgo cuando el crecimiento cae bajo tendencia</h2>
+      <p class="cap">Un 60/40 normal, que pasa a defensivo el mes siguiente a que el eje de
+        crecimiento cruce por debajo de cero. Sin umbrales ajustados: el umbral es el cero,
+        que por construcción significa "en tendencia". Estuvo en modo defensivo el
+        <b>${fmtPct(p.share_defensive, 0)}</b> de los meses.</p>
+    </div>
+    <div class="matrix-holder">
+      <table class="matrix">
+        <thead><tr>
+          <th>Regla</th><th style="text-align:right">Anual</th><th style="text-align:right">Vol</th>
+          <th style="text-align:right">Sharpe</th><th style="text-align:right">Caída máx.</th>
+          <th style="text-align:right">Peor año</th><th style="text-align:right">t</th>
+        </tr></thead>
+        <tbody>${rows.map(r => {
+          const isBase = r.k === "base_6040";
+          const better = !isBase && r.sharpe > base.sharpe;
+          return `<tr style="${isBase ? "background:rgba(255,255,255,.03)" : ""}">
+            <td class="asset" style="color:${better ? "var(--recuperacion)" : ""}">${DEF_LABEL[r.k]}</td>
+            <td style="text-align:right;font-family:var(--mono)">${fmtNum(r.cagr, 1)}%</td>
+            <td style="text-align:right;font-family:var(--mono)">${fmtNum(r.vol, 1)}%</td>
+            <td style="text-align:right;font-family:var(--mono);font-weight:600;color:${
+              better ? "var(--recuperacion)" : isBase ? "var(--text)" : "var(--muted)"}">${fmtNum(r.sharpe, 2)}</td>
+            <td style="text-align:right;font-family:var(--mono)">${fmtNum(r.maxdd, 1)}%</td>
+            <td style="text-align:right;font-family:var(--mono)">${fmtNum(r.worst12, 1)}%</td>
+            <td style="text-align:right;font-family:var(--mono);color:var(--muted)">${fmtNum(r.t, 1)}</td>
+          </tr>`;
+        }).join("")}</tbody>
+      </table>
+    </div>
+    <p class="gap-note" style="border-left-color:${
+      best && best.sharpe > base.sharpe ? "var(--recuperacion)" : "var(--sobrecalentamiento)"}">
+      ${best && best.sharpe > base.sharpe
+        ? `La mejor regla (<b>${DEF_LABEL[best.k]}</b>) mejora el Sharpe del 60/40 en
+           ${fmtNum(best.sharpe - base.sharpe, 2)} y recorta la caída máxima de
+           ${fmtNum(base.maxdd, 0)}% a ${fmtNum(best.maxdd, 0)}%.`
+        : `Ninguna regla mejora al 60/40. Desapalancar por ciclo no protegió más de lo que costó.`}
+      Se probaron <b>${p.n_variants}</b> variantes: quedarse con la mejor de varias infla el
+      resultado, así que están las ${p.n_variants} publicadas y no solo la ganadora.
+      El disparador es ${p.trigger}, sin ningún parámetro ajustado a los datos.</p>`;
+}
+
 /* -------------------------------- backtest ------------------------------ */
 function renderBacktest() {
   const bt = D.backtest || {};
@@ -680,10 +744,11 @@ function renderBacktest() {
     ? bt.scaled.sharpe - bench.sharpe : null;
   $("#btStats").innerHTML = `
     <table>
-      <thead><tr><th>Cartera</th><th>Anual</th><th>Vol</th><th>Sharpe</th><th>Caída máx.</th><th>t</th></tr></thead>
+      <thead><tr><th>Cartera</th><th>Anual</th><th>Vol</th><th>Sharpe</th><th>Caída máx.</th><th>Peor año</th><th>t</th></tr></thead>
       <tbody>${rows.map(([n, s]) => `
         <tr><td>${n}</td><td>${fmtNum(s.cagr, 1)}%</td><td>${fmtNum(s.vol, 1)}%</td>
-        <td>${fmtNum(s.sharpe, 2)}</td><td>${fmtNum(s.maxdd, 1)}%</td><td>${fmtNum(s.t, 1)}</td></tr>`).join("")}
+        <td>${fmtNum(s.sharpe, 2)}</td><td>${fmtNum(s.maxdd, 1)}%</td>
+        <td>${fmtNum(s.worst12, 1)}%</td><td>${fmtNum(s.t, 1)}</td></tr>`).join("")}
       </tbody>
     </table>
     <p class="gap-note">${gap == null ? "" : `Optimizar con la muestra completa habría dado
