@@ -629,8 +629,10 @@ def fetch_assets(df: pd.DataFrame):
         rf = ff["RF"]
         add("Renta variable EE.UU. (mercado)", ff["Mkt-RF"] + rf, "Renta variable",
             "Ken French")
-        add("Prima Value (HML)", ff["HML"], "Estilo", "Ken French")
-        add("Prima Tamaño (SMB)", ff["SMB"], "Estilo", "Ken French")
+        add("Prima Value (HML)", ff["HML"], "Prima (largo-corto)", "Ken French",
+            "no invertible en una cartera solo larga: queda fuera de la asignación")
+        add("Prima Tamaño (SMB)", ff["SMB"], "Prima (largo-corto)", "Ken French",
+            "no invertible en una cartera solo larga: queda fuera de la asignación")
     else:
         warn(f"Ken French factores: {err}")
 
@@ -657,7 +659,8 @@ def fetch_assets(df: pd.DataFrame):
     if mom is not None:
         c = [x for x in mom.columns if "Mom" in x]
         if c:
-            add("Prima Momentum", mom[c[0]], "Estilo", "Ken French")
+            add("Prima Momentum", mom[c[0]], "Prima (largo-corto)", "Ken French",
+                "no invertible en una cartera solo larga: queda fuera de la asignación")
 
     def first_usable(candidates, label, cls, prefix, note=""):
         """Prueba los IDs en orden y se queda con el primero que traiga historia."""
@@ -1053,6 +1056,127 @@ def defensive(X: pd.DataFrame, growth: pd.Series) -> dict:
     return res
 
 
+
+# ======================================================================================
+# 7b. Rotación por fase, solo largo y sin apalancar
+# ======================================================================================
+
+# Presupuesto fijo, idéntico en todas las fases: 60 % activos de riesgo, 30 % renta
+# fija, 10 % activos reales. Lo que cambia con la fase es QUÉ hay dentro de cada
+# bloque, no cuánto pesa. Así la comparación con el 60/40 es limpia: misma postura
+# de riesgo, distinto contenido. Sin apalancamiento y sin posiciones cortas.
+SLEEVES = {
+    "Renta variable": ({"Renta variable", "Estilo"}, 0.60, 4),
+    "Renta fija": ({"Renta fija", "Liquidez"}, 0.30, 2),
+    "Activos reales": ({"Real / alternativos"}, 0.10, 1),
+}
+
+
+def _sleeve_pick(mu, vol, avail, classes, cls_map, n_pick):
+    cand = [c for c in avail if cls_map.get(c) in classes]
+    if not cand:
+        return {}
+    score = (mu.reindex(cand) / vol.reindex(cand)).replace(
+        [np.inf, -np.inf], np.nan).dropna()
+    if score.empty:
+        return {}
+    top = score.sort_values(ascending=False).head(n_pick).index
+    v = vol.reindex(top).replace(0, np.nan).dropna()
+    if v.empty:
+        return {c: 1.0 / len(top) for c in top}
+    w = (1.0 / v)
+    return (w / w.sum()).to_dict()
+
+
+def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
+             min_train: int = 240) -> dict:
+    """Cartera solo larga, siempre invertida al 100 %, con el mismo reparto por
+    bloques en todas las fases. La fase decide únicamente qué activos ocupan cada
+    bloque. Selección por rentabilidad contraída dividida entre volatilidad, y
+    reparto dentro del bloque por inverso de la volatilidad."""
+    print("7. Rotación por fase (solo largo, sin apalancar)…")
+    common = X.dropna(how="all").index.intersection(phases.dropna().index)
+    X = X.loc[common]
+    ph = phases.loc[common]
+    if len(common) < min_train + 60:
+        return {}
+
+    def means(hist, hph, phase):
+        sub = hist[hph == phase]
+        if sub.empty:
+            return pd.Series(dtype=float)
+        grand = hist.mean()
+        mu = sub.mean()
+        se = sub.std() / np.sqrt(sub.notna().sum().clip(lower=1))
+        tau2 = (mu - grand).var()
+        return grand + (tau2 / (tau2 + se ** 2)).fillna(0.0) * (mu - grand)
+
+    rets, dates, held = [], [], []
+    for k in range(min_train, len(common)):
+        t = common[k]
+        sig = ph.iloc[k - 1]
+        hist, hph = X.iloc[:k], ph.iloc[:k]
+        mu, vol = means(hist, hph, sig), hist.std()
+        avail = list(X.loc[t].dropna().index)
+        w_all, r = {}, 0.0
+        for _, (classes, budget, n_pick) in SLEEVES.items():
+            w = _sleeve_pick(mu, vol, avail, classes, cls_map, n_pick)
+            for c, wt in w.items():
+                w_all[c] = budget * wt
+        if not w_all:
+            continue
+        tot = sum(w_all.values())
+        for c, wt in w_all.items():
+            r += (wt / tot) * float(X.loc[t, c])
+        rets.append(r)
+        dates.append(t)
+        held.append(sig)
+
+    R = pd.Series(rets, index=dates)
+    eq, bd = X.get("Renta variable EE.UU. (mercado)"), X.get("Treasury 10 años")
+    bench = (0.6 * eq + 0.4 * bd).reindex(dates) if eq is not None and bd is not None else None
+
+    # Comportamiento por fase, para ver dónde gana y dónde pierde
+    by_phase = {}
+    hp = pd.Series(held, index=dates)
+    for phase in PHASES:
+        m = hp == phase
+        if m.sum() < 12:
+            continue
+        entry = {"n": int(m.sum()),
+                 "ann": round(float(R[m].mean() * 12), 2)}
+        if bench is not None:
+            entry["bench_ann"] = round(float(bench[m].mean() * 12), 2)
+            entry["edge"] = round(entry["ann"] - entry["bench_ann"], 2)
+        by_phase[phase] = entry
+
+    # Guion de cartera: qué compraría hoy en cada fase, con toda la historia
+    playbook = {}
+    vol_all = X.std()
+    for phase in PHASES:
+        mu = means(X, ph, phase)
+        avail = list(X.columns[X.iloc[-1].notna()])
+        rows = []
+        for sleeve, (classes, budget, n_pick) in SLEEVES.items():
+            w = _sleeve_pick(mu, vol_all, avail, classes, cls_map, n_pick)
+            for c, wt in sorted(w.items(), key=lambda kv: -kv[1]):
+                rows.append({"sleeve": sleeve, "name": c,
+                             "weight": round(budget * wt * 100, 1),
+                             "class": cls_map.get(c, "")})
+        playbook[phase] = rows
+
+    curve = [{"d": d.strftime("%Y-%m"), "s": round(float(R.loc[d]), 4),
+              "b": (round(float(bench.loc[d]), 4)
+                    if bench is not None and bench.loc[d] == bench.loc[d] else None)}
+             for d in dates]
+    print(f"  ✓ {len(R)} meses desde {dates[0].date()}")
+    return {"portfolio": perf(R),
+            "bench_6040": perf(bench) if bench is not None else {},
+            "by_phase": by_phase, "playbook": playbook,
+            "sleeves": {k: [sorted(v[0]), v[1], v[2]] for k, v in SLEEVES.items()},
+            "curve": curve[-460:]}
+
+
 # ======================================================================================
 # 8. Validación
 # ======================================================================================
@@ -1127,6 +1251,8 @@ def main() -> None:
     assets, astats = conditional_stats(X, phases, ameta)
     bt = backtest(X, phases)
     prot = defensive(X, F["growth"])
+    cls_map = {k: v.get("class", "Otros") for k, v in ameta.items()}
+    rot = rotation(X, phases, cls_map)
     val = validation(df, F, phases)
     rec = recession_model(df, F.index)
 
@@ -1207,7 +1333,7 @@ def main() -> None:
         },
         "pca": pca, "indicators": indicators, "history": history, "nber": nber,
         "assets": assets, "asset_stats": astats, "consensus": consensus[:14],
-        "backtest": bt, "defensive": prot, "validation": val,
+        "backtest": bt, "defensive": prot, "rotation": rot, "validation": val,
         "phases": PHASES, "phase_long": PHASE_LONG,
     }
 
