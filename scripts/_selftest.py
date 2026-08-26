@@ -56,8 +56,14 @@ def synth(sid: str):
 
 
 def fake_french(url, hint=""):
-    cols = list(bd.FRENCH_IND) if "Industry" in url else (
-        ["Mkt-RF", "SMB", "HML", "RF"] if "Factors" in url else ["Mom"])
+    if "49_Industry" in url:
+        cols = list(bd.FRENCH_49)
+    elif "12_Industry" in url:
+        cols = list(bd.FRENCH_IND)
+    elif "Factors" in url:
+        cols = ["Mkt-RF", "SMB", "HML", "RF"]
+    else:
+        cols = ["Mom"]
     data = {}
     for c in cols:
         if c == "RF":
@@ -98,4 +104,12 @@ print("stats casillas:", d["asset_stats"])
 print("rotacion:", d["validation"].get("rotation"))
 fallos=[a for a in d["meta"]["asset_log"] if a["status"]!="ok"]
 print("activos no cargados:", [(a["name"],a["status"]) for a in fallos])
+clases = {}
+for a in d["assets"]:
+    clases[a["class"]] = clases.get(a["class"], 0) + 1
+print("por clase:", clases)
+assert any(a["class"] == "Real / alternativos" for a in d["assets"]), "sin activos reales"
+ids = {i["id"] for i in d["indicators"]}
+assert "BAA_AAA" in ids, "falta el diferencial derivado"
+print("indicadores:", len(d["indicators"]), "/", d["meta"]["series_total"])
 print("validación NBER:", d["validation"].get("nber"))
