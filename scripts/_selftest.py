@@ -43,10 +43,12 @@ def synth(sid: str):
     block = spec.block if spec else "growth"
     drive = cycle if block != "inflation" else infl_cycle
     if sid in ("CFNAIMA3", "USSLIND", "MEDCPIM158SFRBCLE", "PCETRIM12M159SFRBDAL",
-               "TCU", "UMCSENT", "AWHMAN", "UNRATE", "TB3MS", "FEDFUNDS"):
+               "TCU", "UMCSENT", "AWHMAN", "UNRATE", "TB3MS", "FEDFUNDS",
+               "BAA", "AAA", "DFII10"):
         base = {"CFNAIMA3": 0, "USSLIND": 1.5, "MEDCPIM158SFRBCLE": 2.8,
                 "PCETRIM12M159SFRBDAL": 2.4, "TCU": 78, "UMCSENT": 85,
-                "AWHMAN": 40.5, "UNRATE": 5.5, "TB3MS": 3.0, "FEDFUNDS": 3.2}[sid]
+                "AWHMAN": 40.5, "UNRATE": 5.5, "TB3MS": 3.0, "FEDFUNDS": 3.2,
+                "BAA": 6.5, "AAA": 5.5, "DFII10": 1.6}[sid]
         return pd.Series(base + 1.2 * drive + rng.normal(0, 0.2, len(IDX_M)),
                          index=IDX_M, name=sid)
     growth = 0.003 + 0.004 * drive + rng.normal(0, 0.004, len(IDX_M))
@@ -54,7 +56,7 @@ def synth(sid: str):
 
 
 def fake_french(url, hint=""):
-    cols = list(bd.FRENCH_IND_MAP) if "Industry" in url else (
+    cols = list(bd.FRENCH_IND) if "Industry" in url else (
         ["Mkt-RF", "SMB", "HML", "RF"] if "Factors" in url else ["Mom"])
     data = {}
     for c in cols:
@@ -63,15 +65,17 @@ def fake_french(url, hint=""):
         else:
             data[c] = 0.7 + 2.5 * np.gradient(cycle) * (1 + 0.3 * rng.random()) \
                       + rng.normal(0, 3.5, len(IDX_M))
-    return pd.DataFrame(data, index=IDX_M)
+    return pd.DataFrame(data, index=IDX_M), None
 
 
 def fake_stooq(ticker):
+    if ticker in ("mub.us", "mbb.us"):
+        return None, "limite diario excedido (simulado)"
     return pd.Series(0.5 + 2.0 * np.gradient(cycle) + rng.normal(0, 3.0, len(IDX_M)),
-                     index=IDX_M)
+                     index=IDX_M), None
 
 
-bd.fred_series = synth
+bd.fred_series = lambda sid: (synth(sid), None) if synth(sid) is not None else (None, "sintetico")
 bd.french_zip = fake_french
 bd.stooq_monthly = fake_stooq
 bd.main()
@@ -82,10 +86,16 @@ assert abs(sum(d["current"]["probs"].values()) - 1) < 5e-4, "probabilidades no s
 assert len(d["history"]) > 500
 assert len(d["indicators"]) >= 20
 assert len(d["assets"]) >= 10
-assert d["backtest"].get("oos"), "backtest vacío"
+assert d["backtest"].get("long"), "backtest vacío"
 assert d["validation"]["transition"]
 print("\nOK — claves:", sorted(d.keys()))
 print("fase:", d["current"]["phase"], "| conf:", d["current"]["confidence"])
-print("activos:", len(d["assets"]), "| oos:", d["backtest"]["oos"])
+print("activos:", len(d["assets"]), "| larga:", d["backtest"]["long"])
+print("spread:", d["backtest"]["spread"])
+print("escalada:", d["backtest"]["scaled"])
 print("in-sample:", d["backtest"]["in_sample"])
+print("stats casillas:", d["asset_stats"])
+print("rotacion:", d["validation"].get("rotation"))
+fallos=[a for a in d["meta"]["asset_log"] if a["status"]!="ok"]
+print("activos no cargados:", [(a["name"],a["status"]) for a in fallos])
 print("validación NBER:", d["validation"].get("nber"))
