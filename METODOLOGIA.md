@@ -30,14 +30,25 @@ Aquí las dos coordenadas se estiman:
 
 ### 2.1 Fuentes
 
-- **FRED** (Reserva Federal de St. Louis): series macro y tipos. Descarga por CSV
-  público, sin clave de API.
-- **ICE BofA** vía FRED: índices de retorno total de crédito IG, HY y emergentes.
-- **Biblioteca de Kenneth French** (Dartmouth): 12 carteras sectoriales y factores
-  desde 1926, con retorno total y tipo libre de riesgo consistentes entre sí.
-- **Stooq**: ETFs y activos reales modernos (oro, materias primas, REITs, TIPS,
-  municipales, MBS, estilos). Es la fuente más frágil de las cuatro; si falla, el
-  activo desaparece del panel en lugar de rellenarse con supuestos.
+- **FRED** (Reserva Federal de St. Louis): series macro y tipos. Los retornos de
+  deuda pública y crédito con historia larga se derivan de la TIR por duración y
+  convexidad, no de un índice de retorno total.
+- **Biblioteca de Kenneth French** (Dartmouth): carteras sectoriales y factores
+  desde 1926, con retorno total y tipo libre de riesgo consistentes entre sí. Es la
+  fuente que nunca ha fallado, y de ella sale casi toda la historia previa a 1990.
+- **Yahoo Finance**: ETFs y activos reales modernos (oro, plata, materias primas,
+  cobre, REITs, crédito IG y HY, TIPS, municipales, MBS, emergentes). Fuente
+  primaria de mercado desde 2026.
+- **Stooq**: respaldo de la anterior. Bloquea las IP de los servidores de GitHub,
+  así que en la práctica casi nunca responde; se mantiene por si vuelve.
+
+Los índices de retorno total de **ICE BofA** en FRED quedaron truncados a tres años
+en abril de 2026, incluidos los subconjuntos por rating. El crédito se cubre desde
+entonces con los rendimientos Baa y Aaa de Moody's (desde 1919) y con ETF reales
+para el tramo moderno.
+
+Si una fuente falla, el activo desaparece del panel y el motivo queda registrado en
+el apartado de diagnóstico. Nunca se rellena con supuestos.
 
 ### 2.2 Bloques
 
@@ -85,14 +96,36 @@ Esto no reconstruye las **revisiones** posteriores de cada dato —para eso har�
 falta una base de datos de vintages tipo ALFRED—, así que el backtest sigue siendo
 algo optimista. Está señalado en las limitaciones del panel.
 
-### 2.4 Estandarización expansiva
+### 2.4 Estandarización con ventana móvil
 
-`z_t = (x_t − media(x_0..x_t)) / desv(x_0..x_t)`, con un mínimo de 120 meses.
+`z_t = (x_t − media(x_{t−119}..x_t)) / desv(x_{t−119}..x_t)`, diez años, y ventana
+expansiva mientras no hay historia suficiente. Se recorta a ±4σ para que un dato
+como marzo de 2020 no domine la extracción del componente principal.
 
-Estandarizar con la muestra completa mete información del futuro en cada punto del
-pasado: en 1975 nadie conocía la media 1959-2026. Con ventana expansiva, el z-score
-de 1975 solo usa 1959-1975. Se recorta a ±4σ para que un dato como marzo de 2020 no
-domine la extracción del componente principal.
+Dos requisitos, y el segundo costó descubrirlo.
+
+**Causalidad.** Estandarizar con la muestra completa mete información del futuro en
+cada punto del pasado: en 1975 nadie conocía la media 1959-2026. La ventana solo
+mira hacia atrás.
+
+**Posición cíclica, no nivel.** La versión anterior usaba ventana expansiva, es
+decir la media desde 1959 en adelante. Con eso, el pico inflacionista de los setenta
+se queda dentro de la referencia para siempre, y el resultado era que de 1990 a 2020
+la inflación aparecía permanentemente por debajo de lo normal: en los años noventa y
+en la década de 2010 no había **ni un solo mes** de Sobrecalentamiento ni de
+Estanflación. El reloj se pasó veinte años usando dos de sus cuatro cuadrantes, y
+cualquier cartera medida sobre ese tramo estaba alternando dos etiquetas del mismo
+régimen macro.
+
+Un reloj mide dónde estás en el ciclo, no el nivel absoluto frente a medio siglo de
+historia. La pregunta correcta es «¿alto o bajo respecto a lo que ha sido normal
+últimamente?». Diez meses de ventana cubren un ciclo económico completo sin arrastrar
+un cambio de régimen de cuarenta años.
+
+El precio de este cambio es real y conviene tenerlo presente: una ventana móvil
+tiende a poblar los cuatro cuadrantes por construcción, así que parte de los cambios
+de fase que aparecen son ruido y no ciclo. La tabla de cuadrantes por década del
+panel existe para vigilar exactamente eso.
 
 ---
 
@@ -209,28 +242,59 @@ completos y ninguna casilla llegaría a significativa. Desde 1926 hay quince.
 
 ## 7. Backtest walk-forward
 
-En el mes *t*:
+Hay dos backtests y miden cosas distintas. Confundirlos es el error más fácil de
+cometer con este panel.
 
-1. Se lee la fase vigente en *t−1* (ya publicada, con sus retrasos aplicados).
-2. Se estima la media de cada activo en esa fase **usando solo datos hasta t−1**.
-3. Se compran los 5 mejores, equiponderados, y se mantienen durante el mes *t*.
+### 7.1 La cartera de señal (sección de matriz)
 
-Se necesitan 240 meses de entrenamiento antes de la primera operación, así que el
-resultado fuera de muestra arranca dos décadas después del inicio del histórico.
+Top-5 del universo entero por media contraída de la fase vigente, sin estructura de
+bloques ni bandas. No es una cartera que nadie mantendría: acaba concentrada en lo
+menos volátil y hay que apalancarla para llegar al riesgo de un 60/40. Sirve para
+una sola pregunta, la de si la fase contiene información. La respuesta la da la
+versión **larga menos corta**, que compra los 5 mejores y vende los 5 peores: elimina
+el beta de mercado y deja la señal desnuda. Si esa cartera no gana dinero, lo que
+aportaba el reloj era exposición, no información.
 
-Se publican tres versiones de la cartera, porque comparar rentabilidad bruta contra
-un 60/40 es tramposo si la cartera del reloj lleva más riesgo:
+### 7.2 La cartera implementable (sección de asignación)
 
-- **Larga**: los 5 mejores de la fase, equiponderados.
-- **Volatilidad igualada**: la misma cartera escalada para tener la volatilidad del
-  60/40. Es la única comparación limpia de rentabilidad frente al índice.
-- **Larga menos corta**: compra los 5 mejores y vende los 5 peores. Elimina el beta
-  de mercado y deja solo la señal de fase. Si esta cartera no gana dinero, el reloj
-  no aporta información: lo que aportaba era exposición.
+Es la que el panel recomienda. En el mes *t*:
 
-En paralelo se calcula la cartera larga **con las medias de la muestra completa**,
-que es lo que hace un backtest ingenuo. La diferencia entre ambas curvas es la
-medida directa del sobreajuste, y se publica en el panel en lugar de esconderse.
+1. Se lee la fase vigente en *t−1*, ya publicada y con sus retrasos aplicados.
+2. Con datos hasta *t−1* se calcula, para cada activo, su **ventaja de fase**: la
+   media condicionada a esa fase menos su propia media incondicional, por unidad de
+   volatilidad. Es lo único que el reloj dice saber. Ordenar por
+   rentabilidad/volatilidad absoluta —lo que se hacía antes— selecciona el mismo
+   puñado de activos defensivos en las cuatro fases y no es una rotación.
+3. Cada bloque se queda con sus mejores por esa ventaja: 4 en renta variable, 3 en
+   renta fija, 2 en activos reales, **equiponderados** entre sí.
+4. El reparto entre bloques parte de una postura neutra 60/30/10 y se desvía según
+   lo bien que puntúe cada bloque en esa fase respecto a su propio nivel habitual.
+5. Se mantiene durante el mes *t*, siempre invertida al 100 %, sin apalancar y sin
+   cortos.
+
+**Reglas de selección**, todas fijadas antes de mirar resultados:
+
+| Regla | Motivo |
+|---|---|
+| Bandas 30-70 % renta variable, 20-60 % renta fija, 0-15 % activos reales | Nunca sin renta variable ni sin renta fija; el oro puede irse a cero si no se lo gana |
+| Neutro en 60/30/10 | Misma postura de riesgo que el índice contra el que se mide. Si el neutro fuera 40/45/15, la comparación mediría nivel de riesgo, no rotación |
+| Desviación máxima de 1σ de la puntuación del bloque entre fases | Una fase excepcional lleva el bloque al borde de su banda, no más allá |
+| Índices agregados excluidos de la selección | S&P total, EAFE, emergentes y small caps copan el bloque de renta variable si se les deja, y desaparece la rotación sectorial. Siguen en la matriz como referencia |
+| Series no invertibles excluidas | PPI y WTI spot no se pueden mantener en cartera |
+| Un solo activo por exposición económica | Oro lingote y oro ETF son la misma cosa. Sin esta regla el bloque de activos reales se llenaba con las dos y salía un 15 % de oro disfrazado de diversificación. El representante se elige por historia disponible, antes de mirar retornos |
+| Mínimo 60 meses de historia | Un ETF con dos años de datos no gana la selección por ruido |
+| Tolerancia de 4 meses al retraso de publicación | Ken French publica con dos meses de desfase; exigir dato del último mes exacto dejaba fuera todos los sectores |
+| Equiponderación dentro del bloque | El inverso de volatilidad cancelaba la señal: si el reloj pide duración larga, eliges el Treasury a 30 años y acto seguido le pones cuatro veces menos peso por ser cuatro veces más volátil. El nivel de riesgo lo fijan las bandas entre bloques |
+| 120 meses de entrenamiento antes de la primera operación | Con 240 el backtest arrancaba en 1990 y se perdía Volcker, que es donde el reloj tiene las cuatro fases pobladas. El coste es que las estimaciones de los primeros años son más ruidosas |
+| Muestra recortada al último mes con benchmark | La estrategia y el 60/40 tienen que cubrir exactamente los mismos meses |
+
+### 7.3 La medida del sobreajuste
+
+En paralelo se juega **la misma regla** estimando la ventaja de fase con el
+histórico completo, incluido el futuro que en su momento no se conocía. La distancia
+entre las dos curvas es la parte del resultado que depende de saber cosas por
+adelantado. Se publica junto a la cartera real en lugar de esconderse: cuanto más
+pequeña, más se parece el backtest a lo que habrías vivido.
 
 ---
 
@@ -250,6 +314,14 @@ medida directa del sobreajuste, y se publica en el panel en lugar de esconderse.
 - **Correlación entre ejes**: al venir de bloques distintos no son ortogonales por
   construcción; si la correlación fuera alta, los cuatro cuadrantes no serían
   independientes y el marco perdería sentido.
+- **Cuadrantes usados por década**: cuántos meses cae cada fase en cada década. Es
+  la comprobación más útil del panel. Si una década entera usa solo dos cuadrantes,
+  la rotación no tiene nada que rotar en ese tramo, y cualquier resultado de cartera
+  medido ahí dice mucho menos de lo que parece.
+
+Sobre el sentido del reloj, una aclaración numérica: desde cada fase hay tres
+destinos posibles, así que el azar puro daría un 33 %. Por debajo de esa cifra el
+reloj gira al revés; solo muy por encima se puede hablar de un ciclo con dirección.
 
 ---
 
@@ -267,3 +339,12 @@ medida directa del sobreajuste, y se publica en el panel en lugar de esconderse.
 - **Cuatro cuadrantes son pocos.** Shocks de oferta, guerras y pandemias no caben en
   dos ejes, y son precisamente los momentos en que más cara sale una clasificación
   equivocada.
+- **No hay costes.** Ni comisiones, ni horquilla, ni impuestos. La cartera se
+  reequilibra entera cada mes, así que la rotación real rendiría menos que la del
+  panel, y la diferencia crece con el tamaño de las desviaciones entre bloques.
+- **Los sectores de Ken French no son invertibles tal cual.** Son carteras
+  académicas ponderadas por capitalización, no ETF. El ETF sectorial equivalente
+  tiene composición distinta, comisión y tracking error.
+- **La ventana móvil tiene un coste.** Puebla los cuatro cuadrantes por
+  construcción, así que parte de los cambios de fase son ruido. Se vigila con la
+  tabla de cuadrantes por década y con la duración media de los tramos.
