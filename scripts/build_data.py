@@ -1074,19 +1074,101 @@ SLEEVES = {
     "Activos reales": ({"Real / alternativos"}, 0.00, 0.15, 2),
 }
 
-# Índices agregados: sirven de referencia, no de posición. Si entran en la selección
-# copan siempre el bloque de renta variable y no hay rotación sectorial ninguna.
+# Postura neutra de la cartera: la misma que el índice de referencia. La fase
+# desvía alrededor de este punto, no lo sustituye. Sin esto la comparación con el
+# 60/40 no mide rotación, mide nivel de riesgo: una cartera estructuralmente al
+# 40 % de renta variable pierde contra el 60/40 aunque acierte todas las fases.
+NEUTRAL = {"Renta variable": 0.60, "Renta fija": 0.30, "Activos reales": 0.10}
+
+# Desviación máxima respecto al neutro, en desviaciones típicas de la puntuación
+# del bloque entre fases. Es el único parámetro de diseño y se fija por prudencia:
+# una fase excepcional lleva el bloque al borde de su banda, no más allá.
+MAX_Z = 1.0
+
+# Historia mínima para poder entrar en cartera. Evita que un ETF con dos años de
+# datos gane la selección por ruido.
+MIN_HISTORY_M = 60
+
+# Retraso máximo de publicación tolerado en el guion de cartera. Las carteras de
+# Ken French salen con dos meses de desfase; sin esta tolerancia el guion solo veía
+# los tickers de Yahoo y por eso el bloque de renta variable acababa siendo
+# siempre "internacional + emergentes" en lugar de sectores.
+LAG_TOLERANCE_M = 4
+
+# No seleccionables. Dos motivos distintos:
+#   - Índices agregados de mercado: sirven de referencia, no de posición. Si entran
+#     copan el bloque de renta variable y no hay rotación sectorial ninguna.
+#   - Series de precio no invertibles: no existe forma de mantener la posición.
 NOT_SELECTABLE = {
+    # agregados de renta variable
     "Renta variable EE.UU. (mercado)",
     "Renta variable EE.UU. (Wilshire)",
+    "Renta variable internacional",
+    "Renta variable emergente",
+    "Desarrollados ex EE.UU. (French)",
+    "Emergentes (French)",
+    "Small caps",
     "Otros sectores",
+    # no invertibles
+    "Cesta de producción (PPI)",
+    "Petróleo WTI (spot)",
+}
+
+# Exposiciones duplicadas: distintos vehículos sobre el mismo subyacente. Solo una
+# de cada grupo puede entrar en cartera. Sin esto el bloque de activos reales se
+# llenaba con oro lingote y oro ETF a la vez —15 % de oro disfrazado de
+# diversificación— y lo mismo pasaba con GSCI/DBC y con el hipotecario.
+# El representante se elige por historia disponible, antes de mirar retornos.
+EXPOSURE_GROUPS = {
+    "Oro (lingote)": "oro lingote",
+    "Oro (ETF físico)": "oro lingote",
+    "Materias primas (índice)": "materias primas",
+    "Materias primas (ETF)": "materias primas",
+    "Hipotecario 30 años (aprox.)": "hipotecario",
+    "Titulizaciones hipotecarias (MBB)": "hipotecario",
+    "Crédito Baa (aprox.)": "crédito investment grade",
+    "Crédito Investment Grade (LQD)": "crédito investment grade",
+    "Renta variable internacional": "desarrollados ex EE.UU.",
+    "Desarrollados ex EE.UU. (French)": "desarrollados ex EE.UU.",
+    "Renta variable emergente": "emergentes",
+    "Emergentes (French)": "emergentes",
 }
 
 
-def _sleeve_pick(mu, vol, avail, classes, cls_map, n_pick):
+def _shrunk_means(hist, hph, phase):
+    """Media condicional a la fase, contraída hacia la media incondicional."""
+    sub = hist[hph == phase]
+    if sub.empty:
+        return pd.Series(dtype=float)
+    grand = hist.mean()
+    mu = sub.mean()
+    se = sub.std() / np.sqrt(sub.notna().sum().clip(lower=1))
+    tau2 = (mu - grand).var()
+    return grand + (tau2 / (tau2 + se ** 2)).fillna(0.0) * (mu - grand)
+
+
+def _dedupe(cand, depth):
+    """Un solo activo por exposición económica. Se queda el que más historia tiene
+    en ese momento; el desempate es alfabético. Regla previa a los retornos."""
+    best, out = {}, []
+    for c in cand:
+        g = EXPOSURE_GROUPS.get(c)
+        if g is None:
+            out.append(c)
+            continue
+        d = float(depth.get(c, 0) or 0)
+        if g not in best or (d, c) > best[g][0]:
+            best[g] = ((d, c), c)
+    return out + [v[1] for v in best.values()]
+
+
+def _sleeve_pick(mu, vol, avail, classes, cls_map, n_pick, depth=None):
     """Devuelve los pesos internos del bloque y su puntuación agregada."""
     cand = [c for c in avail
             if cls_map.get(c) in classes and c not in NOT_SELECTABLE]
+    if depth is not None:
+        cand = [c for c in cand if float(depth.get(c, 0) or 0) >= MIN_HISTORY_M]
+        cand = _dedupe(cand, depth)
     if not cand:
         return {}, 0.0
     ir = (mu.reindex(cand) / vol.reindex(cand)).replace(
@@ -1102,20 +1184,30 @@ def _sleeve_pick(mu, vol, avail, classes, cls_map, n_pick):
     return w.to_dict(), score
 
 
-def _sleeve_weights(scores: dict) -> dict:
-    """Reparte el 100 % entre bloques en proporción a su puntuación, respetando las
-    bandas. Una puntuación negativa se trata como cero: ese bloque baja a su mínimo.
-    No hay ningún parámetro ajustado a los datos; las bandas son la única elección,
-    y se fijan por prudencia (nunca sin renta variable, nunca sin renta fija)."""
-    pos = {k: max(0.0, scores.get(k, 0.0)) for k in SLEEVES}
-    tot = sum(pos.values())
-    if tot <= 0:
-        raw = {k: (SLEEVES[k][1] + SLEEVES[k][2]) / 2 for k in SLEEVES}
-    else:
-        raw = {k: pos[k] / tot for k in SLEEVES}
-    # Proyección sobre las bandas: se recorta y el sobrante se reparte entre los
-    # bloques que aún tienen margen, hasta converger.
-    w = {k: min(max(raw[k], SLEEVES[k][1]), SLEEVES[k][2]) for k in SLEEVES}
+def _sleeve_weights(scores_by_phase: dict, phase: str) -> dict:
+    """Reparte el 100 % entre bloques partiendo de la postura neutra 60/30/10 y
+    desviándose según lo bien que cada bloque puntúe EN ESA FASE respecto a su
+    propio nivel habitual, no respecto a los otros bloques.
+
+    El reparto anterior comparaba bloques por rentabilidad/riesgo absoluta. En una
+    muestra de 1990 a hoy la renta fija gana esa comparación en las cuatro fases
+    —mercado alcista de bonos de 35 años—, así que la cartera salía al 40 % de
+    renta variable en todas ellas: ni rotaba ni tenía el riesgo del índice contra
+    el que se mide. Estandarizar cada bloque contra sí mismo elimina ese sesgo."""
+    w = {}
+    for k in SLEEVES:
+        vals = np.array([float(scores_by_phase.get(p, {}).get(k, np.nan))
+                         for p in PHASES], dtype=float)
+        cur = float(scores_by_phase.get(phase, {}).get(k, np.nan))
+        m, sd = np.nanmean(vals), np.nanstd(vals)
+        if not np.isfinite(cur) or not np.isfinite(sd) or sd <= 1e-12:
+            z = 0.0
+        else:
+            z = float(np.clip((cur - m) / sd, -MAX_Z, MAX_Z)) / MAX_Z
+        lo, hi = SLEEVES[k][1], SLEEVES[k][2]
+        neutral = NEUTRAL[k]
+        half = min(neutral - lo, hi - neutral)
+        w[k] = min(max(neutral + z * half, lo), hi)
     for _ in range(24):
         gap = 1.0 - sum(w.values())
         if abs(gap) < 1e-9:
@@ -1144,28 +1236,26 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
     if len(common) < min_train + 60:
         return {}
 
-    def means(hist, hph, phase):
-        sub = hist[hph == phase]
-        if sub.empty:
-            return pd.Series(dtype=float)
-        grand = hist.mean()
-        mu = sub.mean()
-        se = sub.std() / np.sqrt(sub.notna().sum().clip(lower=1))
-        tau2 = (mu - grand).var()
-        return grand + (tau2 / (tau2 + se ** 2)).fillna(0.0) * (mu - grand)
-
     rets, dates, held = [], [], []
     for k in range(min_train, len(common)):
         t = common[k]
         sig = ph.iloc[k - 1]
         hist, hph = X.iloc[:k], ph.iloc[:k]
-        mu, vol = means(hist, hph, sig), hist.std()
+        vol, depth = hist.std(), hist.notna().sum()
         avail = list(X.loc[t].dropna().index)
+        # Puntuación de cada bloque en las cuatro fases, solo con datos pasados:
+        # hace falta para estandarizar la desviación respecto al neutro.
         picks, scores = {}, {}
-        for name, (classes, lo, hi, n_pick) in SLEEVES.items():
-            picks[name], scores[name] = _sleeve_pick(
-                mu, vol, avail, classes, cls_map, n_pick)
-        budgets = _sleeve_weights(scores)
+        for phase in PHASES:
+            mu_p = _shrunk_means(hist, hph, phase)
+            scores[phase] = {}
+            for name, (classes, lo, hi, n_pick) in SLEEVES.items():
+                w_p, s_p = _sleeve_pick(mu_p, vol, avail, classes, cls_map,
+                                        n_pick, depth)
+                scores[phase][name] = s_p
+                if phase == sig:
+                    picks[name] = w_p
+        budgets = _sleeve_weights(scores, sig)
         w_all, r = {}, 0.0
         for name, inner in picks.items():
             for c, wt in inner.items():
@@ -1199,15 +1289,24 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
 
     # Guion de cartera: qué compraría hoy en cada fase, con toda la historia
     playbook, sleeve_mix = {}, {}
-    vol_all = X.std()
+    vol_all, depth_all = X.std(), X.notna().sum()
+    # Un activo está vigente si ha publicado en los últimos LAG_TOLERANCE_M meses.
+    # Antes se exigía dato en el último mes exacto, y eso dejaba fuera todas las
+    # carteras sectoriales de Ken French, que van con dos meses de retraso.
+    recent = X.tail(LAG_TOLERANCE_M)
+    avail = [c for c in X.columns if recent[c].notna().any()]
+    picks_by_phase, scores_all = {}, {}
     for phase in PHASES:
-        mu = means(X, ph, phase)
-        avail = list(X.columns[X.iloc[-1].notna()])
-        picks, scores = {}, {}
+        mu = _shrunk_means(X, ph, phase)
+        picks_by_phase[phase], scores_all[phase] = {}, {}
         for sleeve, (classes, lo, hi, n_pick) in SLEEVES.items():
-            picks[sleeve], scores[sleeve] = _sleeve_pick(
-                mu, vol_all, avail, classes, cls_map, n_pick)
-        budgets = _sleeve_weights(scores)
+            w_p, s_p = _sleeve_pick(mu, vol_all, avail, classes, cls_map,
+                                    n_pick, depth_all)
+            picks_by_phase[phase][sleeve] = w_p
+            scores_all[phase][sleeve] = s_p
+    for phase in PHASES:
+        picks = picks_by_phase[phase]
+        budgets = _sleeve_weights(scores_all, phase)
         rows = []
         for sleeve, inner in picks.items():
             for c, wt in sorted(inner.items(), key=lambda kv: -kv[1]):
