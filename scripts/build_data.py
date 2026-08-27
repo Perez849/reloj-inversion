@@ -274,14 +274,28 @@ def transform(s: pd.Series, kind: str) -> pd.Series:
     raise ValueError(kind)
 
 
+# Ventana de referencia para estandarizar, en meses. El reloj mide posición
+# CÍCLICA, no nivel absoluto: la pregunta es "¿alto o bajo respecto a lo que ha
+# sido normal últimamente?", no "¿respecto a la media desde 1959?". Con media
+# expansiva, el pico inflacionista de los setenta se queda dentro de la referencia
+# para siempre y el resultado es que de 1990 a 2020 la inflación aparece
+# permanentemente por debajo de lo normal: en los años noventa y en la década de
+# 2010 no hay ni un solo mes de Sobrecalentamiento ni de Estanflación. El reloj se
+# pasó veinte años usando dos de sus cuatro cuadrantes.
+# 120 meses es la elección: cubre un ciclo económico completo y no arrastra un
+# cambio de régimen de cuarenta años. Es un parámetro, y como tal se declara.
+Z_WINDOW_M = int(os.environ.get("Z_WINDOW_M", "120"))
+
+
 def expanding_z(s: pd.Series, min_periods: int = 120) -> pd.Series:
-    """Ventana adaptativa: 120 meses es lo deseable, pero una serie más corta no
-    debe quedarse fuera en silencio. Se exige un tercio de su historia con un
-    suelo de 48 meses."""
+    """Z-score móvil y causal sobre Z_WINDOW_M meses. Mientras no hay historia
+    suficiente se comporta como una ventana expansiva. Ventana adaptativa: una
+    serie corta no debe quedarse fuera en silencio, se le exige un tercio de su
+    historia con un suelo de 48 meses."""
     n = int(s.notna().sum())
     mp = min(min_periods, max(48, n // 3))
-    mu = s.expanding(min_periods=mp).mean()
-    sd = s.expanding(min_periods=mp).std()
+    mu = s.rolling(Z_WINDOW_M, min_periods=mp).mean()
+    sd = s.rolling(Z_WINDOW_M, min_periods=mp).std()
     return ((s - mu) / sd).clip(-4, 4)
 
 
@@ -1154,25 +1168,18 @@ def _shrunk_means(hist, hph, phase):
 # inverso de volatilidad se lo lleva todo al activo menos volátil: las letras a 3
 # meses acaparaban del 23 % al 40 % de la cartera entera y el resto de la renta
 # fija se quedaba en el 0,6 %. Ponderar por riesgo no puede significar concentrar.
-MAX_WEIGHT_IN_SLEEVE = 0.45
+def _inner_weights(v: pd.Series) -> pd.Series:
+    """Equiponderación entre los elegidos del bloque.
 
-
-def _capped_inv_vol(v: pd.Series) -> pd.Series:
-    """Inverso de volatilidad con tope por activo, repartiendo el exceso."""
-    inv = 1.0 / v
-    w = inv / inv.sum()
-    cap = max(MAX_WEIGHT_IN_SLEEVE, 1.0 / len(v) + 1e-12)
-    for _ in range(32):
-        over = w > cap + 1e-12
-        if not over.any():
-            break
-        excess = float((w[over] - cap).sum())
-        w[over] = cap
-        free = ~over
-        if not free.any() or float(w[free].sum()) <= 0:
-            break
-        w[free] = w[free] + excess * w[free] / float(w[free].sum())
-    return w / w.sum()
+    El reparto por inverso de volatilidad era defendible como criterio a priori,
+    pero dentro de un bloque cancela justo la señal que lo motiva: si el reloj
+    dice "duración larga en Reflación", eliges el Treasury a 30 años y acto
+    seguido le pones cuatro veces menos peso que al de 2 años por ser cuatro
+    veces más volátil. Lo mismo con materias primas en Estanflación. El nivel de
+    riesgo ya lo fijan las bandas entre bloques; dentro del bloque el reparto
+    neutral es el equitativo, y no penaliza al activo que lleva la información.
+    """
+    return pd.Series(1.0 / len(v), index=v.index)
 
 
 def _phase_edge(hist, hph, phase, vol):
@@ -1219,7 +1226,7 @@ def _sleeve_pick(edge, vol, avail, classes, cls_map, n_pick, depth=None):
         return {}, 0.0
     top = e.sort_values(ascending=False).head(n_pick).index
     v = vol.reindex(top).replace(0, np.nan).dropna()
-    w = _capped_inv_vol(v) if not v.empty else pd.Series(
+    w = _inner_weights(v) if not v.empty else pd.Series(
         1.0 / len(top), index=top)
     # Puntuación del bloque: ventaja media ponderada por riesgo de lo elegido
     score = float((e.reindex(w.index) * w).sum())
@@ -1248,8 +1255,12 @@ def _sleeve_weights(scores_by_phase: dict, phase: str) -> dict:
             z = float(np.clip((cur - m) / sd, -MAX_Z, MAX_Z)) / MAX_Z
         lo, hi = SLEEVES[k][1], SLEEVES[k][2]
         neutral = NEUTRAL[k]
-        half = min(neutral - lo, hi - neutral)
-        w[k] = min(max(neutral + z * half, lo), hi)
+        # Banda completa y asimétrica. Antes se usaba min(neutral-lo, hi-neutral),
+        # que en renta variable daba 10pp y dejaba el rango efectivo en 50-70 %
+        # teniendo declarado 30-70. La palanca principal del reloj —bajar renta
+        # variable de verdad en Estanflación— quedaba amputada por simetría.
+        span = (hi - neutral) if z >= 0 else (neutral - lo)
+        w[k] = min(max(neutral + z * span, lo), hi)
     for _ in range(24):
         gap = 1.0 - sum(w.values())
         if abs(gap) < 1e-9:
@@ -1266,7 +1277,7 @@ def _sleeve_weights(scores_by_phase: dict, phase: str) -> dict:
 
 
 def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
-             min_train: int = 240) -> dict:
+             min_train: int = 120) -> dict:
     """Cartera solo larga, siempre invertida al 100 %, con el mismo reparto por
     bloques en todas las fases. La fase decide únicamente qué activos ocupan cada
     bloque. Selección por rentabilidad contraída dividida entre volatilidad, y
@@ -1384,6 +1395,16 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
 # 8. Validación
 # ======================================================================================
 
+def _phase_by_decade(phases: pd.Series) -> dict:
+    """Reparto de fases por década. Si dos cuadrantes salen vacíos durante veinte
+    años, la rotación no tiene nada que rotar y ningún ajuste de cartera lo
+    arregla. Es el primer sitio donde mirar."""
+    out = {}
+    for dec, sub in phases.dropna().groupby((phases.dropna().index.year // 10) * 10):
+        out[str(int(dec))] = {ph: int((sub == ph).sum()) for ph in PHASES}
+    return out
+
+
 def validation(df, F, phases):
     out = {}
     if "USREC" in df.columns:
@@ -1419,6 +1440,7 @@ def validation(df, F, phases):
     T = T.div(T.sum(axis=1).replace(0, np.nan), axis=0).fillna(0)
     out["transition"] = {a: {b: round(float(T.loc[a, b]), 3) for b in PHASES}
                          for a in PHASES}
+    out["by_decade"] = _phase_by_decade(phases)
     out["factor_corr"] = round(float(F["growth"].corr(F["inflation"])), 3)
     cw = [("Recuperación", "Sobrecalentamiento"), ("Sobrecalentamiento", "Estanflación"),
           ("Estanflación", "Reflación"), ("Reflación", "Recuperación")]
