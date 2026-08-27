@@ -485,7 +485,6 @@ MARKET = {
     "Renta variable emergente": ("Renta variable", "EEM", "eem.us", ""),
     "Renta variable internacional": ("Renta variable", "EFA", "efa.us", ""),
     "Small caps": ("Estilo", "IWM", "iwm.us", ""),
-    "Bitcoin": ("Real / alternativos", "BTC-USD", "btcusd", "desde 2014"),
 }
 
 # Carteras internacionales de Ken French: misma fuente que ya funciona, historia
@@ -1065,27 +1064,71 @@ def defensive(X: pd.DataFrame, growth: pd.Series) -> dict:
 # fija, 10 % activos reales. Lo que cambia con la fase es QUÉ hay dentro de cada
 # bloque, no cuánto pesa. Así la comparación con el 60/40 es limpia: misma postura
 # de riesgo, distinto contenido. Sin apalancamiento y sin posiciones cortas.
+# Bandas de cada bloque. Los pesos NO son fijos: se mueven con la fase dentro de
+# estas bandas, en proporción a lo bien que el bloque puntúa en esa fase. Siempre
+# queda algo de renta variable y algo de renta fija; el oro y demás activos reales
+# pueden quedarse a cero si no aportan.
 SLEEVES = {
-    "Renta variable": ({"Renta variable", "Estilo"}, 0.60, 4),
-    "Renta fija": ({"Renta fija", "Liquidez"}, 0.30, 2),
-    "Activos reales": ({"Real / alternativos"}, 0.10, 1),
+    "Renta variable": ({"Renta variable"}, 0.30, 0.70, 4),
+    "Renta fija": ({"Renta fija", "Liquidez"}, 0.20, 0.60, 3),
+    "Activos reales": ({"Real / alternativos"}, 0.00, 0.15, 2),
+}
+
+# Índices agregados: sirven de referencia, no de posición. Si entran en la selección
+# copan siempre el bloque de renta variable y no hay rotación sectorial ninguna.
+NOT_SELECTABLE = {
+    "Renta variable EE.UU. (mercado)",
+    "Renta variable EE.UU. (Wilshire)",
+    "Otros sectores",
 }
 
 
 def _sleeve_pick(mu, vol, avail, classes, cls_map, n_pick):
-    cand = [c for c in avail if cls_map.get(c) in classes]
+    """Devuelve los pesos internos del bloque y su puntuación agregada."""
+    cand = [c for c in avail
+            if cls_map.get(c) in classes and c not in NOT_SELECTABLE]
     if not cand:
-        return {}
-    score = (mu.reindex(cand) / vol.reindex(cand)).replace(
+        return {}, 0.0
+    ir = (mu.reindex(cand) / vol.reindex(cand)).replace(
         [np.inf, -np.inf], np.nan).dropna()
-    if score.empty:
-        return {}
-    top = score.sort_values(ascending=False).head(n_pick).index
+    if ir.empty:
+        return {}, 0.0
+    top = ir.sort_values(ascending=False).head(n_pick).index
     v = vol.reindex(top).replace(0, np.nan).dropna()
-    if v.empty:
-        return {c: 1.0 / len(top) for c in top}
-    w = (1.0 / v)
-    return (w / w.sum()).to_dict()
+    w = (1.0 / v) / (1.0 / v).sum() if not v.empty else pd.Series(
+        1.0 / len(top), index=top)
+    # Puntuación del bloque: rentabilidad esperada por unidad de riesgo de lo elegido
+    score = float((ir.reindex(top) * w.reindex(top)).sum())
+    return w.to_dict(), score
+
+
+def _sleeve_weights(scores: dict) -> dict:
+    """Reparte el 100 % entre bloques en proporción a su puntuación, respetando las
+    bandas. Una puntuación negativa se trata como cero: ese bloque baja a su mínimo.
+    No hay ningún parámetro ajustado a los datos; las bandas son la única elección,
+    y se fijan por prudencia (nunca sin renta variable, nunca sin renta fija)."""
+    pos = {k: max(0.0, scores.get(k, 0.0)) for k in SLEEVES}
+    tot = sum(pos.values())
+    if tot <= 0:
+        raw = {k: (SLEEVES[k][1] + SLEEVES[k][2]) / 2 for k in SLEEVES}
+    else:
+        raw = {k: pos[k] / tot for k in SLEEVES}
+    # Proyección sobre las bandas: se recorta y el sobrante se reparte entre los
+    # bloques que aún tienen margen, hasta converger.
+    w = {k: min(max(raw[k], SLEEVES[k][1]), SLEEVES[k][2]) for k in SLEEVES}
+    for _ in range(24):
+        gap = 1.0 - sum(w.values())
+        if abs(gap) < 1e-9:
+            break
+        room = {k: (SLEEVES[k][2] - w[k]) if gap > 0 else (w[k] - SLEEVES[k][1])
+                for k in SLEEVES}
+        total_room = sum(room.values())
+        if total_room <= 1e-12:
+            break
+        for k in SLEEVES:
+            w[k] += gap * room[k] / total_room
+        w = {k: min(max(w[k], SLEEVES[k][1]), SLEEVES[k][2]) for k in SLEEVES}
+    return w
 
 
 def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
@@ -1118,11 +1161,15 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
         hist, hph = X.iloc[:k], ph.iloc[:k]
         mu, vol = means(hist, hph, sig), hist.std()
         avail = list(X.loc[t].dropna().index)
+        picks, scores = {}, {}
+        for name, (classes, lo, hi, n_pick) in SLEEVES.items():
+            picks[name], scores[name] = _sleeve_pick(
+                mu, vol, avail, classes, cls_map, n_pick)
+        budgets = _sleeve_weights(scores)
         w_all, r = {}, 0.0
-        for _, (classes, budget, n_pick) in SLEEVES.items():
-            w = _sleeve_pick(mu, vol, avail, classes, cls_map, n_pick)
-            for c, wt in w.items():
-                w_all[c] = budget * wt
+        for name, inner in picks.items():
+            for c, wt in inner.items():
+                w_all[c] = w_all.get(c, 0.0) + budgets[name] * wt
         if not w_all:
             continue
         tot = sum(w_all.values())
@@ -1151,19 +1198,24 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
         by_phase[phase] = entry
 
     # Guion de cartera: qué compraría hoy en cada fase, con toda la historia
-    playbook = {}
+    playbook, sleeve_mix = {}, {}
     vol_all = X.std()
     for phase in PHASES:
         mu = means(X, ph, phase)
         avail = list(X.columns[X.iloc[-1].notna()])
+        picks, scores = {}, {}
+        for sleeve, (classes, lo, hi, n_pick) in SLEEVES.items():
+            picks[sleeve], scores[sleeve] = _sleeve_pick(
+                mu, vol_all, avail, classes, cls_map, n_pick)
+        budgets = _sleeve_weights(scores)
         rows = []
-        for sleeve, (classes, budget, n_pick) in SLEEVES.items():
-            w = _sleeve_pick(mu, vol_all, avail, classes, cls_map, n_pick)
-            for c, wt in sorted(w.items(), key=lambda kv: -kv[1]):
+        for sleeve, inner in picks.items():
+            for c, wt in sorted(inner.items(), key=lambda kv: -kv[1]):
                 rows.append({"sleeve": sleeve, "name": c,
-                             "weight": round(budget * wt * 100, 1),
+                             "weight": round(budgets[sleeve] * wt * 100, 1),
                              "class": cls_map.get(c, "")})
-        playbook[phase] = rows
+        playbook[phase] = [r for r in rows if r["weight"] >= 0.5]
+        sleeve_mix[phase] = {k: round(v * 100, 1) for k, v in budgets.items()}
 
     curve = [{"d": d.strftime("%Y-%m"), "s": round(float(R.loc[d]), 4),
               "b": (round(float(bench.loc[d]), 4)
@@ -1172,8 +1224,8 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
     print(f"  ✓ {len(R)} meses desde {dates[0].date()}")
     return {"portfolio": perf(R),
             "bench_6040": perf(bench) if bench is not None else {},
-            "by_phase": by_phase, "playbook": playbook,
-            "sleeves": {k: [sorted(v[0]), v[1], v[2]] for k, v in SLEEVES.items()},
+            "by_phase": by_phase, "playbook": playbook, "sleeve_mix": sleeve_mix,
+            "bands": {k: [round(v[1] * 100), round(v[2] * 100)] for k, v in SLEEVES.items()},
             "curve": curve[-460:]}
 
 
