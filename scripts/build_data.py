@@ -34,6 +34,9 @@ import pandas as pd
 import requests
 
 OUT_PATH = os.environ.get("OUT_PATH", "docs/data/data.json")
+# Matriz de retornos mensuales por activo. Se publica junto a data.json para poder
+# reproducir y reprobar la lógica de cartera sin volver a descargar nada.
+RETURNS_PATH = os.environ.get("RETURNS_PATH", "docs/data/returns.csv.gz")
 START = "1959-01-01"
 # La API oficial (api.stlouisfed.org) está pensada para acceso automático y responde
 # en milisegundos. El endpoint de gráficos (fred.stlouisfed.org/graph) limita o
@@ -1070,7 +1073,7 @@ def defensive(X: pd.DataFrame, growth: pd.Series) -> dict:
 # pueden quedarse a cero si no aportan.
 SLEEVES = {
     "Renta variable": ({"Renta variable"}, 0.30, 0.70, 4),
-    "Renta fija": ({"Renta fija", "Liquidez"}, 0.20, 0.60, 3),
+    "Renta fija": ({"Renta fija"}, 0.20, 0.60, 3),
     "Activos reales": ({"Real / alternativos"}, 0.00, 0.15, 2),
 }
 
@@ -1147,6 +1150,45 @@ def _shrunk_means(hist, hph, phase):
     return grand + (tau2 / (tau2 + se ** 2)).fillna(0.0) * (mu - grand)
 
 
+# Tope de peso de un activo dentro de su bloque. Sin él, la ponderación por
+# inverso de volatilidad se lo lleva todo al activo menos volátil: las letras a 3
+# meses acaparaban del 23 % al 40 % de la cartera entera y el resto de la renta
+# fija se quedaba en el 0,6 %. Ponderar por riesgo no puede significar concentrar.
+MAX_WEIGHT_IN_SLEEVE = 0.45
+
+
+def _capped_inv_vol(v: pd.Series) -> pd.Series:
+    """Inverso de volatilidad con tope por activo, repartiendo el exceso."""
+    inv = 1.0 / v
+    w = inv / inv.sum()
+    cap = max(MAX_WEIGHT_IN_SLEEVE, 1.0 / len(v) + 1e-12)
+    for _ in range(32):
+        over = w > cap + 1e-12
+        if not over.any():
+            break
+        excess = float((w[over] - cap).sum())
+        w[over] = cap
+        free = ~over
+        if not free.any() or float(w[free].sum()) <= 0:
+            break
+        w[free] = w[free] + excess * w[free] / float(w[free].sum())
+    return w / w.sum()
+
+
+def _phase_edge(hist, hph, phase, vol):
+    """Lo único que el reloj dice saber: cuánto mejor o peor se comporta cada
+    activo EN esta fase respecto a su propio comportamiento habitual, por unidad
+    de riesgo. La versión anterior ordenaba por rentabilidad/volatilidad absoluta,
+    y eso selecciona el mismo puñado de activos defensivos en las cuatro fases:
+    Utilities y Consumo básico salían en tres de cuatro. Ordenar por ventaja
+    condicional es lo que convierte esto en una rotación y no en una cartera de
+    baja volatilidad con etiquetas de fase encima."""
+    mu = _shrunk_means(hist, hph, phase)
+    if mu.empty:
+        return pd.Series(dtype=float)
+    return (mu - hist.mean()) / vol.replace(0, np.nan)
+
+
 def _dedupe(cand, depth):
     """Un solo activo por exposición económica. Se queda el que más historia tiene
     en ese momento; el desempate es alfabético. Regla previa a los retornos."""
@@ -1162,8 +1204,9 @@ def _dedupe(cand, depth):
     return out + [v[1] for v in best.values()]
 
 
-def _sleeve_pick(mu, vol, avail, classes, cls_map, n_pick, depth=None):
-    """Devuelve los pesos internos del bloque y su puntuación agregada."""
+def _sleeve_pick(edge, vol, avail, classes, cls_map, n_pick, depth=None):
+    """Selección por ventaja de fase; reparto interno por riesgo, con tope.
+    Devuelve los pesos del bloque y su puntuación agregada."""
     cand = [c for c in avail
             if cls_map.get(c) in classes and c not in NOT_SELECTABLE]
     if depth is not None:
@@ -1171,16 +1214,15 @@ def _sleeve_pick(mu, vol, avail, classes, cls_map, n_pick, depth=None):
         cand = _dedupe(cand, depth)
     if not cand:
         return {}, 0.0
-    ir = (mu.reindex(cand) / vol.reindex(cand)).replace(
-        [np.inf, -np.inf], np.nan).dropna()
-    if ir.empty:
+    e = edge.reindex(cand).replace([np.inf, -np.inf], np.nan).dropna()
+    if e.empty:
         return {}, 0.0
-    top = ir.sort_values(ascending=False).head(n_pick).index
+    top = e.sort_values(ascending=False).head(n_pick).index
     v = vol.reindex(top).replace(0, np.nan).dropna()
-    w = (1.0 / v) / (1.0 / v).sum() if not v.empty else pd.Series(
+    w = _capped_inv_vol(v) if not v.empty else pd.Series(
         1.0 / len(top), index=top)
-    # Puntuación del bloque: rentabilidad esperada por unidad de riesgo de lo elegido
-    score = float((ir.reindex(top) * w.reindex(top)).sum())
+    # Puntuación del bloque: ventaja media ponderada por riesgo de lo elegido
+    score = float((e.reindex(w.index) * w).sum())
     return w.to_dict(), score
 
 
@@ -1231,6 +1273,16 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
     reparto dentro del bloque por inverso de la volatilidad."""
     print("7. Rotación por fase (solo largo, sin apalancar)…")
     common = X.dropna(how="all").index.intersection(phases.dropna().index)
+    # La estrategia y el índice de referencia tienen que cubrir exactamente los
+    # mismos meses. Las carteras de Ken French publican con dos meses de desfase,
+    # así que los dos últimos meses de la muestra tenían estrategia pero no
+    # benchmark, y además se calculaban con menos de la mitad del universo
+    # disponible. Se corta ahí.
+    for _c in ("Renta variable EE.UU. (mercado)", "Treasury 10 años"):
+        if _c in X.columns:
+            last = X[_c].dropna().index.max()
+            if last is not None:
+                common = common[common <= last]
     X = X.loc[common]
     ph = phases.loc[common]
     if len(common) < min_train + 60:
@@ -1247,10 +1299,10 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
         # hace falta para estandarizar la desviación respecto al neutro.
         picks, scores = {}, {}
         for phase in PHASES:
-            mu_p = _shrunk_means(hist, hph, phase)
+            edge_p = _phase_edge(hist, hph, phase, vol)
             scores[phase] = {}
             for name, (classes, lo, hi, n_pick) in SLEEVES.items():
-                w_p, s_p = _sleeve_pick(mu_p, vol, avail, classes, cls_map,
+                w_p, s_p = _sleeve_pick(edge_p, vol, avail, classes, cls_map,
                                         n_pick, depth)
                 scores[phase][name] = s_p
                 if phase == sig:
@@ -1297,10 +1349,10 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
     avail = [c for c in X.columns if recent[c].notna().any()]
     picks_by_phase, scores_all = {}, {}
     for phase in PHASES:
-        mu = _shrunk_means(X, ph, phase)
+        edge = _phase_edge(X, ph, phase, vol_all)
         picks_by_phase[phase], scores_all[phase] = {}, {}
         for sleeve, (classes, lo, hi, n_pick) in SLEEVES.items():
-            w_p, s_p = _sleeve_pick(mu, vol_all, avail, classes, cls_map,
+            w_p, s_p = _sleeve_pick(edge, vol_all, avail, classes, cls_map,
                                     n_pick, depth_all)
             picks_by_phase[phase][sleeve] = w_p
             scores_all[phase][sleeve] = s_p
@@ -1399,6 +1451,16 @@ def main() -> None:
     conf = rank[0][1] - rank[1][1]
 
     X, ameta = fetch_assets(df)
+    if RETURNS_PATH:
+        try:
+            os.makedirs(os.path.dirname(RETURNS_PATH) or ".", exist_ok=True)
+            out = X.copy()
+            out.insert(0, "fase", phases.reindex(out.index))
+            out.round(6).to_csv(RETURNS_PATH, compression="gzip")
+            print(f"  ✓ retornos volcados en {RETURNS_PATH} "
+                  f"({os.path.getsize(RETURNS_PATH)/1024:.0f} KB)")
+        except Exception as exc:  # el volcado nunca debe tumbar la build
+            print(f"  ! no se pudo volcar retornos: {exc}")
     assets, astats = conditional_stats(X, phases, ameta)
     bt = backtest(X, phases)
     prot = defensive(X, F["growth"])
