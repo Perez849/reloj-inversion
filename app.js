@@ -677,9 +677,14 @@ function renderRotation() {
       <span class="eyebrow">Asignación</span>
       <h2>La cartera, fase a fase</h2>
       <p class="cap">Solo compras, siempre invertida al 100 %, sin apalancar y sin cortos.
-        El reparto por bloques es fijo — 60 % renta variable, 30 % renta fija, 10 % activos
-        reales — igual en las cuatro fases. Lo único que cambia con la fase es qué hay dentro
-        de cada bloque. Así la comparación con el 60/40 es limpia: misma postura de riesgo.</p>
+        Los pesos entre bloques se mueven con la fase dentro de bandas fijas: nunca falta
+        renta variable ni renta fija, y los activos reales pueden quedarse a cero si no aportan.
+        Los índices agregados quedan fuera de la selección, de modo que la renta variable
+        se compone de sectores.</p>
+    </div>
+
+    <div class="bt-chart" style="margin-bottom:18px">
+      <svg id="rotChart" viewBox="0 0 900 340" role="img" aria-label="Rotación por fase frente al 60/40"></svg>
     </div>
 
     <div class="matrix-holder" style="margin-bottom:22px">
@@ -722,10 +727,15 @@ function renderRotation() {
     </div>
 
     <h3 style="font-family:var(--display);font-size:17px;margin-bottom:10px">Qué comprar en cada fase</h3>
-    <div class="seg" style="margin-bottom:14px">
+    <div class="seg" style="margin-bottom:12px">
       ${D.phases.map(x => `<button type="button" data-p="${x}" aria-pressed="${x === pbPhase}"
         style="${x === pbPhase ? `border-color:${PHASE_COLOR[x]};color:${PHASE_COLOR[x]}` : ""}">${x}</button>`).join("")}
     </div>
+    ${r.sleeve_mix && r.sleeve_mix[pbPhase] ? `<div class="band" style="margin:0 0 14px">
+      ${Object.entries(r.sleeve_mix[pbPhase]).map(([k, v]) => `
+        <div class="item"><dt>${k}</dt><dd>${fmtNum(v, 0)}%</dd>
+        <small>banda permitida ${(r.bands?.[k] || []).join("–")}%</small></div>`).join("")}
+    </div>` : ""}
     <div class="cons-grid">
       ${sleeves.map(sl => {
         const items = rows.filter(x => x.sleeve === sl);
@@ -743,6 +753,7 @@ function renderRotation() {
       momentum) quedan fuera: no se pueden comprar en una cartera solo larga.
       ${pbPhase === D.current.phase ? "Esta es la fase vigente." : `La fase vigente es ${D.current.phase}.`}</p>`;
 
+  drawCurve("#rotChart", r.curve || [], "Rotación por fase", "60/40 estático");
   $("#rotationBlock .seg").querySelectorAll("button").forEach(btn => {
     btn.onclick = () => { pbPhase = btn.dataset.p; renderRotation(); };
   });
@@ -859,11 +870,13 @@ function renderBacktest() {
           : "sin datos."}</p>`}`;
 }
 
-function drawBtChart(bt) {
-  const svg = $("#btChart");
+function drawBtChart(bt) { drawCurve("#btChart", bt.curve || [], "Reloj, fuera de muestra", "60/40"); }
+
+function drawCurve(sel, c, labelA, labelB) {
+  const svg = $(sel);
+  if (!svg) return;
   svg.innerHTML = "";
   const W = 900, H = 340, padL = 52, padR = 14, padT = 14, padB = 28;
-  const c = bt.curve || [];
   if (c.length < 10) return;
   let s = 100, b = 100;
   const S = [], B = [];
@@ -897,7 +910,7 @@ function drawBtChart(bt) {
       "font-family": "IBM Plex Mono, monospace", "font-size": 10 }, svg);
     t.textContent = p.d.slice(0, 4);
   });
-  [["Reloj, fuera de muestra", "#35D0A5"], ["60/40", "#66748F"]].forEach(([txt, col], n) => {
+  [[labelA, "#35D0A5"], [labelB, "#66748F"]].forEach(([txt, col], n) => {
     el("rect", { x: padL + n * 200, y: padT, width: 10, height: 3, fill: col }, svg);
     const t = el("text", { x: padL + n * 200 + 16, y: padT + 4, fill: "#8E9CBB",
       "font-family": "IBM Plex Mono, monospace", "font-size": 10.5 }, svg);
