@@ -183,9 +183,10 @@ function renderOutlook() {
       <dd style="color:${lead >= 0 ? "var(--pos)" : "var(--neg)"}">${signed(lead, 2)} σ</dd>
       <small>Curva, condiciones financieras, permisos, horas y diferenciales. ${
         dir == null ? "" : dir >= 0 ? "Mejorando frente a hace 6 meses." : "Deteriorándose frente a hace 6 meses."}</small></div>
-    <div class="item"><dt>Transición más probable</dt>
+    <div class="item"><dt>Si cambia de fase, va a</dt>
       <dd style="color:${PHASE_COLOR[next.phase]}">${next.phase}</dd>
-      <small>${fmtPct(next.p, 0)} de los meses que siguieron a esta fase en 60 años terminaron aquí.</small></div>
+      <small>La fase se mantiene el ${fmtPct(next.stay, 0)} de los meses. Del ${
+        fmtPct(1 - next.stay, 0)} restante que sí cambia, el ${fmtPct(next.cond, 0)} va a ${next.phase}.</small></div>
     <div class="item"><dt>Persistencia media</dt>
       <dd>${fmtNum(D.validation.duration_months?.[c.phase], 1)} meses</dd>
       <small>Duración media histórica de un tramo en ${c.phase}.</small></div>
@@ -195,12 +196,20 @@ function renderOutlook() {
 }
 
 function mostLikelyNext() {
+  // La matriz es mensual e incluye la diagonal, que vale ~0,9: en un mes
+  // cualquiera lo más probable con diferencia es no cambiar de fase. Dar el 9 %
+  // en bruto como "transición más probable" mezcla dos cosas distintas. Aquí se
+  // separan: persistencia por un lado, destino condicionado al cambio por otro.
   const row = D.validation.transition?.[D.current.phase] || {};
+  const stay = row[D.current.phase] ?? 0;
+  const move = 1 - stay;
   let best = { phase: "—", p: 0 };
   for (const [p, v] of Object.entries(row)) {
     if (p === D.current.phase) continue;
     if (v > best.p) best = { phase: p, p: v };
   }
+  best.stay = stay;
+  best.cond = move > 1e-9 ? best.p / move : 0;
   return best;
 }
 
