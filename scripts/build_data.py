@@ -613,6 +613,35 @@ def yield_to_return(y_pct: pd.Series, dur: float, cvx: float) -> pd.Series:
     return ((y.shift(1) / 12.0 - dur * dy + 0.5 * cvx * dy ** 2) * 100.0).dropna()
 
 
+def _implausible(s: pd.Series) -> str | None:
+    """Rechaza series que no pueden ser retornos mensuales.
+
+    Nace de un caso real: una fuente devolvió un índice acumulado en lugar de
+    retornos y entró en el universo como si fuera un bono, con una media del 25 %
+    MENSUAL y el 99,9 % de los meses en positivo. Un activo así gana cualquier
+    selección en todas las fases y convierte el backtest entero en ficción, sin
+    que nada en el panel lo delate.
+
+    El test decisivo no es el tamaño, que depende de las unidades, sino el reparto
+    de signos: un activo real pierde dinero en una fracción apreciable de los
+    meses. En este universo, el activo más sesgado tiene un 58,5 % de meses en
+    positivo y el menos un 47,2 %; un índice acumulado se va al 100 %. El umbral
+    deja margen de sobra para cualquier serie legítima.
+    """
+    v = s.astype(float)
+    pos = float((v > 0).mean())
+    if pos > 0.90:
+        return (f"parece un índice acumulado, no retornos: {pos:.1%} de los meses "
+                f"en positivo")
+    if pos < 0.15:
+        return f"solo el {pos:.1%} de los meses en positivo: revisar el signo"
+    if abs(float(v.mean())) > 8.0:
+        return f"media mensual de {v.mean():.1f} %: unidades sospechosas"
+    if float(v.abs().max()) > 150.0:
+        return f"un mes de {v.abs().max():.0f} %: unidades sospechosas"
+    return None
+
+
 def fetch_assets(df: pd.DataFrame):
     print("4. Construyendo el universo de activos…")
     rets: dict[str, pd.Series] = {}
@@ -628,6 +657,12 @@ def fetch_assets(df: pd.DataFrame):
         if s.size < MIN_MONTHS:
             ASSET_LOG.append({"name": name, "source": source, "status": "descartado",
                               "detail": f"{s.size} meses, mínimo {MIN_MONTHS}"})
+            return
+        bad = _implausible(s)
+        if bad:
+            ASSET_LOG.append({"name": name, "source": source, "status": "descartado",
+                              "detail": bad})
+            WARNINGS.append(f"{name}: {bad}")
             return
         if name in rets:
             ASSET_LOG.append({"name": name, "source": source, "status": "duplicado",
@@ -1210,6 +1245,37 @@ def _shrunk_means(hist, hph, phase):
 # inverso de volatilidad se lo lleva todo al activo menos volátil: las letras a 3
 # meses acaparaban del 23 % al 40 % de la cartera entera y el resto de la renta
 # fija se quedaba en el 0,6 %. Ponderar por riesgo no puede significar concentrar.
+def _equal_weights(v: pd.Series) -> pd.Series:
+    return pd.Series(1.0 / len(v), index=v.index)
+
+
+def _inv_vol_weights(v: pd.Series) -> pd.Series:
+    inv = 1.0 / v
+    return inv / inv.sum()
+
+
+def _rank_weights(v: pd.Series) -> pd.Series:
+    """Peso proporcional al puesto en la ordenación por ventaja de fase: el mejor
+    de cuatro se lleva 4/10, el peor 1/10. Usa el orden que ya se ha decidido para
+    seleccionar, sin estimar ningún parámetro nuevo."""
+    r = pd.Series(np.arange(len(v), 0, -1), index=v.index, dtype=float)
+    return r / r.sum()
+
+
+def _half_rank_weights(v: pd.Series) -> pd.Series:
+    """Mitad equiponderado, mitad por puesto. Inclina hacia lo que mejor puntúa
+    sin fiarlo todo a un orden que se estima con ruido."""
+    return 0.5 * _equal_weights(v) + 0.5 * _rank_weights(v)
+
+
+_INNER_SCHEMES = {
+    "equiponderado": _equal_weights,
+    "inverso de volatilidad": _inv_vol_weights,
+    "por puesto": _rank_weights,
+    "mitad y mitad": _half_rank_weights,
+}
+
+
 def _inner_weights(v: pd.Series) -> pd.Series:
     """Equiponderación entre los elegidos del bloque.
 
@@ -1278,6 +1344,8 @@ def _sleeve_pick(edge, vol, avail, classes, cls_map, n_pick, depth=None):
         if len(top) == n_pick:
             break
     top = pd.Index(top)
+    # top ya viene ordenado de mejor a peor ventaja: los esquemas por puesto
+    # dependen de que ese orden se conserve hasta aquí.
     v = vol.reindex(top).replace(0, np.nan).dropna()
     w = _inner_weights(v) if not v.empty else pd.Series(
         1.0 / len(top), index=top)
@@ -1476,8 +1544,42 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
                     if bench is not None and bench.loc[d] == bench.loc[d] else None)}
              for d in dates]
     print(f"  ✓ {len(R)} meses desde {dates[0].date()}")
+    def by_year(a: pd.Series, b: pd.Series) -> list:
+        """Rentabilidad de año natural de las dos carteras, compuesta mes a mes.
+        Solo años con los doce meses en ambas, para que la comparación sea justa:
+        el primero y el último suelen estar incompletos."""
+        out = []
+        for y, idx in a.groupby(a.index.year).groups.items():
+            ra, rb = a.loc[idx], b.reindex(idx)
+            if len(ra) < 12 or rb.isna().any():
+                continue
+            va = float((1 + ra / 100.0).prod() - 1) * 100
+            vb = float((1 + rb / 100.0).prod() - 1) * 100
+            out.append({"y": int(y), "s": round(va, 2), "b": round(vb, 2),
+                        "d": round(va - vb, 2)})
+        return out
+
+    def weighting_variants() -> dict:
+        """Qué pasaría con otros repartos dentro de cada bloque. Se publican los
+        cuatro y el que manda sigue siendo el equiponderado, que es el que menos
+        parámetros estima. Están aquí como diagnóstico, no como menú: elegir a
+        posteriori el que mejor sale en el backtest es una decisión tomada con el
+        resultado delante, y eso no se puede medir después."""
+        global _inner_weights
+        guardado, out = _inner_weights, {}
+        try:
+            for etiqueta, fn in _INNER_SCHEMES.items():
+                _inner_weights = fn
+                r, _, _ = run()
+                out[etiqueta] = perf(r)
+        finally:
+            _inner_weights = guardado
+        return out
+
     return {"portfolio": perf(R),
             "in_sample": perf(R_is),
+            "by_year": by_year(R, bench) if bench is not None else [],
+            "inner_weighting": weighting_variants(),
             "bench_6040": perf(bench) if bench is not None else {},
             "by_phase": by_phase, "playbook": playbook, "sleeve_mix": sleeve_mix,
             "bands": {k: [round(v[1] * 100), round(v[2] * 100)] for k, v in SLEEVES.items()},
