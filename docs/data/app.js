@@ -421,11 +421,26 @@ function renderIndicators() {
     box.innerHTML = `
       <header>
         <h3>${BLOCK_TITLE[block]}</h3>
-        <div class="pc">${rows.length} series${pc ? `<br>1er componente: ${fmtPct(pc.explained_var, 0)} de la varianza` : "<br>no entran en ningún factor"}</div>
+        <div class="pc">${rows.length} series${pc ? `<br>1er componente: ${
+          fmtPct(pc.explained_var, 0)} de la varianza <b>de estas ${rows.length}</b>` : "<br>no entran en ningún factor"}</div>
       </header>
       ${rows.map(indRow).join("")}`;
     host.appendChild(box);
   }
+  const foot = document.createElement("div");
+  foot.style.gridColumn = "1/-1";
+  foot.innerHTML = indBlocksFoot();
+  host.appendChild(foot);
+}
+
+// Nota al pie del bloque: los tres porcentajes no se suman, y conviene decirlo.
+function indBlocksFoot() {
+  return `<p class="cap" style="grid-column:1/-1;margin-top:2px">Cada porcentaje es de su propio
+    bloque, no de un total común: son tres análisis de componentes principales independientes, con
+    tres conjuntos de series distintos. Que sumen más de 100 no significa nada, igual que no
+    significa nada que la nota media de tres clases distintas sume más de diez. Lo que mide cada
+    uno es cuánta de la variación de <i>sus</i> series se resume en una sola cifra: cuanto más
+    alto, más de acuerdo están entre sí y más fiable es el eje.</p>`;
 }
 
 function indRow(i) {
@@ -750,6 +765,33 @@ function renderRotation() {
       la parte del resultado que depende de saber cosas por adelantado: cuanto más pequeña,
       más se parece el backtest a lo que habrías vivido de verdad.</p>` : ""}
 
+    ${r.by_year && r.by_year.length ? `
+      <h3 style="font-family:var(--display);font-size:17px;margin-bottom:6px">Año a año</h3>
+      <p class="cap" style="margin-bottom:10px">Diferencia frente al 60/40 en cada año natural, solo
+        años completos. Ganó <b>${r.by_year.filter(x => x.d > 0).length}</b> de ${r.by_year.length},
+        y el peor año relativo fue ${r.by_year.reduce((a, x) => x.d < a.d ? x : a).y} con
+        ${signed(r.by_year.reduce((a, x) => x.d < a.d ? x : a).d, 1)} pp.</p>
+      <div class="bt-chart" style="margin-bottom:10px">
+        <svg id="yearChart" viewBox="0 0 900 260" role="img"
+          aria-label="Diferencia anual frente al 60/40"></svg>
+      </div>
+      <details style="margin-bottom:26px">
+        <summary style="cursor:pointer;color:var(--muted);font-size:13px">Ver la tabla completa</summary>
+        <div class="matrix-holder" style="margin-top:10px;max-height:340px;overflow:auto">
+          <table class="matrix">
+            <thead><tr><th>Año</th><th style="text-align:right">Rotación</th>
+              <th style="text-align:right">60/40</th><th style="text-align:right">Diferencia</th></tr></thead>
+            <tbody>${r.by_year.slice().reverse().map(x => `<tr>
+              <td class="asset">${x.y}</td>
+              <td style="text-align:right;font-family:var(--mono)">${fmtNum(x.s, 1)}%</td>
+              <td style="text-align:right;font-family:var(--mono)">${fmtNum(x.b, 1)}%</td>
+              <td style="text-align:right;font-family:var(--mono);font-weight:600;color:${
+                x.d >= 0 ? "var(--recuperacion)" : "var(--estanflacion)"}">${signed(x.d, 1)}</td>
+            </tr>`).join("")}</tbody>
+          </table>
+        </div>
+      </details>` : ""}
+
     <h3 style="font-family:var(--display);font-size:17px;margin-bottom:6px">Dónde gana y dónde no</h3>
     <div class="scores-grid" style="margin-bottom:26px">
       ${D.phases.filter(x => r.by_phase[x]).map(x => {
@@ -762,6 +804,29 @@ function renderRotation() {
         </div>`;
       }).join("")}
     </div>
+
+    ${r.inner_weighting ? `
+      <h3 style="font-family:var(--display);font-size:17px;margin-bottom:6px">¿Y si los pesos no fueran iguales?</h3>
+      <p class="cap" style="margin-bottom:10px">Dentro de cada bloque los elegidos van a partes iguales.
+        No es que sea la verdad: es la opción que no estima ningún parámetro. Aquí están las
+        alternativas, con la misma regla y la misma muestra. Están como diagnóstico, no como menú:
+        quedarse con la que mejor sale es una decisión tomada con el resultado delante, y eso ya no
+        hay forma de medirlo después.</p>
+      <div class="matrix-holder" style="margin-bottom:26px">
+        <table class="matrix">
+          <thead><tr><th>Reparto dentro del bloque</th><th style="text-align:right">Anual</th>
+            <th style="text-align:right">Vol</th><th style="text-align:right">Sharpe</th>
+            <th style="text-align:right">Caída máx.</th></tr></thead>
+          <tbody>${Object.entries(r.inner_weighting).map(([k, v]) => `<tr${
+            k === "equiponderado" ? ` style="background:rgba(255,255,255,.03)"` : ""}>
+            <td class="asset">${k}${k === "equiponderado" ? " · en uso" : ""}</td>
+            <td style="text-align:right;font-family:var(--mono)">${fmtNum(v.cagr, 1)}%</td>
+            <td style="text-align:right;font-family:var(--mono)">${fmtNum(v.vol, 1)}%</td>
+            <td style="text-align:right;font-family:var(--mono);font-weight:600">${fmtNum(v.sharpe, 2)}</td>
+            <td style="text-align:right;font-family:var(--mono)">${fmtNum(v.maxdd, 1)}%</td>
+          </tr>`).join("")}</tbody>
+        </table>
+      </div>` : ""}
 
     <h3 style="font-family:var(--display);font-size:17px;margin-bottom:10px">Qué comprar en cada fase</h3>
     <div class="seg" style="margin-bottom:12px">
@@ -791,6 +856,7 @@ function renderRotation() {
       ${pbPhase === D.current.phase ? "Esta es la fase vigente." : `La fase vigente es ${D.current.phase}.`}</p>`;
 
   drawCurve("#rotChart", r.curve || [], "Rotación por fase", "60/40 estático");
+  drawYearChart(r.by_year);
   $("#rotationBlock .seg").querySelectorAll("button").forEach(btn => {
     btn.onclick = () => { pbPhase = btn.dataset.p; renderRotation(); };
   });
@@ -859,6 +925,39 @@ function renderDefensive() {
 }
 
 /* -------------------------------- backtest ------------------------------ */
+function drawYearChart(rows) {
+  const svg = $("#yearChart");
+  if (!svg || !rows || !rows.length) return;
+  svg.innerHTML = "";
+  const W = 900, H = 260, padL = 46, padR = 12, padT = 20, padB = 30;
+  const lim = Math.max(...rows.map(r => Math.abs(r.d))) * 1.08 || 1;
+  const x = i => padL + (i + 0.5) * ((W - padL - padR) / rows.length);
+  const y = v => padT + (1 - (v + lim) / (2 * lim)) * (H - padT - padB);
+  const bw = Math.max(3, (W - padL - padR) / rows.length - 2.5);
+
+  const paso = lim > 30 ? 20 : lim > 15 ? 10 : 5;
+  for (let v = -Math.floor(lim / paso) * paso; v <= lim; v += paso) {
+    el("line", { x1: padL, y1: y(v), x2: W - padR, y2: y(v),
+      stroke: v === 0 ? "#3A486E" : "#1D2740", "stroke-width": v === 0 ? 1.4 : 1 }, svg);
+    const t = el("text", { x: padL - 8, y: y(v) + 3.5, fill: "#4A5878", "text-anchor": "end",
+      "font-family": "IBM Plex Mono, monospace", "font-size": 10 }, svg);
+    t.textContent = `${v > 0 ? "+" : ""}${v}`;
+  }
+  rows.forEach((r, i) => {
+    el("rect", { x: x(i) - bw / 2, y: r.d >= 0 ? y(r.d) : y(0), width: bw,
+      height: Math.max(1, Math.abs(y(r.d) - y(0))),
+      fill: r.d >= 0 ? "var(--recuperacion)" : "var(--estanflacion)", opacity: 0.85 }, svg);
+    if (r.y % 5 === 0) {
+      const t = el("text", { x: x(i), y: H - padB + 16, fill: "#4A5878", "text-anchor": "middle",
+        "font-family": "IBM Plex Mono, monospace", "font-size": 10 }, svg);
+      t.textContent = r.y;
+    }
+  });
+  const lab = el("text", { x: padL, y: padT - 6, fill: "#66748F",
+    "font-family": "IBM Plex Mono, monospace", "font-size": 10.5 }, svg);
+  lab.textContent = "puntos porcentuales de diferencia frente al 60/40";
+}
+
 function drawCurve(sel, c, labelA, labelB) {
   const svg = $(sel);
   if (!svg) return;
