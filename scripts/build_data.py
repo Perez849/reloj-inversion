@@ -1143,7 +1143,12 @@ NOT_SELECTABLE = {
 # llenaba con oro lingote y oro ETF a la vez —15 % de oro disfrazado de
 # diversificación— y lo mismo pasaba con GSCI/DBC y con el hipotecario.
 # El representante se elige por historia disponible, antes de mirar retornos.
-EXPOSURE_GROUPS = {
+# --- Duplicados, dos tipos distintos ---------------------------------------
+#
+# VEHICLE_GROUPS: el mismo subyacente por vehículos distintos. Oro lingote y oro
+# ETF son literalmente lo mismo. Se colapsan ANTES de puntuar y gana el de más
+# historia, porque con datos idénticos el criterio es la calidad de la serie.
+VEHICLE_GROUPS = {
     "Oro (lingote)": "oro lingote",
     "Oro (ETF físico)": "oro lingote",
     "Materias primas (índice)": "materias primas",
@@ -1152,10 +1157,40 @@ EXPOSURE_GROUPS = {
     "Titulizaciones hipotecarias (MBB)": "hipotecario",
     "Crédito Baa (aprox.)": "crédito investment grade",
     "Crédito Investment Grade (LQD)": "crédito investment grade",
+    "TIPS 10 años (aprox.)": "tips",
+    "TIPS (TIP)": "tips",
     "Renta variable internacional": "desarrollados ex EE.UU.",
     "Desarrollados ex EE.UU. (French)": "desarrollados ex EE.UU.",
     "Renta variable emergente": "emergentes",
     "Emergentes (French)": "emergentes",
+}
+
+# OVERLAP_GROUPS: exposiciones distintas pero solapadas o anidadas. Bancos está
+# DENTRO de Financiero; Software y Semiconductores están DENTRO de Tecnología.
+# Comprar Financiero y Bancos a la vez no es diversificar, es la misma apuesta
+# escrita dos veces, y en un bloque de cuatro nombres se lleva media cartera de
+# renta variable. Aquí no se puede colapsar por historia —las series de Ken
+# French empiezan todas en 1970 y el desempate sería alfabético, o sea
+# arbitrario—, así que la restricción se aplica al elegir: se ordena por ventaja
+# de fase y se va cogiendo, saltando cualquier candidato que comparta grupo con
+# algo ya seleccionado. Gana el representante que mejor puntúe, que es lo que
+# tiene sentido.
+OVERLAP_GROUPS = {
+    "Financiero": "financiero",
+    "Bancos": "financiero",
+    "Tecnología": "tecnología",
+    "Software": "tecnología",
+    "Semiconductores": "tecnología",
+    "Inmobiliario": "inmobiliario",
+    "REITs": "inmobiliario",
+    "Cobre": "metales industriales",
+    "Minería no férrea": "metales industriales",
+    "Oro (lingote)": "oro",
+    "Oro (ETF físico)": "oro",
+    "Metales preciosos (mineras)": "oro",
+    "Materias primas (índice)": "energía y materias primas",
+    "Materias primas (ETF)": "energía y materias primas",
+    "Petróleo y gas": "energía y materias primas",
 }
 
 
@@ -1208,7 +1243,7 @@ def _dedupe(cand, depth):
     en ese momento; el desempate es alfabético. Regla previa a los retornos."""
     best, out = {}, []
     for c in cand:
-        g = EXPOSURE_GROUPS.get(c)
+        g = VEHICLE_GROUPS.get(c)
         if g is None:
             out.append(c)
             continue
@@ -1231,7 +1266,18 @@ def _sleeve_pick(edge, vol, avail, classes, cls_map, n_pick, depth=None):
     e = edge.reindex(cand).replace([np.inf, -np.inf], np.nan).dropna()
     if e.empty:
         return {}, 0.0
-    top = e.sort_values(ascending=False).head(n_pick).index
+    # Selección voraz por ventaja, saltando exposiciones ya cubiertas.
+    top, taken = [], set()
+    for c in e.sort_values(ascending=False).index:
+        g = OVERLAP_GROUPS.get(c)
+        if g is not None and g in taken:
+            continue
+        top.append(c)
+        if g is not None:
+            taken.add(g)
+        if len(top) == n_pick:
+            break
+    top = pd.Index(top)
     v = vol.reindex(top).replace(0, np.nan).dropna()
     w = _inner_weights(v) if not v.empty else pd.Series(
         1.0 / len(top), index=top)
