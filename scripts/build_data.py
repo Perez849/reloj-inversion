@@ -1030,7 +1030,14 @@ def defensive(X: pd.DataFrame, growth: pd.Series) -> dict:
     gold = next((c for c in ("Metales preciosos (mineras)", "Oro (lingote)",
                              "Oro (ETF físico)") if c in X.columns), None)
     eq, b10, b2 = need
+    # Todas las variantes tienen que cubrir los mismos meses que su propia base.
+    # Los índices de Ken French publican con dos meses de desfase, así que sin este
+    # recorte el 60/40 salía con 678 meses y las reglas defensivas con 680: dos
+    # meses de ventaja gratis para las variantes, justo los más recientes.
     idx = X.index.intersection(growth.dropna().index)
+    last = X[eq].dropna().index.max()
+    if last is not None:
+        idx = idx[idx <= last]
     sig = (growth.reindex(idx).shift(1) < 0)
     D = X.reindex(idx)
 
@@ -1299,6 +1306,45 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
     if len(common) < min_train + 60:
         return {}
 
+    def run(full_sample: bool = False):
+        """Recorre la muestra montando la cartera mes a mes. Con full_sample=True
+        las medias por fase se estiman con TODO el histórico, incluido el futuro:
+        es la misma regla jugada con ventaja, y la distancia entre las dos curvas
+        es la medida directa de cuánto de este resultado es sobreajuste."""
+        rets, dates, held = [], [], []
+        for k in range(min_train, len(common)):
+            t = common[k]
+            sig = ph.iloc[k - 1]
+            hist, hph = (X, ph) if full_sample else (X.iloc[:k], ph.iloc[:k])
+            vol, depth = hist.std(), hist.notna().sum()
+            avail = list(X.loc[t].dropna().index)
+            picks, scores = {}, {}
+            for phase in PHASES:
+                edge_p = _phase_edge(hist, hph, phase, vol)
+                scores[phase] = {}
+                for name, (classes, lo, hi, n_pick) in SLEEVES.items():
+                    w_p, s_p = _sleeve_pick(edge_p, vol, avail, classes,
+                                            cls_map, n_pick, depth)
+                    scores[phase][name] = s_p
+                    if phase == sig:
+                        picks[name] = w_p
+            budgets = _sleeve_weights(scores, sig)
+            w_all, r = {}, 0.0
+            for name, inner in picks.items():
+                for c, wt in inner.items():
+                    w_all[c] = w_all.get(c, 0.0) + budgets[name] * wt
+            if not w_all:
+                continue
+            tot = sum(w_all.values())
+            for c, wt in w_all.items():
+                r += (wt / tot) * float(X.loc[t, c])
+            rets.append(r)
+            dates.append(t)
+            held.append(sig)
+        return pd.Series(rets, index=dates), dates, held
+
+    R_is, _, _ = run(full_sample=True)
+
     rets, dates, held = [], [], []
     for k in range(min_train, len(common)):
         t = common[k]
@@ -1385,6 +1431,7 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
              for d in dates]
     print(f"  ✓ {len(R)} meses desde {dates[0].date()}")
     return {"portfolio": perf(R),
+            "in_sample": perf(R_is),
             "bench_6040": perf(bench) if bench is not None else {},
             "by_phase": by_phase, "playbook": playbook, "sleeve_mix": sleeve_mix,
             "bands": {k: [round(v[1] * 100), round(v[2] * 100)] for k, v in SLEEVES.items()},
