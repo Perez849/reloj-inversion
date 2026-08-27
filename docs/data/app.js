@@ -1012,9 +1012,13 @@ function renderMethod() {
       entre lo que hace un activo en esa fase y lo que hace de media, no por su rentabilidad entre
       volatilidad. Ordenar por Sharpe absoluto selecciona los mismos defensivos en las cuatro fases,
       y eso no es una rotación.`],
-    ["Un solo activo por exposición", `Oro lingote y oro ETF son la misma cosa. Los índices agregados
-      quedan fuera de la selección para que la renta variable se componga de sectores, y las series
-      que no se pueden mantener en cartera —PPI, WTI al contado— tampoco entran.`],
+    ["Nunca dos veces la misma apuesta", `Dos filtros distintos. Los vehículos idénticos —oro lingote
+      y oro ETF, GSCI y DBC, los dos TIPS— se colapsan en uno y gana el de más historia. Y las
+      exposiciones solapadas no pueden coincidir en cartera: Bancos está dentro de Financiero,
+      Software y Semiconductores dentro de Tecnología, REITs e Inmobiliario son lo mismo. Se ordena
+      por ventaja de fase y se salta lo que ya está cubierto. Los índices agregados quedan fuera de
+      la selección para que la renta variable se componga de sectores, y las series que no se pueden
+      mantener en cartera —PPI, WTI al contado— tampoco entran.`],
     ["El riesgo se decide entre bloques, no dentro", `El reparto parte de un neutro 60/30/10, la misma
       postura que el índice contra el que se mide, y se desvía con la fase dentro de bandas fijas.
       Dentro de cada bloque los elegidos van equiponderados: ponderar por inverso de volatilidad
