@@ -429,16 +429,16 @@ FRENCH_IND = {
     "Hlth": "Salud", "Money": "Financiero", "Other": "Otros sectores",
 }
 
+# De las 49 industrias solo se toman las exposiciones que NO existen en las 12
+# industrias: oro, minería e inmobiliario. Bancos, Software, Chips y Petróleo
+# duplicaban a Financiero, Tecnología y Energía, y el bloque acababa eligiendo seis
+# nombres que eran tres exposiciones repetidas.
 FRENCH_49 = {
     "Gold": ("Metales preciosos (mineras)", "Real / alternativos",
              "mineras de oro, no lingote: el oro físico ya no está en FRED"),
     "Mines": ("Minería no férrea", "Real / alternativos", ""),
     "RlEst": ("Inmobiliario", "Real / alternativos",
-              "sector inmobiliario cotizado; sustituye al índice Wilshire retirado"),
-    "Oil": ("Petróleo y gas", "Real / alternativos", ""),
-    "Banks": ("Bancos", "Renta variable", ""),
-    "Softw": ("Software", "Renta variable", ""),
-    "Chips": ("Semiconductores", "Renta variable", ""),
+              "sustituye al índice Wilshire, retirado de FRED"),
 }
 
 # ICE truncó a 3 años TODOS sus índices de retorno total en FRED en abril de 2026,
@@ -1076,8 +1076,8 @@ SLEEVES = {
     # cartera se veía obligada a bajar la renta variable a su suelo del 30 % y
     # rendía menos por fuerza. Diversificar el bloque permite llevar más peso en
     # renta variable al mismo nivel de riesgo.
-    "Renta variable": ({"Renta variable"}, 0.30, 0.85, 6),
-    "Renta fija": ({"Renta fija", "Liquidez"}, 0.10, 0.60, 3),
+    "Renta variable": ({"Renta variable"}, 0.30, 0.70, 4),
+    "Renta fija": ({"Renta fija", "Liquidez"}, 0.20, 0.60, 3),
     "Activos reales": ({"Real / alternativos"}, 0.00, 0.15, 2),
 }
 
@@ -1138,7 +1138,12 @@ def _sleeve_pick(mu, vol, avail, classes, cls_map, n_pick):
     if ir.empty:
         return [], 0.0
     top = list(ir.sort_values(ascending=False).head(n_pick).index)
-    return top, float(ir.reindex(top).mean())
+    v = vol.reindex(top).replace(0, np.nan)
+    iv = 1.0 / v
+    w = (iv / iv.sum()) if iv.notna().any() else pd.Series(1.0 / len(top), index=top)
+    # Media ponderada por inverso de volatilidad, no media simple: es la que
+    # producía el reparto que mejor rendía, y pondera igual que la cartera real.
+    return top, float((ir.reindex(top) * w.fillna(0)).sum())
 
 
 def _sleeve_weights(scores: dict, cov=None, inner=None, target_vol=None) -> dict:
