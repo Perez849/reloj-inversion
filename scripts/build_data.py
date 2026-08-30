@@ -1224,6 +1224,7 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
         tau2 = (mu - grand).var()
         return grand + (tau2 / (tau2 + se ** 2)).fillna(0.0) * (mu - grand)
 
+    eq_c, bd_c = "Renta variable EE.UU. (mercado)", "Treasury 10 años"
     rets = {k: [] for k in SCHEMES}
     turn = {k: [] for k in SCHEMES}
     prev = {k: {} for k in SCHEMES}
@@ -1274,7 +1275,6 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
         dates.append(t)
         held.append(sig)
 
-    eq_c, bd_c = "Renta variable EE.UU. (mercado)", "Treasury 10 años"
     eq, bd = X.get(eq_c), X.get(bd_c)
     bench = (0.6 * eq + 0.4 * bd).reindex(dates) if eq is not None and bd is not None else None
     hp = pd.Series(held, index=dates)
