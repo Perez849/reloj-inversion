@@ -1087,7 +1087,17 @@ SLEEVES = {
 # país sirven de referencia, no de posición. Si compiten con los sectores los barren
 # siempre, porque un índice diversificado tiene mejor rentabilidad por unidad de
 # riesgo que cualquier sector suelto, y entonces no hay rotación sectorial ninguna.
-NOT_SELECTABLE = {"Otros sectores"}
+# La liquidez se mide como exceso sobre la propia liquidez: su rentabilidad es cero
+# por construcción y su volatilidad casi cero. Al ordenar por rentabilidad entre
+# volatilidad, ese cociente se dispara y se cuela como primera posición; después el
+# reparto por inverso de volatilidad le da un peso enorme. La cartera acababa con un
+# cuarto del dinero parado y la volatilidad hundida. No es una posición: es la
+# unidad de medida.
+NOT_SELECTABLE = {"Otros sectores", "Liquidez (letras 3m)"}
+
+# Suelo de volatilidad para el reparto y la ordenación. Sin él, cualquier activo
+# muy poco volátil acapara la cartera por el mismo mecanismo.
+VOL_FLOOR_Q = 0.20
 
 
 SCHEMES = {
@@ -1110,6 +1120,10 @@ def _weights(names, vol, scheme: str) -> pd.Series:
         return pd.Series(dtype=float)
     eq = pd.Series(1.0 / n, index=names)
     v = vol.reindex(names).replace(0, np.nan)
+    if v.notna().sum() > 1:
+        fl = v.min() if v.notna().sum() < 3 else v.quantile(VOL_FLOOR_Q)
+        if fl and fl > 0:
+            v = v.clip(lower=fl)
     iv = (1.0 / v)
     iv = (iv / iv.sum()) if iv.notna().any() else eq
     iv = iv.fillna(0.0)
@@ -1133,12 +1147,15 @@ def _sleeve_pick(mu, vol, avail, classes, cls_map, n_pick):
             if cls_map.get(c) in classes and c not in NOT_SELECTABLE]
     if not cand:
         return [], 0.0
-    ir = (mu.reindex(cand) / vol.reindex(cand)).replace(
-        [np.inf, -np.inf], np.nan).dropna()
+    vc = vol.reindex(cand).replace(0, np.nan)
+    floor = vc.quantile(VOL_FLOOR_Q) if vc.notna().sum() > 2 else None
+    if floor and floor > 0:
+        vc = vc.clip(lower=floor)
+    ir = (mu.reindex(cand) / vc).replace([np.inf, -np.inf], np.nan).dropna()
     if ir.empty:
         return [], 0.0
     top = list(ir.sort_values(ascending=False).head(n_pick).index)
-    v = vol.reindex(top).replace(0, np.nan)
+    v = vc.reindex(top)
     iv = 1.0 / v
     w = (iv / iv.sum()) if iv.notna().any() else pd.Series(1.0 / len(top), index=top)
     # Media ponderada por inverso de volatilidad, no media simple: es la que
