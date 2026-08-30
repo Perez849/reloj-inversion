@@ -1134,33 +1134,65 @@ def _sleeve_pick(mu, vol, avail, classes, cls_map, n_pick):
     return top, float(ir.reindex(top).mean())
 
 
-def _sleeve_weights(scores: dict) -> dict:
-    """Reparte el 100 % entre bloques en proporción a su puntuación, respetando las
-    bandas. Una puntuación negativa se trata como cero: ese bloque baja a su mínimo.
-    No hay ningún parámetro ajustado a los datos; las bandas son la única elección,
-    y se fijan por prudencia (nunca sin renta variable, nunca sin renta fija)."""
-    pos = {k: max(0.0, scores.get(k, 0.0)) for k in SLEEVES}
+def _sleeve_weights(scores: dict, cov=None, inner=None, target_vol=None) -> dict:
+    """Reparte el 100 % entre bloques.
+
+    Punto clave: NO se pueden comparar bloques por rentabilidad ajustada al riesgo.
+    La renta fija siempre gana esa comparación porque su volatilidad es minúscula,
+    y el resultado es una cartera estructuralmente menos arriesgada que el 60/40 —
+    que rinde menos por construcción, no por acertar peor.
+
+    Así que el reparto se fija por RIESGO: los activos reales toman su parte según
+    lo que puntúen (cero si no aportan) y el resto se divide entre renta variable y
+    renta fija buscando que la volatilidad esperada de la cartera iguale la del
+    60/40. Comparación a igual riesgo, sin apalancar, y la mezcla se mueve sola con
+    la fase porque cambian las volatilidades y las correlaciones.
+    """
+    names = list(SLEEVES)
+    lo = {k: SLEEVES[k][1] for k in names}
+    hi = {k: SLEEVES[k][2] for k in names}
+
+    pos = {k: max(0.0, scores.get(k, 0.0)) for k in names}
     tot = sum(pos.values())
-    if tot <= 0:
-        raw = {k: (SLEEVES[k][1] + SLEEVES[k][2]) / 2 for k in SLEEVES}
-    else:
-        raw = {k: pos[k] / tot for k in SLEEVES}
-    # Proyección sobre las bandas: se recorta y el sobrante se reparte entre los
-    # bloques que aún tienen margen, hasta converger.
-    w = {k: min(max(raw[k], SLEEVES[k][1]), SLEEVES[k][2]) for k in SLEEVES}
-    for _ in range(24):
-        gap = 1.0 - sum(w.values())
-        if abs(gap) < 1e-9:
-            break
-        room = {k: (SLEEVES[k][2] - w[k]) if gap > 0 else (w[k] - SLEEVES[k][1])
-                for k in SLEEVES}
-        total_room = sum(room.values())
-        if total_room <= 1e-12:
-            break
-        for k in SLEEVES:
-            w[k] += gap * room[k] / total_room
-        w = {k: min(max(w[k], SLEEVES[k][1]), SLEEVES[k][2]) for k in SLEEVES}
-    return w
+    real = "Activos reales"
+    r = 0.0 if tot <= 0 else min(hi[real], max(lo[real], pos[real] / tot))
+
+    if cov is None or inner is None or target_vol is None or not target_vol:
+        rest = 1.0 - r
+        eq_share = 0.5 if tot <= 0 else pos["Renta variable"] / max(
+            pos["Renta variable"] + pos["Renta fija"], 1e-9)
+        e = min(hi["Renta variable"], max(lo["Renta variable"], rest * eq_share))
+        return {"Renta variable": e, "Renta fija": rest - e, "Activos reales": r}
+
+    def port_vol(e, b):
+        w = {}
+        for k, share in (("Renta variable", e), ("Renta fija", b), (real, r)):
+            for c, wt in inner.get(k, {}).items():
+                w[c] = w.get(c, 0.0) + share * float(wt)
+        cols = [c for c in w if c in cov.index]
+        if not cols:
+            return None
+        vec = np.array([w[c] for c in cols])
+        var = float(vec @ cov.loc[cols, cols].values @ vec)
+        return math.sqrt(max(var, 0.0))
+
+    best, best_gap = None, 1e18
+    for e100 in range(int(lo["Renta variable"] * 100), int(hi["Renta variable"] * 100) + 1):
+        e = e100 / 100.0
+        b = 1.0 - r - e
+        if b < lo["Renta fija"] - 1e-9 or b > hi["Renta fija"] + 1e-9:
+            continue
+        v = port_vol(e, b)
+        if v is None:
+            continue
+        gap = abs(v - target_vol)
+        if gap < best_gap:
+            best, best_gap = (e, b), gap
+    if best is None:
+        rest = 1.0 - r
+        e = min(hi["Renta variable"], max(lo["Renta variable"], rest * 0.6))
+        return {"Renta variable": e, "Renta fija": rest - e, "Activos reales": r}
+    return {"Renta variable": best[0], "Renta fija": best[1], "Activos reales": r}
 
 
 def _annual(series: pd.Series) -> dict:
@@ -1207,15 +1239,25 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
         for name, (classes, lo, hi, n_pick) in SLEEVES.items():
             picks[name], scores[name] = _sleeve_pick(
                 mu, vol, avail, classes, cls_map, n_pick)
-        budgets = _sleeve_weights(scores)
         if not any(picks.values()):
             continue
+        # Volatilidad objetivo: la que el propio 60/40 ha tenido en los últimos
+        # 5 años. No es un parámetro libre, es la referencia contra la que se compara.
+        win = hist.tail(60)
+        tgt = None
+        if eq_c in win.columns and bd_c in win.columns:
+            bench_hist = (0.6 * win[eq_c] + 0.4 * win[bd_c]).dropna()
+            if bench_hist.size > 24:
+                tgt = float(bench_hist.std())
+        held_names = [c for top in picks.values() for c in top]
+        cov = win[held_names].dropna(how="all").cov() if held_names else None
+
         for sch in SCHEMES:
+            inner = {name: _weights(top, vol, sch).to_dict()
+                     for name, top in picks.items() if top}
+            budgets = _sleeve_weights(scores, cov, inner, tgt)
             w_all = {}
-            for name, top in picks.items():
-                if not top:
-                    continue
-                w = _weights(top, vol, sch)
+            for name, w in inner.items():
                 for c, wt in w.items():
                     w_all[c] = w_all.get(c, 0.0) + budgets[name] * float(wt)
             tot = sum(w_all.values())
@@ -1261,13 +1303,19 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
             for sl, (classes, lo, hi, n_pick) in SLEEVES.items():
                 picks[sl], scores[sl] = _sleeve_pick(
                     mu, vol_all, avail, classes, cls_map, n_pick)
-            budgets = _sleeve_weights(scores)
+            inner_pb = {sl: _weights(top, vol_all, sch).to_dict()
+                        for sl, top in picks.items() if top}
+            names_pb = [c for top in picks.values() for c in top]
+            cov_pb = X[names_pb].tail(60).cov() if names_pb else None
+            tgt_pb = None
+            if eq_c in X.columns and bd_c in X.columns:
+                bh = (0.6 * X[eq_c] + 0.4 * X[bd_c]).dropna().tail(60)
+                if bh.size > 24:
+                    tgt_pb = float(bh.std())
+            budgets = _sleeve_weights(scores, cov_pb, inner_pb, tgt_pb)
             rows = []
-            for sl, top in picks.items():
-                if not top:
-                    continue
-                w = _weights(top, vol_all, sch)
-                for c in top:
+            for sl, w in inner_pb.items():
+                for c in picks[sl]:
                     rows.append({"sleeve": sl, "name": c,
                                  "weight": round(budgets[sl] * float(w[c]) * 100, 1),
                                  "class": cls_map.get(c, "")})
