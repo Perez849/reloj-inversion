@@ -1099,6 +1099,14 @@ NOT_SELECTABLE = {"Otros sectores", "Liquidez (letras 3m)"}
 # muy poco volátil acapara la cartera por el mismo mecanismo.
 VOL_FLOOR_Q = 0.20
 
+# Vida media de la ponderación temporal, en meses. Una media plana sobre cien años
+# trata igual a 1935 y a 2025, y la composición de los sectores ha cambiado por
+# completo: "Tecnología" en French son máquinas de oficina en los años treinta y
+# semiconductores hoy. Con vida media de diez años, lo reciente pesa el doble que
+# lo de hace una década y unas treinta veces más que lo de hace cincuenta años,
+# sin que nada llegue a desaparecer. Se aplica igual a todos los activos.
+HALF_LIFE_M = 120
+
 
 SCHEMES = {
     "equal": "Equiponderado",
@@ -1158,9 +1166,15 @@ def _sleeve_pick(mu, vol, avail, classes, cls_map, n_pick):
     v = vc.reindex(top)
     iv = 1.0 / v
     w = (iv / iv.sum()) if iv.notna().any() else pd.Series(1.0 / len(top), index=top)
-    # Media ponderada por inverso de volatilidad, no media simple: es la que
-    # producía el reparto que mejor rendía, y pondera igual que la cartera real.
-    return top, float((ir.reindex(top) * w.fillna(0)).sum())
+    # Dos métricas distintas, y la diferencia importa:
+    #   - DENTRO del bloque se ordena por rentabilidad entre volatilidad, porque se
+    #     comparan activos de riesgo parecido y así no gana el más volátil por serlo.
+    #   - ENTRE bloques se compara la rentabilidad esperada A SECAS. Usar el cociente
+    #     también aquí premia sistemáticamente a la renta fija, cuya volatilidad es
+    #     tres veces menor, y deja la cartera con menos bolsa que el propio 60/40:
+    #     rinde menos por invertir menos, no por elegir peor.
+    score = float((mu.reindex(top) * w.fillna(0)).sum())
+    return top, score
 
 
 def _sleeve_weights(scores: dict, cov=None, inner=None, target_vol=None) -> dict:
@@ -1215,15 +1229,35 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
     if len(common) < min_train + 60:
         return {}
 
+    def _ew(frame, ref_date):
+        """Pesos exponenciales por antigüedad respecto a la última fecha."""
+        months = np.array([(ref_date.year - d.year) * 12 + (ref_date.month - d.month)
+                           for d in frame.index], dtype=float)
+        return pd.Series(0.5 ** (months / HALF_LIFE_M), index=frame.index)
+
+    def _wmean(frame, w):
+        ww = frame.notna().mul(w, axis=0)
+        return frame.mul(w, axis=0).sum() / ww.sum().replace(0, np.nan)
+
     def means(hist, hph, phase):
         sub = hist[hph == phase]
         if sub.empty:
             return pd.Series(dtype=float)
-        grand = hist.mean()
-        mu = sub.mean()
+        ref = hist.index[-1]
+        w_all, w_sub = _ew(hist, ref), _ew(sub, ref)
+        grand = _wmean(hist, w_all)
+        mu = _wmean(sub, w_sub)
         se = sub.std() / np.sqrt(sub.notna().sum().clip(lower=1))
         tau2 = (mu - grand).var()
         return grand + (tau2 / (tau2 + se ** 2)).fillna(0.0) * (mu - grand)
+
+    def ew_vol(hist):
+        ref = hist.index[-1]
+        w = _ew(hist, ref)
+        m = _wmean(hist, w)
+        dev2 = (hist.sub(m, axis=1) ** 2)
+        ww = dev2.notna().mul(w, axis=0)
+        return (dev2.mul(w, axis=0).sum() / ww.sum().replace(0, np.nan)) ** 0.5
 
     eq_c, bd_c = "Renta variable EE.UU. (mercado)", "Treasury 10 años"
     rets = {k: [] for k in SCHEMES}
@@ -1235,7 +1269,7 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
         t = common[k]
         sig = ph.iloc[k - 1]
         hist, hph = X.iloc[:k], ph.iloc[:k]
-        mu, vol = means(hist, hph, sig), hist.std()
+        mu, vol = means(hist, hph, sig), ew_vol(hist)
         avail = list(X.loc[t].dropna().index)
         picks, scores = {}, {}
         for name, (classes, lo, hi, n_pick) in SLEEVES.items():
@@ -1281,7 +1315,7 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
     hp = pd.Series(held, index=dates)
     bench_annual = _annual(bench.dropna()) if bench is not None else {}
 
-    vol_all = X.std()
+    vol_all = ew_vol(X)
     out_schemes = {}
     for sch, label in SCHEMES.items():
         R = pd.Series(rets[sch], index=dates).dropna()
