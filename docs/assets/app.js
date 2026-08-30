@@ -742,6 +742,16 @@ function renderRotation() {
         </tbody>
       </table>
     </div>
+    ${S.vol_check ? `<p class="foot" style="margin-bottom:10px">
+      Control de riesgo: la cartera terminó con <b>${fmtNum(S.vol_check.cartera, 1)}%</b> de
+      volatilidad frente al <b>${fmtNum(S.vol_check.objetivo_6040, 1)}%</b> del 60/40
+      (${signed(S.vol_check.desvio, 1)} puntos).
+      ${Math.abs(S.vol_check.desvio ?? 0) > 1.5
+        ? "<b style='color:var(--sobrecalentamiento)'>La comparación no es a igual riesgo:</b> "
+          + (S.vol_check.desvio < 0
+            ? "la cartera lleva menos riesgo, así que rendir menos era inevitable."
+            : "la cartera lleva más riesgo, así que parte de la ventaja es solo eso.")
+        : "Comparación a igual riesgo."}</p>` : ""}
     <p class="foot" style="margin-bottom:22px">Rotación media de cartera:
       <b>${fmtNum(S.turnover, 1)}%</b> al mes. Los costes de transacción no están descontados;
       a 15 puntos básicos por unidad de rotación restarían del orden de
