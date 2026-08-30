@@ -92,9 +92,11 @@ function render() {
   renderIndicators();
   renderTimeline();
   renderMatrix();
+  renderRobustness();
   renderRotation();
   renderDefensive();
   renderConsensus();
+  renderBacktest();
   renderValidation();
   renderDiagnostics();
   renderMethod();
@@ -181,10 +183,9 @@ function renderOutlook() {
       <dd style="color:${lead >= 0 ? "var(--pos)" : "var(--neg)"}">${signed(lead, 2)} σ</dd>
       <small>Curva, condiciones financieras, permisos, horas y diferenciales. ${
         dir == null ? "" : dir >= 0 ? "Mejorando frente a hace 6 meses." : "Deteriorándose frente a hace 6 meses."}</small></div>
-    <div class="item"><dt>Si cambia de fase, va a</dt>
+    <div class="item"><dt>Transición más probable</dt>
       <dd style="color:${PHASE_COLOR[next.phase]}">${next.phase}</dd>
-      <small>La fase se mantiene el ${fmtPct(next.stay, 0)} de los meses. Del ${
-        fmtPct(1 - next.stay, 0)} restante que sí cambia, el ${fmtPct(next.cond, 0)} va a ${next.phase}.</small></div>
+      <small>${fmtPct(next.p, 0)} de los meses que siguieron a esta fase en 60 años terminaron aquí.</small></div>
     <div class="item"><dt>Persistencia media</dt>
       <dd>${fmtNum(D.validation.duration_months?.[c.phase], 1)} meses</dd>
       <small>Duración media histórica de un tramo en ${c.phase}.</small></div>
@@ -194,95 +195,35 @@ function renderOutlook() {
 }
 
 function mostLikelyNext() {
-  // La matriz es mensual e incluye la diagonal, que vale ~0,9: en un mes
-  // cualquiera lo más probable con diferencia es no cambiar de fase. Dar el 9 %
-  // en bruto como "transición más probable" mezcla dos cosas distintas. Aquí se
-  // separan: persistencia por un lado, destino condicionado al cambio por otro.
   const row = D.validation.transition?.[D.current.phase] || {};
-  const stay = row[D.current.phase] ?? 0;
-  const move = 1 - stay;
   let best = { phase: "—", p: 0 };
   for (const [p, v] of Object.entries(row)) {
     if (p === D.current.phase) continue;
     if (v > best.p) best = { phase: p, p: v };
   }
-  best.stay = stay;
-  best.cond = move > 1e-9 ? best.p / move : 0;
   return best;
 }
 
 /* ------------------------- plano de fase (firma) ------------------------ */
 const PLANE = { w: 720, h: 620, pad: 58 };
 
-// Escala ajustada a los puntos que se están viendo, no a los 56 años de
-// histórico. Con la escala global, un par de meses extremos de 1974 obligaban a
-// dibujar el rastro reciente apretado en una esquina y con tres cuartos del
-// lienzo vacíos. Restricciones: el origen siempre dentro del encuadre —los
-// cuadrantes no significan nada sin él—, un margen mínimo para que el punto
-// actual no quede pegado al borde, y bordes redondeados a medio sigma para que
-// al mover el cursor la vista salte en escalones y no tiemble continuamente.
-const PLANE_MIN_SPAN = 1.2;   // sigmas visibles a cada lado como mínimo
-const PLANE_STEP = 0.5;       // redondeo de los bordes
-
-function planeBounds(pts) {
-  const vals = k => pts.map(p => p[k]).filter(Number.isFinite);
-  const axis = (k, extra) => {
-    const v = vals(k);
-    // el origen y el radio de la elipse de incertidumbre entran siempre
-    let lo = Math.min(0, -extra, ...v);
-    let hi = Math.max(0, extra, ...v);
-    const padded = 0.12 * Math.max(hi - lo, 1e-6);
-    lo -= padded; hi += padded;
-    if (hi - lo < 2 * PLANE_MIN_SPAN) {
-      const mid = (hi + lo) / 2;
-      lo = mid - PLANE_MIN_SPAN; hi = mid + PLANE_MIN_SPAN;
-      if (lo > 0) { hi -= lo; lo = 0; }
-      if (hi < 0) { lo -= hi; hi = 0; }
-    }
-    return [Math.floor(lo / PLANE_STEP) * PLANE_STEP,
-            Math.ceil(hi / PLANE_STEP) * PLANE_STEP];
-  };
-  const eg = 1.96 * (D.current.sigma_g || 0);
-  const ei = 1.96 * (D.current.sigma_i || 0);
-  const last = pts[pts.length - 1] || { g: 0, i: 0 };
-  return {
-    g: axis("g", Math.abs(last.g) + eg),
-    i: axis("i", Math.abs(last.i) + ei),
-  };
-}
-
-function planeScales(pts) {
-  const b = planeBounds(pts && pts.length ? pts : D.history);
+function planeScales() {
+  const pts = D.history;
+  const gmax = Math.max(2.2, ...pts.map(p => Math.abs(p.g))) * 1.06;
+  const imax = Math.max(2.2, ...pts.map(p => Math.abs(p.i))) * 1.06;
   const { w, h, pad } = PLANE;
-  const [g0, g1] = b.g, [i0, i1] = b.i;
   return {
-    x: g => pad + ((g - g0) / (g1 - g0)) * (w - 2 * pad),
-    y: i => (h - pad) - ((i - i0) / (i1 - i0)) * (h - 2 * pad),
-    g0, g1, i0, i1,
+    x: g => pad + ((g + gmax) / (2 * gmax)) * (w - 2 * pad),
+    y: i => (h - pad) - ((i + imax) / (2 * imax)) * (h - 2 * pad),
+    gmax, imax,
   };
-}
-
-// Marcas de rejilla legibles para el rango visible: entre 4 y 8 líneas por eje.
-function planeTicks(lo, hi) {
-  const raw = (hi - lo) / 6;
-  const pow = Math.pow(10, Math.floor(Math.log10(raw)));
-  const step = [1, 2, 2.5, 5, 10].map(m => m * pow)
-    .find(v => (hi - lo) / v <= 8) || raw;
-  const out = [];
-  for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) {
-    if (Math.abs(v) > 1e-9) out.push(Number(v.toFixed(6)));
-  }
-  return out;
 }
 
 function renderPlane(cursor = null) {
   const svg = $("#plane");
   svg.innerHTML = "";
   const { w, h, pad } = PLANE;
-  const histAll = D.history;
-  const endIdx = cursor == null ? histAll.length : cursor + 1;
-  const shown = histAll.slice(Math.max(0, endIdx - trail), endIdx);
-  const S = planeScales(shown);
+  const S = planeScales();
   const cx = S.x(0), cy = S.y(0);
 
   // ojo: eje X = crecimiento, eje Y = inflación (arriba = más inflación)
@@ -299,23 +240,16 @@ function renderPlane(cursor = null) {
     }, svg);
   });
 
-  // rejilla, con marcas y etiquetas adaptadas al rango visible
-  planeTicks(S.g0, S.g1).forEach(v => {
-    el("line", { x1: S.x(v), y1: pad, x2: S.x(v), y2: h - pad,
-      stroke: "#1D2740", "stroke-width": 1 }, svg);
-    const t = el("text", { x: S.x(v), y: h - pad + 15, fill: "#4A5878",
-      "text-anchor": "middle", "font-family": "IBM Plex Mono, monospace",
-      "font-size": 10 }, svg);
-    t.textContent = `${v > 0 ? "+" : ""}${v}σ`;
-  });
-  planeTicks(S.i0, S.i1).forEach(v => {
-    el("line", { x1: pad, y1: S.y(v), x2: w - pad, y2: S.y(v),
-      stroke: "#1D2740", "stroke-width": 1 }, svg);
-    const t = el("text", { x: pad - 8, y: S.y(v) + 3.5, fill: "#4A5878",
-      "text-anchor": "end", "font-family": "IBM Plex Mono, monospace",
-      "font-size": 10 }, svg);
-    t.textContent = `${v > 0 ? "+" : ""}${v}σ`;
-  });
+  // rejilla
+  for (let v = -3; v <= 3; v++) {
+    if (v === 0) continue;
+    if (Math.abs(v) < S.gmax) {
+      el("line", { x1: S.x(v), y1: pad, x2: S.x(v), y2: h - pad, stroke: "#1D2740", "stroke-width": 1 }, svg);
+    }
+    if (Math.abs(v) < S.imax) {
+      el("line", { x1: pad, y1: S.y(v), x2: w - pad, y2: S.y(v), stroke: "#1D2740", "stroke-width": 1 }, svg);
+    }
+  }
   // ejes
   el("line", { x1: pad, y1: cy, x2: w - pad, y2: cy, stroke: "#3A486E", "stroke-width": 1.4 }, svg);
   el("line", { x1: cx, y1: pad, x2: cx, y2: h - pad, stroke: "#3A486E", "stroke-width": 1.4 }, svg);
@@ -344,8 +278,9 @@ function renderPlane(cursor = null) {
   ay.textContent = "inflación sobre tendencia →";
 
   // rastro
-  const hist = histAll;
-  const pts = shown;
+  const hist = D.history;
+  const end = cursor == null ? hist.length : cursor + 1;
+  const pts = hist.slice(Math.max(0, end - trail), end);
   if (pts.length > 1) {
     const dstr = pts.map((p, k) => `${k ? "L" : "M"}${S.x(p.g).toFixed(1)},${S.y(p.i).toFixed(1)}`).join("");
     el("path", { d: dstr, fill: "none", stroke: "#8FA6D8", "stroke-width": 1.6,
@@ -391,7 +326,7 @@ function planeHover(ev, S) {
   const hist = D.history;
   let best = null, bd = 1e9;
   const from = Math.max(0, hist.length - trail);
-  for (let k = from; k < hist.length; k++) {  // misma ventana que el rastro
+  for (let k = from; k < hist.length; k++) {
     const dx = S.x(hist[k].g) - sx, dy = S.y(hist[k].i) - sy;
     const d = dx * dx + dy * dy;
     if (d < bd) { bd = d; best = hist[k]; }
@@ -421,26 +356,11 @@ function renderIndicators() {
     box.innerHTML = `
       <header>
         <h3>${BLOCK_TITLE[block]}</h3>
-        <div class="pc">${rows.length} series${pc ? `<br>1er componente: ${
-          fmtPct(pc.explained_var, 0)} de la varianza <b>de estas ${rows.length}</b>` : "<br>no entran en ningún factor"}</div>
+        <div class="pc">${rows.length} series${pc ? `<br>1er componente: ${fmtPct(pc.explained_var, 0)} de la varianza` : "<br>no entran en ningún factor"}</div>
       </header>
       ${rows.map(indRow).join("")}`;
     host.appendChild(box);
   }
-  const foot = document.createElement("div");
-  foot.style.gridColumn = "1/-1";
-  foot.innerHTML = indBlocksFoot();
-  host.appendChild(foot);
-}
-
-// Nota al pie del bloque: los tres porcentajes no se suman, y conviene decirlo.
-function indBlocksFoot() {
-  return `<p class="cap" style="grid-column:1/-1;margin-top:2px">Cada porcentaje es de su propio
-    bloque, no de un total común: son tres análisis de componentes principales independientes, con
-    tres conjuntos de series distintos. Que sumen más de 100 no significa nada, igual que no
-    significa nada que la nota media de tres clases distintas sume más de diez. Lo que mide cada
-    uno es cuánta de la variación de <i>sus</i> series se resume en una sola cifra: cuanto más
-    alto, más de acuerdo están entre sí y más fiable es el eje.</p>`;
 }
 
 function indRow(i) {
@@ -659,6 +579,50 @@ function renderConsensus() {
 
 
 /* ------------------------ robustez de las notas ------------------------- */
+function renderRobustness() {
+  const st = D.asset_stats || {};
+  const cur = D.current.phase;
+  const strong = D.assets
+    .map(a => ({ a, d: a.phases[cur] || {} }))
+    .filter(x => x.d.q != null && x.d.q <= 0.10)
+    .sort((x, y) => (y.d.rel ?? 0) - (x.d.rel ?? 0));
+  const share = st.cells ? st.fdr_survivors / st.cells : 0;
+  const ok = share >= 0.08 && strong.length > 0;
+
+  $("#robustBlock").innerHTML = `
+    <div class="block-head">
+      <span class="eyebrow">Lo que aguanta</span>
+      <h2>Qué comprar, según lo que resiste el contraste</h2>
+      <p class="cap">De ${st.cells ?? "—"} casillas contrastadas, <b>${st.graded ?? "—"}</b> tienen nota
+        y <b>${st.fdr_survivors ?? "—"}</b> sobreviven al control de falsos descubrimientos.
+        Con cientos de pruebas simultáneas, unas cuantas "señales" salen por azar: solo estas últimas
+        son defendibles.</p>
+    </div>
+    ${ok ? `
+      <div class="cons-grid">
+        ${strong.slice(0, 8).map(x => `
+          <div class="cons-card" style="border-color:${x.d.rel >= 0 ? "var(--recuperacion)" : "var(--estanflacion)"}">
+            <span class="cls">${x.a.class}</span>
+            <h4>${x.a.name}</h4>
+            <div class="pair">
+              <div><span>exceso</span><br>${signed(x.d.rel, 1)} pp${
+                x.d.rel_shrunk != null ? ` <span style="color:var(--muted-2)">(${signed(x.d.rel_shrunk, 1)} tras contraer)</span>` : ""}</div>
+              <div><span>t · q</span><br>${fmtNum(x.d.t, 1)} · ${fmtNum(x.d.q, 3)}</div>
+            </div>
+          </div>`).join("")}
+      </div>
+      <p class="foot">Estas son las posiciones con base empírica en ${cur}. El resto de la matriz
+        es informativo, no accionable.</p>`
+      : `<div class="errbox" style="border-color:var(--sobrecalentamiento);background:rgba(242,163,60,.06)">
+          <h2>Ninguna recomendación aguanta el contraste</h2>
+          <p>En ${cur}, ningún activo del universo tiene un exceso sobre su propia media que sobreviva
+          al control de falsos descubrimientos. Eso no es un fallo del panel: es el resultado.</p>
+          <p style="margin-top:10px">Lo honesto entonces es no rotar por fase. La cartera estratégica,
+          la diversificación y el coste mandan más que el cuadrante. El reloj sigue sirviendo para
+          saber dónde estás y para el modelo de recesión, no para decidir la cartera.</p>
+        </div>`}`;
+}
+
 /* ----------------------------- diagnóstico ------------------------------ */
 function renderDiagnostics() {
   const m = D.meta;
@@ -698,145 +662,107 @@ function renderDiagnostics() {
 
 /* ------------------------- cartera por fase (solo largo) ----------------------- */
 let pbPhase = null;
+let scheme = null;
 
 function renderRotation() {
   const r = D.rotation || {};
-  if (!r.portfolio) { $("#rotationBlock").innerHTML = ""; return; }
+  if (!r.schemes) { $("#rotationBlock").innerHTML = ""; return; }
+  scheme = scheme || r.default || Object.keys(r.schemes)[0];
   pbPhase = pbPhase || D.current.phase;
-  const p = r.portfolio, b = r.bench_6040 || {};
+  const S = r.schemes[scheme];
+  const b = r.bench_6040 || {};
+  const p = S.portfolio;
   const wins = p.sharpe != null && b.sharpe != null && p.sharpe > b.sharpe;
-  const rows = r.playbook[pbPhase] || [];
+  const rows = S.playbook[pbPhase] || [];
   const sleeves = [...new Set(rows.map(x => x.sleeve))];
+
+  const statRow = (name, s, extra, active) => `
+    <tr style="${active ? "background:rgba(91,140,255,.10)" : ""}">
+      <td class="asset" style="${active ? "color:var(--text);font-weight:600" : ""}">${name}</td>
+      <td style="text-align:right;font-family:var(--mono)">${fmtNum(s.cagr, 1)}%</td>
+      <td style="text-align:right;font-family:var(--mono)">${fmtNum(s.vol, 1)}%</td>
+      <td style="text-align:right;font-family:var(--mono);font-weight:600;color:${
+        s.sharpe > (b.sharpe ?? 0) ? "var(--recuperacion)" : "var(--muted)"}">${fmtNum(s.sharpe, 2)}</td>
+      <td style="text-align:right;font-family:var(--mono)">${fmtNum(s.maxdd, 1)}%</td>
+      <td style="text-align:right;font-family:var(--mono)">${fmtNum(s.worst12, 1)}%</td>
+      <td style="text-align:right;font-family:var(--mono);color:var(--muted)">${extra}</td>
+    </tr>`;
 
   $("#rotationBlock").innerHTML = `
     <div class="block-head">
       <span class="eyebrow">Asignación</span>
       <h2>La cartera, fase a fase</h2>
-      <p class="cap">Solo compras, siempre invertida al 100 %, sin apalancar y sin cortos.
-        Los pesos entre bloques se mueven con la fase dentro de bandas fijas: nunca falta
-        renta variable ni renta fija, y los activos reales pueden quedarse a cero si no aportan.
-        Los índices agregados quedan fuera de la selección, de modo que la renta variable
-        se compone de sectores.</p>
+      <p class="cap">Solo compras, invertida al 100 %, sin apalancar ni cortos. La fase decide
+        qué activos ocupan cada bloque y cuánto pesa cada bloque dentro de sus bandas.
+        Los índices agregados quedan fuera de la selección, así que la renta variable son sectores.</p>
     </div>
 
-    <div class="bt-chart" style="margin-bottom:18px">
-      <svg id="rotChart" viewBox="0 0 900 340" role="img" aria-label="Rotación por fase frente al 60/40"></svg>
+    <h3 style="font-family:var(--display);font-size:17px;margin-bottom:4px">¿Y si los pesos no son iguales?</h3>
+    <p class="cap" style="margin-bottom:12px">La selección de activos es idéntica en los cuatro:
+      lo único que cambia es cómo se reparte el dinero entre los ya elegidos.</p>
+    <div class="seg" id="schemeSeg" style="margin-bottom:16px">
+      ${Object.entries(r.schemes).map(([k, v]) => `<button type="button" data-s="${k}"
+        aria-pressed="${k === scheme}">${v.label}</button>`).join("")}
     </div>
 
-    <div class="matrix-holder" style="margin-bottom:22px">
+    <div class="matrix-holder" style="margin-bottom:20px">
       <table class="matrix">
         <thead><tr>
-          <th>Cartera</th><th style="text-align:right">Anual</th><th style="text-align:right">Vol</th>
-          <th style="text-align:right">Sharpe</th><th style="text-align:right">Caída máx.</th>
-          <th style="text-align:right">Peor año</th><th style="text-align:right">t</th>
+          <th>Esquema de reparto</th><th style="text-align:right">Anual</th>
+          <th style="text-align:right">Vol</th><th style="text-align:right">Sharpe</th>
+          <th style="text-align:right">Caída máx.</th><th style="text-align:right">Peor año</th>
+          <th style="text-align:right">Años ganados</th>
         </tr></thead>
         <tbody>
-          <tr><td class="asset" style="color:${wins ? "var(--recuperacion)" : ""}">Rotación por fase</td>
-            <td style="text-align:right;font-family:var(--mono)">${fmtNum(p.cagr, 1)}%</td>
-            <td style="text-align:right;font-family:var(--mono)">${fmtNum(p.vol, 1)}%</td>
-            <td style="text-align:right;font-family:var(--mono);font-weight:600;color:${wins ? "var(--recuperacion)" : "var(--muted)"}">${fmtNum(p.sharpe, 2)}</td>
-            <td style="text-align:right;font-family:var(--mono)">${fmtNum(p.maxdd, 1)}%</td>
-            <td style="text-align:right;font-family:var(--mono)">${fmtNum(p.worst12, 1)}%</td>
-            <td style="text-align:right;font-family:var(--mono);color:var(--muted)">${fmtNum(p.t, 1)}</td></tr>
-          ${r.in_sample ? `<tr style="color:var(--muted)"><td class="asset">La misma regla, pero
-            estimada con todo el histórico</td>
-            <td style="text-align:right;font-family:var(--mono)">${fmtNum(r.in_sample.cagr, 1)}%</td>
-            <td style="text-align:right;font-family:var(--mono)">${fmtNum(r.in_sample.vol, 1)}%</td>
-            <td style="text-align:right;font-family:var(--mono)">${fmtNum(r.in_sample.sharpe, 2)}</td>
-            <td style="text-align:right;font-family:var(--mono)">${fmtNum(r.in_sample.maxdd, 1)}%</td>
-            <td style="text-align:right;font-family:var(--mono)">${fmtNum(r.in_sample.worst12, 1)}%</td>
-            <td style="text-align:right;font-family:var(--mono)">${fmtNum(r.in_sample.t, 1)}</td></tr>` : ""}
-          <tr style="background:rgba(255,255,255,.03)"><td class="asset">60/40 estático</td>
+          ${Object.entries(r.schemes).map(([k, v]) =>
+            statRow(v.label, v.portfolio, `${v.wins_years}/${v.n_years}`, k === scheme)).join("")}
+          <tr style="border-top:2px solid var(--line)"><td class="asset" style="color:var(--muted)">60/40 estático</td>
             <td style="text-align:right;font-family:var(--mono)">${fmtNum(b.cagr, 1)}%</td>
             <td style="text-align:right;font-family:var(--mono)">${fmtNum(b.vol, 1)}%</td>
             <td style="text-align:right;font-family:var(--mono);font-weight:600">${fmtNum(b.sharpe, 2)}</td>
             <td style="text-align:right;font-family:var(--mono)">${fmtNum(b.maxdd, 1)}%</td>
             <td style="text-align:right;font-family:var(--mono)">${fmtNum(b.worst12, 1)}%</td>
-            <td style="text-align:right;font-family:var(--mono);color:var(--muted)">${fmtNum(b.t, 1)}</td></tr>
+            <td style="text-align:right;font-family:var(--mono);color:var(--muted)">—</td></tr>
         </tbody>
       </table>
     </div>
+    <p class="foot" style="margin-bottom:22px">Rotación media de cartera:
+      <b>${fmtNum(S.turnover, 1)}%</b> al mes. Los costes de transacción no están descontados;
+      a 15 puntos básicos por unidad de rotación restarían del orden de
+      ${fmtNum(S.turnover * 0.15 * 12 / 100, 2)} puntos al año.</p>
 
-    ${r.in_sample && r.portfolio ? `<p class="gap-note" style="margin-bottom:22px">
-      <b>Cuánto de esto es sobreajuste.</b> La fila del medio es exactamente la misma cartera,
-      pero estimando el comportamiento de cada activo por fase con el histórico completo,
-      incluido el futuro que en su momento no se conocía. Hacer trampa así habría dado
-      <b>${fmtNum(r.in_sample.cagr - r.portfolio.cagr, 1)} puntos</b> más al año. Esa distancia es
-      la parte del resultado que depende de saber cosas por adelantado: cuanto más pequeña,
-      más se parece el backtest a lo que habrías vivido de verdad.</p>` : ""}
+    <div class="bt-chart" style="margin-bottom:22px">
+      <svg id="rotChart" viewBox="0 0 900 340" role="img" aria-label="Evolución frente al 60/40"></svg>
+    </div>
 
-    ${r.by_year && r.by_year.length ? `
-      <h3 style="font-family:var(--display);font-size:17px;margin-bottom:6px">Año a año</h3>
-      <p class="cap" style="margin-bottom:10px">Diferencia frente al 60/40 en cada año natural, solo
-        años completos. Ganó <b>${r.by_year.filter(x => x.d > 0).length}</b> de ${r.by_year.length},
-        y el peor año relativo fue ${r.by_year.reduce((a, x) => x.d < a.d ? x : a).y} con
-        ${signed(r.by_year.reduce((a, x) => x.d < a.d ? x : a).d, 1)} pp.</p>
-      <div class="bt-chart" style="margin-bottom:10px">
-        <svg id="yearChart" viewBox="0 0 900 260" role="img"
-          aria-label="Diferencia anual frente al 60/40"></svg>
-      </div>
-      <details style="margin-bottom:26px">
-        <summary style="cursor:pointer;color:var(--muted);font-size:13px">Ver la tabla completa</summary>
-        <div class="matrix-holder" style="margin-top:10px;max-height:340px;overflow:auto">
-          <table class="matrix">
-            <thead><tr><th>Año</th><th style="text-align:right">Rotación</th>
-              <th style="text-align:right">60/40</th><th style="text-align:right">Diferencia</th></tr></thead>
-            <tbody>${r.by_year.slice().reverse().map(x => `<tr>
-              <td class="asset">${x.y}</td>
-              <td style="text-align:right;font-family:var(--mono)">${fmtNum(x.s, 1)}%</td>
-              <td style="text-align:right;font-family:var(--mono)">${fmtNum(x.b, 1)}%</td>
-              <td style="text-align:right;font-family:var(--mono);font-weight:600;color:${
-                x.d >= 0 ? "var(--recuperacion)" : "var(--estanflacion)"}">${signed(x.d, 1)}</td>
-            </tr>`).join("")}</tbody>
-          </table>
-        </div>
-      </details>` : ""}
+    <h3 style="font-family:var(--display);font-size:17px;margin-bottom:10px">Año contra año</h3>
+    <div class="bt-chart" style="margin-bottom:8px">
+      <svg id="annChart" viewBox="0 0 900 230" role="img" aria-label="Diferencia anual frente al 60/40"></svg>
+    </div>
+    <p class="foot" style="margin-bottom:26px">Barras verdes: años en que la cartera batió al 60/40.
+      Ganó <b>${S.wins_years} de ${S.n_years}</b> años.</p>
 
-    <h3 style="font-family:var(--display);font-size:17px;margin-bottom:6px">Dónde gana y dónde no</h3>
+    <h3 style="font-family:var(--display);font-size:17px;margin-bottom:10px">Dónde gana y dónde no</h3>
     <div class="scores-grid" style="margin-bottom:26px">
-      ${D.phases.filter(x => r.by_phase[x]).map(x => {
-        const e = r.by_phase[x];
-        const good = (e.edge ?? 0) > 0;
+      ${D.phases.filter(x => S.by_phase[x]).map(x => {
+        const e = S.by_phase[x];
         return `<div class="score-card" style="background:${PHASE_COLOR[x]};opacity:${x === D.current.phase ? 1 : .62}">
           <div style="font-size:.85em">${x}</div>
           <div style="font-size:1.5em">${signed(e.edge, 1)} pp</div>
-          <div style="font-size:.78em;opacity:.85">${e.n} meses · ${good ? "por delante" : "por detrás"} del 60/40</div>
+          <div style="font-size:.78em;opacity:.85">${e.n} meses · ${(e.edge ?? 0) > 0 ? "por delante" : "por detrás"}</div>
         </div>`;
       }).join("")}
     </div>
 
-    ${r.inner_weighting ? `
-      <h3 style="font-family:var(--display);font-size:17px;margin-bottom:6px">¿Y si los pesos no fueran iguales?</h3>
-      <p class="cap" style="margin-bottom:10px">Dentro de cada bloque los elegidos van a partes iguales.
-        No es que sea la verdad: es la opción que no estima ningún parámetro. Aquí están las
-        alternativas, con la misma regla y la misma muestra. Están como diagnóstico, no como menú:
-        quedarse con la que mejor sale es una decisión tomada con el resultado delante, y eso ya no
-        hay forma de medirlo después.</p>
-      <div class="matrix-holder" style="margin-bottom:26px">
-        <table class="matrix">
-          <thead><tr><th>Reparto dentro del bloque</th><th style="text-align:right">Anual</th>
-            <th style="text-align:right">Vol</th><th style="text-align:right">Sharpe</th>
-            <th style="text-align:right">Caída máx.</th></tr></thead>
-          <tbody>${Object.entries(r.inner_weighting).map(([k, v]) => `<tr${
-            k === "equiponderado" ? ` style="background:rgba(255,255,255,.03)"` : ""}>
-            <td class="asset">${k}${k === "equiponderado" ? " · en uso" : ""}</td>
-            <td style="text-align:right;font-family:var(--mono)">${fmtNum(v.cagr, 1)}%</td>
-            <td style="text-align:right;font-family:var(--mono)">${fmtNum(v.vol, 1)}%</td>
-            <td style="text-align:right;font-family:var(--mono);font-weight:600">${fmtNum(v.sharpe, 2)}</td>
-            <td style="text-align:right;font-family:var(--mono)">${fmtNum(v.maxdd, 1)}%</td>
-          </tr>`).join("")}</tbody>
-        </table>
-      </div>` : ""}
-
     <h3 style="font-family:var(--display);font-size:17px;margin-bottom:10px">Qué comprar en cada fase</h3>
-    <div class="seg" style="margin-bottom:12px">
+    <div class="seg" id="phaseSeg" style="margin-bottom:12px">
       ${D.phases.map(x => `<button type="button" data-p="${x}" aria-pressed="${x === pbPhase}"
         style="${x === pbPhase ? `border-color:${PHASE_COLOR[x]};color:${PHASE_COLOR[x]}` : ""}">${x}</button>`).join("")}
     </div>
-    ${r.sleeve_mix && r.sleeve_mix[pbPhase] ? `<div class="band" style="margin:0 0 14px">
-      ${Object.entries(r.sleeve_mix[pbPhase]).map(([k, v]) => `
+    ${S.sleeve_mix?.[pbPhase] ? `<div class="band" style="margin:0 0 14px">
+      ${Object.entries(S.sleeve_mix[pbPhase]).map(([k, v]) => `
         <div class="item"><dt>${k}</dt><dd>${fmtNum(v, 0)}%</dd>
-        <small>banda permitida ${(r.bands?.[k] || []).join("–")}%</small></div>`).join("")}
+        <small>banda ${(r.bands?.[k] || []).join("–")}%</small></div>`).join("")}
     </div>` : ""}
     <div class="cons-grid">
       ${sleeves.map(sl => {
@@ -845,20 +771,58 @@ function renderRotation() {
         return `<div class="cons-card">
           <span class="cls">${sl} · ${fmtNum(tot, 0)}%</span>
           ${items.map(x => `<div style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid rgba(38,49,79,.4);font-size:12.8px">
-            <span>${x.name}</span>
-            <b style="font-family:var(--mono)">${fmtNum(x.weight, 1)}%</b></div>`).join("")}
+            <span>${x.name}</span><b style="font-family:var(--mono)">${fmtNum(x.weight, 1)}%</b></div>`).join("")}
         </div>`;
       }).join("")}
     </div>
-    <p class="foot">Selección por rentabilidad contraída dividida entre volatilidad dentro de cada
-      bloque, y reparto por inverso de la volatilidad. Las primas largo-corto (value, tamaño,
-      momentum) quedan fuera: no se pueden comprar en una cartera solo larga.
+    <p class="foot">Reparto <b>${S.label.toLowerCase()}</b>. Las primas largo-corto (value, tamaño,
+      momentum) quedan fuera: no se compran en una cartera solo larga.
       ${pbPhase === D.current.phase ? "Esta es la fase vigente." : `La fase vigente es ${D.current.phase}.`}</p>`;
 
-  drawCurve("#rotChart", r.curve || [], "Rotación por fase", "60/40 estático");
-  drawYearChart(r.by_year);
-  $("#rotationBlock .seg").querySelectorAll("button").forEach(btn => {
+  drawCurve("#rotChart", S.curve || [], S.label, "60/40 estático");
+  drawAnnual("#annChart", S.annual || {}, r.bench_annual || {});
+  $("#schemeSeg").querySelectorAll("button").forEach(btn => {
+    btn.onclick = () => { scheme = btn.dataset.s; renderRotation(); };
+  });
+  $("#phaseSeg").querySelectorAll("button").forEach(btn => {
     btn.onclick = () => { pbPhase = btn.dataset.p; renderRotation(); };
+  });
+}
+
+function drawAnnual(sel, ann, bench) {
+  const svg = $(sel);
+  if (!svg) return;
+  svg.innerHTML = "";
+  const years = Object.keys(ann).map(Number).filter(y => y in bench).sort();
+  if (!years.length) return;
+  const W = 900, H = 230, padL = 44, padR = 10, padT = 12, padB = 30;
+  const diffs = years.map(y => ann[y] - bench[y]);
+  const m = Math.max(...diffs.map(Math.abs), 5);
+  const x = i => padL + (i + 0.5) * ((W - padL - padR) / years.length);
+  const y0 = padT + (H - padT - padB) / 2;
+  const y = v => y0 - (v / m) * ((H - padT - padB) / 2);
+  const bw = Math.max(2, (W - padL - padR) / years.length - 2);
+
+  [-m, -m / 2, 0, m / 2, m].forEach(v => {
+    el("line", { x1: padL, y1: y(v), x2: W - padR, y2: y(v),
+      stroke: v === 0 ? "#3A486E" : "#1D2740" }, svg);
+    const t = el("text", { x: padL - 7, y: y(v) + 4, fill: "#66748F", "text-anchor": "end",
+      "font-family": "IBM Plex Mono, monospace", "font-size": 9.5 }, svg);
+    t.textContent = `${v > 0 ? "+" : ""}${v.toFixed(0)}`;
+  });
+  years.forEach((yr, i) => {
+    const d = diffs[i];
+    el("rect", { x: x(i) - bw / 2, y: d >= 0 ? y(d) : y0,
+      width: bw, height: Math.max(1, Math.abs(y(d) - y0)),
+      fill: d >= 0 ? "#35D0A5" : "#EE5D6C", opacity: 0.85 }, svg)
+      .appendChild(Object.assign(document.createElementNS(NS, "title"),
+        { textContent: `${yr}: cartera ${ann[yr].toFixed(1)}% · 60/40 ${bench[yr].toFixed(1)}% · ${d >= 0 ? "+" : ""}${d.toFixed(1)} pp` }));
+    if (years.length <= 40 || i % Math.ceil(years.length / 30) === 0) {
+      const t = el("text", { x: x(i), y: H - 10, fill: "#66748F", "text-anchor": "middle",
+        "font-family": "IBM Plex Mono, monospace", "font-size": 8.5,
+        transform: `rotate(-60 ${x(i)} ${H - 10})` }, svg);
+      t.textContent = String(yr).slice(2);
+    }
   });
 }
 
@@ -925,38 +889,55 @@ function renderDefensive() {
 }
 
 /* -------------------------------- backtest ------------------------------ */
-function drawYearChart(rows) {
-  const svg = $("#yearChart");
-  if (!svg || !rows || !rows.length) return;
-  svg.innerHTML = "";
-  const W = 900, H = 260, padL = 46, padR = 12, padT = 20, padB = 30;
-  const lim = Math.max(...rows.map(r => Math.abs(r.d))) * 1.08 || 1;
-  const x = i => padL + (i + 0.5) * ((W - padL - padR) / rows.length);
-  const y = v => padT + (1 - (v + lim) / (2 * lim)) * (H - padT - padB);
-  const bw = Math.max(3, (W - padL - padR) / rows.length - 2.5);
-
-  const paso = lim > 30 ? 20 : lim > 15 ? 10 : 5;
-  for (let v = -Math.floor(lim / paso) * paso; v <= lim; v += paso) {
-    el("line", { x1: padL, y1: y(v), x2: W - padR, y2: y(v),
-      stroke: v === 0 ? "#3A486E" : "#1D2740", "stroke-width": v === 0 ? 1.4 : 1 }, svg);
-    const t = el("text", { x: padL - 8, y: y(v) + 3.5, fill: "#4A5878", "text-anchor": "end",
-      "font-family": "IBM Plex Mono, monospace", "font-size": 10 }, svg);
-    t.textContent = `${v > 0 ? "+" : ""}${v}`;
+function renderBacktest() {
+  const bt = D.backtest || {};
+  if (!bt.long) {
+    $("#btStats").innerHTML = `<p class="cap">No hay histórico suficiente para el backtest.</p>`;
+    return;
   }
-  rows.forEach((r, i) => {
-    el("rect", { x: x(i) - bw / 2, y: r.d >= 0 ? y(r.d) : y(0), width: bw,
-      height: Math.max(1, Math.abs(y(r.d) - y(0))),
-      fill: r.d >= 0 ? "var(--recuperacion)" : "var(--estanflacion)", opacity: 0.85 }, svg);
-    if (r.y % 5 === 0) {
-      const t = el("text", { x: x(i), y: H - padB + 16, fill: "#4A5878", "text-anchor": "middle",
-        "font-family": "IBM Plex Mono, monospace", "font-size": 10 }, svg);
-      t.textContent = r.y;
-    }
-  });
-  const lab = el("text", { x: padL, y: padT - 6, fill: "#66748F",
-    "font-family": "IBM Plex Mono, monospace", "font-size": 10.5 }, svg);
-  lab.textContent = "puntos porcentuales de diferencia frente al 60/40";
+  drawBtChart(bt);
+  const rows = [
+    ["Larga, fuera de muestra", bt.long],
+    ["Inclinada (80% 60/40 + 20% fase)", bt.tilt],
+    ["Larga, volatilidad igualada", bt.scaled],
+    ["Larga menos corta (señal pura)", bt.spread],
+    ["60/40 estático", bt.bench_6040],
+    ["Equiponderada", bt.equal_weight],
+    ["Larga, en muestra (trampa)", bt.in_sample],
+  ].filter(r => r[1] && r[1].cagr != null);
+
+  const gap = bt.in_sample && bt.long ? bt.in_sample.cagr - bt.long.cagr : null;
+  const bench = bt.bench_6040 || {};
+  const edge = bt.scaled && bench.sharpe != null
+    ? bt.scaled.sharpe - bench.sharpe : null;
+  $("#btStats").innerHTML = `
+    <table>
+      <thead><tr><th>Cartera</th><th>Anual</th><th>Vol</th><th>Sharpe</th><th>Caída máx.</th><th>Peor año</th><th>t</th></tr></thead>
+      <tbody>${rows.map(([n, s]) => `
+        <tr><td>${n}</td><td>${fmtNum(s.cagr, 1)}%</td><td>${fmtNum(s.vol, 1)}%</td>
+        <td>${fmtNum(s.sharpe, 2)}</td><td>${fmtNum(s.maxdd, 1)}%</td>
+        <td>${fmtNum(s.worst12, 1)}%</td><td>${fmtNum(s.t, 1)}</td></tr>`).join("")}
+      </tbody>
+    </table>
+    <p class="gap-note">${gap == null ? "" : `Optimizar con la muestra completa habría dado
+      <b>${fmtNum(gap, 1)} puntos</b> más al año. Esa diferencia es sobreajuste: no existía
+      en tiempo real. ${bt.long.months} meses fuera de muestra desde ${bt.long.from.slice(0, 7)},
+      ${bt.top_k} activos equiponderados.`}</p>
+    ${edge == null ? "" : `<p class="gap-note" style="border-left-color:${edge > 0.05 ? "var(--recuperacion)" : "var(--estanflacion)"}">
+      Comparación limpia: con la volatilidad igualada al 60/40, el Sharpe es
+      <b>${fmtNum(bt.scaled.sharpe, 2)}</b> frente a <b>${fmtNum(bench.sharpe, 2)}</b>.
+      ${edge > 0.05
+        ? "La fase aporta información más allá de asumir más riesgo."
+        : "Sin ventaja ajustada por riesgo: la rentabilidad extra viene de cargar más riesgo, no de acertar la fase."}
+      La inclinada es la versión implementable en una cartera real: un 60/40 de base con un
+      20 % desviado hacia lo mejor de la fase.
+      La cartera larga-corta aísla la señal sin beta de mercado: ${
+        bt.spread && bt.spread.t != null
+          ? `t = ${fmtNum(bt.spread.t, 1)} sobre ${bt.spread.months} meses.`
+          : "sin datos."}</p>`}`;
 }
+
+function drawBtChart(bt) { drawCurve("#btChart", bt.curve || [], "Reloj, fuera de muestra", "60/40"); }
 
 function drawCurve(sel, c, labelA, labelB) {
   const svg = $(sel);
@@ -1029,44 +1010,9 @@ function renderValidation() {
           <td>${fmtPct(v.share?.[p], 0)} · ${fmtNum(v.duration_months?.[p], 1)} m</td></tr>`).join("")}
         <tr><td>Correlación entre los dos ejes</td><td>${fmtNum(v.factor_corr, 2)}</td></tr>
         ${v.rotation ? `<tr><td>Transiciones en el sentido del reloj</td>
-          <td style="color:${v.rotation.clockwise_share < 0.34 ? "var(--estanflacion)"
-            : v.rotation.clockwise_share < 0.5 ? "var(--sobrecalentamiento)" : "var(--text)"}">${
-            fmtPct(v.rotation.clockwise_share, 0)} de ${v.rotation.n_transitions}</td></tr>` : ""}
+          <td style="color:${v.rotation.clockwise_share < 0.4 ? "var(--estanflacion)" : "var(--text)"}">${fmtPct(v.rotation.clockwise_share, 0)} de ${v.rotation.n_transitions}</td></tr>` : ""}
       </table>
-      <p class="cap" style="margin-top:10px;font-size:12px">El ciclo teórico recorre los cuadrantes
-      en orden. Como desde cada fase hay tres destinos posibles, el azar daría un 33 %: por debajo
-      de esa cifra el reloj gira al revés, y solo muy por encima se puede hablar de un ciclo con
-      dirección. La correlación entre ejes debería rondar cero; si se aleja, los dos ejes están
-      midiendo en parte lo mismo y los cuadrantes se solapan.</p>
     </div>
-    <div class="val-card">
-      <h3>Cuánta señal hay en la matriz</h3>
-      <table>
-        <tr><td>Casillas activo × fase contrastadas</td><td>${D.asset_stats?.cells ?? "—"}</td></tr>
-        <tr><td>Con exceso apreciable sobre su propia media</td><td>${D.asset_stats?.graded ?? "—"}</td></tr>
-        <tr><td>Que sobreviven al control de falsos descubrimientos</td>
-          <td>${D.asset_stats?.fdr_survivors ?? "—"}</td></tr>
-      </table>
-      <p class="cap" style="margin-top:10px;font-size:12px">Se contrastan cientos de casillas a la
-      vez, así que unas cuantas "señales" aparecen por puro azar. La última fila es la que cuenta:
-      son las que aguantarían aunque el resto fuera ruido. Si ese número es pequeño, la rotación se
-      sostiene sobre poco, por bien que salga el backtest.</p>
-    </div>
-    ${v.by_decade ? `<div class="val-card" style="grid-column:span 2">
-      <h3>Cuadrantes usados en cada década</h3>
-      <table class="tmatrix">
-        <tr><th></th>${Object.keys(v.by_decade).map(d => `<th>${d}s</th>`).join("")}</tr>
-        ${D.phases.map(p => `<tr><th class="rowh" style="color:${PHASE_COLOR[p]}">${p.slice(0, 12)}</th>
-          ${Object.values(v.by_decade).map(row => {
-            const n = row[p] ?? 0;
-            return `<td style="background:rgba(91,140,255,${Math.min(n / 70, 1) * 0.5})">${n}</td>`;
-          }).join("")}</tr>`).join("")}
-      </table>
-      <p class="cap" style="margin-top:10px;font-size:12px">Meses clasificados en cada fase, por
-      década. Es la comprobación más útil del panel: si una década entera usa solo dos cuadrantes,
-      la rotación no tiene nada que rotar en ese tramo y cualquier resultado de cartera medido ahí
-      dice menos de lo que parece.</p>
-    </div>` : ""}
     <div class="val-card">
       <h3>Adónde se va desde cada fase</h3>
       <table class="tmatrix">
@@ -1086,12 +1032,8 @@ function renderValidation() {
 function renderMethod() {
   const rules = [
     ["Un eje, muchas series", `Crecimiento e inflación se miden con ${D.indicators.filter(i => i.block !== "leading").length}
-      series de FRED, no con una. Cada una entra como z-score calculado sobre una <b>ventana móvil
-      de diez años</b>, que en cada fecha solo mira hacia atrás. La ventana es móvil y no expansiva
-      a propósito: el reloj mide posición en el ciclo, no nivel frente a medio siglo de historia.
-      Con la media desde 1959, el pico de los setenta se quedaba dentro de la referencia para
-      siempre y de 1990 a 2020 la inflación salía permanentemente baja, dejando dos cuadrantes
-      sin usar durante veinte años.`],
+      series de FRED, no con una. Cada una entra como z-score calculado con media y desviación
+      <b>expansivas</b>: en cada fecha solo se usa el pasado.`],
     ["Los pesos los pone la matriz de correlaciones", `Cada bloque se resume en su primer componente principal.
       Ningún peso está escrito a mano, y la varianza explicada aparece en el panel de indicadores.`],
     ["Cada dato entra cuando de verdad se publicó", `Cada serie lleva su retraso de publicación.
@@ -1107,24 +1049,8 @@ function renderMethod() {
       porque se testan cientos de casillas a la vez.`],
     ["El histórico es largo a propósito", `Los sectores usan las carteras de Ken French, que llegan a 1926.
       Con solo ETFs desde 1999 apenas hay dos ciclos completos y cualquier resultado sería anecdótico.`],
-    ["Se elige por ventaja de fase, no por Sharpe", `Dentro de cada bloque se ordena por la diferencia
-      entre lo que hace un activo en esa fase y lo que hace de media, no por su rentabilidad entre
-      volatilidad. Ordenar por Sharpe absoluto selecciona los mismos defensivos en las cuatro fases,
-      y eso no es una rotación.`],
-    ["Nunca dos veces la misma apuesta", `Dos filtros distintos. Los vehículos idénticos —oro lingote
-      y oro ETF, GSCI y DBC, los dos TIPS— se colapsan en uno y gana el de más historia. Y las
-      exposiciones solapadas no pueden coincidir en cartera: Bancos está dentro de Financiero,
-      Software y Semiconductores dentro de Tecnología, REITs e Inmobiliario son lo mismo. Se ordena
-      por ventaja de fase y se salta lo que ya está cubierto. Los índices agregados quedan fuera de
-      la selección para que la renta variable se componga de sectores, y las series que no se pueden
-      mantener en cartera —PPI, WTI al contado— tampoco entran.`],
-    ["El riesgo se decide entre bloques, no dentro", `El reparto parte de un neutro 60/30/10, la misma
-      postura que el índice contra el que se mide, y se desvía con la fase dentro de bandas fijas.
-      Dentro de cada bloque los elegidos van equiponderados: ponderar por inverso de volatilidad
-      penalizaba justo al activo que lleva la información.`],
     ["El backtest no se mira a sí mismo", `Cada mes selecciona activos con datos hasta el mes anterior.
-      La misma regla jugada con el histórico completo se publica en la fila de al lado, para que se vea
-      cuánto se infla el resultado al hacer trampa.`],
+      La versión in-sample se publica al lado precisamente para que se vea cuánto se infla el resultado al hacer trampa.`],
     ["La comprobación externa es el NBER", `El fechado oficial de recesiones no entra en ninguna estimación:
       sirve solo para verificar que el eje de crecimiento se hunde cuando debe.`],
   ];
@@ -1141,12 +1067,6 @@ function renderMethod() {
     relaciones que el histórico largo da por estables.</li>
     <li><b>Cuatro cuadrantes son una simplificación.</b> Shocks de oferta, guerras o pandemias no caben
     en dos ejes.</li>
-    <li><b>No hay costes.</b> Ni comisiones, ni horquilla, ni impuestos, y la cartera se reequilibra
-    entera cada mes. La rotación real rendiría menos que la del panel.</li>
-    <li><b>Los sectores de Ken French no son comprables tal cual.</b> Son carteras académicas, no ETF.
-    El fondo equivalente tiene otra composición, comisión y desviación de seguimiento.</li>
-    <li><b>La ventana móvil puebla los cuadrantes por construcción.</b> Parte de los cambios de fase
-    que ves serán ruido y no ciclo. La tabla de cuadrantes por década sirve para vigilarlo.</li>
   </ul>`;
 }
 
