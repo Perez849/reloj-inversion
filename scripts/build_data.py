@@ -34,9 +34,6 @@ import pandas as pd
 import requests
 
 OUT_PATH = os.environ.get("OUT_PATH", "docs/data/data.json")
-# Matriz de retornos mensuales por activo. Se publica junto a data.json para poder
-# reproducir y reprobar la lógica de cartera sin volver a descargar nada.
-RETURNS_PATH = os.environ.get("RETURNS_PATH", "docs/data/returns.csv.gz")
 START = "1959-01-01"
 # La API oficial (api.stlouisfed.org) está pensada para acceso automático y responde
 # en milisegundos. El endpoint de gráficos (fred.stlouisfed.org/graph) limita o
@@ -274,28 +271,14 @@ def transform(s: pd.Series, kind: str) -> pd.Series:
     raise ValueError(kind)
 
 
-# Ventana de referencia para estandarizar, en meses. El reloj mide posición
-# CÍCLICA, no nivel absoluto: la pregunta es "¿alto o bajo respecto a lo que ha
-# sido normal últimamente?", no "¿respecto a la media desde 1959?". Con media
-# expansiva, el pico inflacionista de los setenta se queda dentro de la referencia
-# para siempre y el resultado es que de 1990 a 2020 la inflación aparece
-# permanentemente por debajo de lo normal: en los años noventa y en la década de
-# 2010 no hay ni un solo mes de Sobrecalentamiento ni de Estanflación. El reloj se
-# pasó veinte años usando dos de sus cuatro cuadrantes.
-# 120 meses es la elección: cubre un ciclo económico completo y no arrastra un
-# cambio de régimen de cuarenta años. Es un parámetro, y como tal se declara.
-Z_WINDOW_M = int(os.environ.get("Z_WINDOW_M", "120"))
-
-
 def expanding_z(s: pd.Series, min_periods: int = 120) -> pd.Series:
-    """Z-score móvil y causal sobre Z_WINDOW_M meses. Mientras no hay historia
-    suficiente se comporta como una ventana expansiva. Ventana adaptativa: una
-    serie corta no debe quedarse fuera en silencio, se le exige un tercio de su
-    historia con un suelo de 48 meses."""
+    """Ventana adaptativa: 120 meses es lo deseable, pero una serie más corta no
+    debe quedarse fuera en silencio. Se exige un tercio de su historia con un
+    suelo de 48 meses."""
     n = int(s.notna().sum())
     mp = min(min_periods, max(48, n // 3))
-    mu = s.rolling(Z_WINDOW_M, min_periods=mp).mean()
-    sd = s.rolling(Z_WINDOW_M, min_periods=mp).std()
+    mu = s.expanding(min_periods=mp).mean()
+    sd = s.expanding(min_periods=mp).std()
     return ((s - mu) / sd).clip(-4, 4)
 
 
@@ -613,35 +596,6 @@ def yield_to_return(y_pct: pd.Series, dur: float, cvx: float) -> pd.Series:
     return ((y.shift(1) / 12.0 - dur * dy + 0.5 * cvx * dy ** 2) * 100.0).dropna()
 
 
-def _implausible(s: pd.Series) -> str | None:
-    """Rechaza series que no pueden ser retornos mensuales.
-
-    Nace de un caso real: una fuente devolvió un índice acumulado en lugar de
-    retornos y entró en el universo como si fuera un bono, con una media del 25 %
-    MENSUAL y el 99,9 % de los meses en positivo. Un activo así gana cualquier
-    selección en todas las fases y convierte el backtest entero en ficción, sin
-    que nada en el panel lo delate.
-
-    El test decisivo no es el tamaño, que depende de las unidades, sino el reparto
-    de signos: un activo real pierde dinero en una fracción apreciable de los
-    meses. En este universo, el activo más sesgado tiene un 58,5 % de meses en
-    positivo y el menos un 47,2 %; un índice acumulado se va al 100 %. El umbral
-    deja margen de sobra para cualquier serie legítima.
-    """
-    v = s.astype(float)
-    pos = float((v > 0).mean())
-    if pos > 0.90:
-        return (f"parece un índice acumulado, no retornos: {pos:.1%} de los meses "
-                f"en positivo")
-    if pos < 0.15:
-        return f"solo el {pos:.1%} de los meses en positivo: revisar el signo"
-    if abs(float(v.mean())) > 8.0:
-        return f"media mensual de {v.mean():.1f} %: unidades sospechosas"
-    if float(v.abs().max()) > 150.0:
-        return f"un mes de {v.abs().max():.0f} %: unidades sospechosas"
-    return None
-
-
 def fetch_assets(df: pd.DataFrame):
     print("4. Construyendo el universo de activos…")
     rets: dict[str, pd.Series] = {}
@@ -657,12 +611,6 @@ def fetch_assets(df: pd.DataFrame):
         if s.size < MIN_MONTHS:
             ASSET_LOG.append({"name": name, "source": source, "status": "descartado",
                               "detail": f"{s.size} meses, mínimo {MIN_MONTHS}"})
-            return
-        bad = _implausible(s)
-        if bad:
-            ASSET_LOG.append({"name": name, "source": source, "status": "descartado",
-                              "detail": bad})
-            WARNINGS.append(f"{name}: {bad}")
             return
         if name in rets:
             ASSET_LOG.append({"name": name, "source": source, "status": "duplicado",
@@ -1065,14 +1013,7 @@ def defensive(X: pd.DataFrame, growth: pd.Series) -> dict:
     gold = next((c for c in ("Metales preciosos (mineras)", "Oro (lingote)",
                              "Oro (ETF físico)") if c in X.columns), None)
     eq, b10, b2 = need
-    # Todas las variantes tienen que cubrir los mismos meses que su propia base.
-    # Los índices de Ken French publican con dos meses de desfase, así que sin este
-    # recorte el 60/40 salía con 678 meses y las reglas defensivas con 680: dos
-    # meses de ventaja gratis para las variantes, justo los más recientes.
     idx = X.index.intersection(growth.dropna().index)
-    last = X[eq].dropna().index.max()
-    if last is not None:
-        idx = idx[idx <= last]
     sig = (growth.reindex(idx).shift(1) < 0)
     D = X.reindex(idx)
 
@@ -1129,259 +1070,84 @@ def defensive(X: pd.DataFrame, growth: pd.Series) -> dict:
 # pueden quedarse a cero si no aportan.
 SLEEVES = {
     "Renta variable": ({"Renta variable"}, 0.30, 0.70, 4),
-    "Renta fija": ({"Renta fija"}, 0.20, 0.60, 3),
+    "Renta fija": ({"Renta fija", "Liquidez"}, 0.20, 0.60, 3),
     "Activos reales": ({"Real / alternativos"}, 0.00, 0.15, 2),
 }
 
-# Postura neutra de la cartera: la misma que el índice de referencia. La fase
-# desvía alrededor de este punto, no lo sustituye. Sin esto la comparación con el
-# 60/40 no mide rotación, mide nivel de riesgo: una cartera estructuralmente al
-# 40 % de renta variable pierde contra el 60/40 aunque acierte todas las fases.
-NEUTRAL = {"Renta variable": 0.60, "Renta fija": 0.30, "Activos reales": 0.10}
-
-# Desviación máxima respecto al neutro, en desviaciones típicas de la puntuación
-# del bloque entre fases. Es el único parámetro de diseño y se fija por prudencia:
-# una fase excepcional lleva el bloque al borde de su banda, no más allá.
-MAX_Z = 1.0
-
-# Historia mínima para poder entrar en cartera. Evita que un ETF con dos años de
-# datos gane la selección por ruido.
-MIN_HISTORY_M = 60
-
-# Retraso máximo de publicación tolerado en el guion de cartera. Las carteras de
-# Ken French salen con dos meses de desfase; sin esta tolerancia el guion solo veía
-# los tickers de Yahoo y por eso el bloque de renta variable acababa siendo
-# siempre "internacional + emergentes" en lugar de sectores.
-LAG_TOLERANCE_M = 4
-
-# No seleccionables. Dos motivos distintos:
-#   - Índices agregados de mercado: sirven de referencia, no de posición. Si entran
-#     copan el bloque de renta variable y no hay rotación sectorial ninguna.
-#   - Series de precio no invertibles: no existe forma de mantener la posición.
+# Índices agregados: sirven de referencia, no de posición. Si entran en la selección
+# copan siempre el bloque de renta variable y no hay rotación sectorial ninguna.
 NOT_SELECTABLE = {
-    # agregados de renta variable
     "Renta variable EE.UU. (mercado)",
     "Renta variable EE.UU. (Wilshire)",
-    "Renta variable internacional",
-    "Renta variable emergente",
-    "Desarrollados ex EE.UU. (French)",
-    "Emergentes (French)",
-    "Small caps",
     "Otros sectores",
-    # no invertibles
-    "Cesta de producción (PPI)",
-    "Petróleo WTI (spot)",
-}
-
-# Exposiciones duplicadas: distintos vehículos sobre el mismo subyacente. Solo una
-# de cada grupo puede entrar en cartera. Sin esto el bloque de activos reales se
-# llenaba con oro lingote y oro ETF a la vez —15 % de oro disfrazado de
-# diversificación— y lo mismo pasaba con GSCI/DBC y con el hipotecario.
-# El representante se elige por historia disponible, antes de mirar retornos.
-# --- Duplicados, dos tipos distintos ---------------------------------------
-#
-# VEHICLE_GROUPS: el mismo subyacente por vehículos distintos. Oro lingote y oro
-# ETF son literalmente lo mismo. Se colapsan ANTES de puntuar y gana el de más
-# historia, porque con datos idénticos el criterio es la calidad de la serie.
-VEHICLE_GROUPS = {
-    "Oro (lingote)": "oro lingote",
-    "Oro (ETF físico)": "oro lingote",
-    "Materias primas (índice)": "materias primas",
-    "Materias primas (ETF)": "materias primas",
-    "Hipotecario 30 años (aprox.)": "hipotecario",
-    "Titulizaciones hipotecarias (MBB)": "hipotecario",
-    "Crédito Baa (aprox.)": "crédito investment grade",
-    "Crédito Investment Grade (LQD)": "crédito investment grade",
-    "TIPS 10 años (aprox.)": "tips",
-    "TIPS (TIP)": "tips",
-    "Renta variable internacional": "desarrollados ex EE.UU.",
-    "Desarrollados ex EE.UU. (French)": "desarrollados ex EE.UU.",
-    "Renta variable emergente": "emergentes",
-    "Emergentes (French)": "emergentes",
-}
-
-# OVERLAP_GROUPS: exposiciones distintas pero solapadas o anidadas. Bancos está
-# DENTRO de Financiero; Software y Semiconductores están DENTRO de Tecnología.
-# Comprar Financiero y Bancos a la vez no es diversificar, es la misma apuesta
-# escrita dos veces, y en un bloque de cuatro nombres se lleva media cartera de
-# renta variable. Aquí no se puede colapsar por historia —las series de Ken
-# French empiezan todas en 1970 y el desempate sería alfabético, o sea
-# arbitrario—, así que la restricción se aplica al elegir: se ordena por ventaja
-# de fase y se va cogiendo, saltando cualquier candidato que comparta grupo con
-# algo ya seleccionado. Gana el representante que mejor puntúe, que es lo que
-# tiene sentido.
-OVERLAP_GROUPS = {
-    "Financiero": "financiero",
-    "Bancos": "financiero",
-    "Tecnología": "tecnología",
-    "Software": "tecnología",
-    "Semiconductores": "tecnología",
-    "Inmobiliario": "inmobiliario",
-    "REITs": "inmobiliario",
-    "Cobre": "metales industriales",
-    "Minería no férrea": "metales industriales",
-    "Oro (lingote)": "oro",
-    "Oro (ETF físico)": "oro",
-    "Metales preciosos (mineras)": "oro",
-    "Materias primas (índice)": "energía y materias primas",
-    "Materias primas (ETF)": "energía y materias primas",
-    "Petróleo y gas": "energía y materias primas",
 }
 
 
-def _shrunk_means(hist, hph, phase):
-    """Media condicional a la fase, contraída hacia la media incondicional."""
-    sub = hist[hph == phase]
-    if sub.empty:
+SCHEMES = {
+    "equal": "Equiponderado",
+    "invvol": "Inverso de la volatilidad",
+    "rank": "Por puesto",
+    "blend": "Mitad y mitad",
+}
+
+
+def _weights(names, vol, scheme: str) -> pd.Series:
+    """Reparto dentro de un bloque. `names` viene ya ordenado de mejor a peor.
+      equal  — 1/n. Ninguna opinión: la referencia contra la que medir el resto.
+      invvol — proporcional a 1/volatilidad. Iguala la aportación de riesgo.
+      rank   — proporcional al puesto (n, n-1, …, 1). Premia la convicción.
+      blend  — media de equiponderado e inverso de volatilidad."""
+    names = list(names)
+    n = len(names)
+    if n == 0:
         return pd.Series(dtype=float)
-    grand = hist.mean()
-    mu = sub.mean()
-    se = sub.std() / np.sqrt(sub.notna().sum().clip(lower=1))
-    tau2 = (mu - grand).var()
-    return grand + (tau2 / (tau2 + se ** 2)).fillna(0.0) * (mu - grand)
+    eq = pd.Series(1.0 / n, index=names)
+    v = vol.reindex(names).replace(0, np.nan)
+    iv = (1.0 / v)
+    iv = (iv / iv.sum()) if iv.notna().any() else eq
+    iv = iv.fillna(0.0)
+    if iv.sum() <= 0:
+        iv = eq
+    if scheme == "equal":
+        return eq
+    if scheme == "invvol":
+        return iv / iv.sum()
+    if scheme == "rank":
+        r = pd.Series(np.arange(n, 0, -1, dtype=float), index=names)
+        return r / r.sum()
+    return (0.5 * eq + 0.5 * (iv / iv.sum()))
 
 
-# Tope de peso de un activo dentro de su bloque. Sin él, la ponderación por
-# inverso de volatilidad se lo lleva todo al activo menos volátil: las letras a 3
-# meses acaparaban del 23 % al 40 % de la cartera entera y el resto de la renta
-# fija se quedaba en el 0,6 %. Ponderar por riesgo no puede significar concentrar.
-def _equal_weights(v: pd.Series) -> pd.Series:
-    return pd.Series(1.0 / len(v), index=v.index)
-
-
-def _inv_vol_weights(v: pd.Series) -> pd.Series:
-    inv = 1.0 / v
-    return inv / inv.sum()
-
-
-def _rank_weights(v: pd.Series) -> pd.Series:
-    """Peso proporcional al puesto en la ordenación por ventaja de fase: el mejor
-    de cuatro se lleva 4/10, el peor 1/10. Usa el orden que ya se ha decidido para
-    seleccionar, sin estimar ningún parámetro nuevo."""
-    r = pd.Series(np.arange(len(v), 0, -1), index=v.index, dtype=float)
-    return r / r.sum()
-
-
-def _half_rank_weights(v: pd.Series) -> pd.Series:
-    """Mitad equiponderado, mitad por puesto. Inclina hacia lo que mejor puntúa
-    sin fiarlo todo a un orden que se estima con ruido."""
-    return 0.5 * _equal_weights(v) + 0.5 * _rank_weights(v)
-
-
-_INNER_SCHEMES = {
-    "equiponderado": _equal_weights,
-    "inverso de volatilidad": _inv_vol_weights,
-    "por puesto": _rank_weights,
-    "mitad y mitad": _half_rank_weights,
-}
-
-
-def _inner_weights(v: pd.Series) -> pd.Series:
-    """Equiponderación entre los elegidos del bloque.
-
-    El reparto por inverso de volatilidad era defendible como criterio a priori,
-    pero dentro de un bloque cancela justo la señal que lo motiva: si el reloj
-    dice "duración larga en Reflación", eliges el Treasury a 30 años y acto
-    seguido le pones cuatro veces menos peso que al de 2 años por ser cuatro
-    veces más volátil. Lo mismo con materias primas en Estanflación. El nivel de
-    riesgo ya lo fijan las bandas entre bloques; dentro del bloque el reparto
-    neutral es el equitativo, y no penaliza al activo que lleva la información.
-    """
-    return pd.Series(1.0 / len(v), index=v.index)
-
-
-def _phase_edge(hist, hph, phase, vol):
-    """Lo único que el reloj dice saber: cuánto mejor o peor se comporta cada
-    activo EN esta fase respecto a su propio comportamiento habitual, por unidad
-    de riesgo. La versión anterior ordenaba por rentabilidad/volatilidad absoluta,
-    y eso selecciona el mismo puñado de activos defensivos en las cuatro fases:
-    Utilities y Consumo básico salían en tres de cuatro. Ordenar por ventaja
-    condicional es lo que convierte esto en una rotación y no en una cartera de
-    baja volatilidad con etiquetas de fase encima."""
-    mu = _shrunk_means(hist, hph, phase)
-    if mu.empty:
-        return pd.Series(dtype=float)
-    return (mu - hist.mean()) / vol.replace(0, np.nan)
-
-
-def _dedupe(cand, depth):
-    """Un solo activo por exposición económica. Se queda el que más historia tiene
-    en ese momento; el desempate es alfabético. Regla previa a los retornos."""
-    best, out = {}, []
-    for c in cand:
-        g = VEHICLE_GROUPS.get(c)
-        if g is None:
-            out.append(c)
-            continue
-        d = float(depth.get(c, 0) or 0)
-        if g not in best or (d, c) > best[g][0]:
-            best[g] = ((d, c), c)
-    return out + [v[1] for v in best.values()]
-
-
-def _sleeve_pick(edge, vol, avail, classes, cls_map, n_pick, depth=None):
-    """Selección por ventaja de fase; reparto interno por riesgo, con tope.
-    Devuelve los pesos del bloque y su puntuación agregada."""
+def _sleeve_pick(mu, vol, avail, classes, cls_map, n_pick):
+    """Selecciona los mejores del bloque y devuelve su orden y su puntuación.
+    La selección es idéntica para los cuatro esquemas: lo único que cambia entre
+    ellos es cómo se reparte el dinero entre los ya elegidos."""
     cand = [c for c in avail
             if cls_map.get(c) in classes and c not in NOT_SELECTABLE]
-    if depth is not None:
-        cand = [c for c in cand if float(depth.get(c, 0) or 0) >= MIN_HISTORY_M]
-        cand = _dedupe(cand, depth)
     if not cand:
-        return {}, 0.0
-    e = edge.reindex(cand).replace([np.inf, -np.inf], np.nan).dropna()
-    if e.empty:
-        return {}, 0.0
-    # Selección voraz por ventaja, saltando exposiciones ya cubiertas.
-    top, taken = [], set()
-    for c in e.sort_values(ascending=False).index:
-        g = OVERLAP_GROUPS.get(c)
-        if g is not None and g in taken:
-            continue
-        top.append(c)
-        if g is not None:
-            taken.add(g)
-        if len(top) == n_pick:
-            break
-    top = pd.Index(top)
-    # top ya viene ordenado de mejor a peor ventaja: los esquemas por puesto
-    # dependen de que ese orden se conserve hasta aquí.
-    v = vol.reindex(top).replace(0, np.nan).dropna()
-    w = _inner_weights(v) if not v.empty else pd.Series(
-        1.0 / len(top), index=top)
-    # Puntuación del bloque: ventaja media ponderada por riesgo de lo elegido
-    score = float((e.reindex(w.index) * w).sum())
-    return w.to_dict(), score
+        return [], 0.0
+    ir = (mu.reindex(cand) / vol.reindex(cand)).replace(
+        [np.inf, -np.inf], np.nan).dropna()
+    if ir.empty:
+        return [], 0.0
+    top = list(ir.sort_values(ascending=False).head(n_pick).index)
+    return top, float(ir.reindex(top).mean())
 
 
-def _sleeve_weights(scores_by_phase: dict, phase: str) -> dict:
-    """Reparte el 100 % entre bloques partiendo de la postura neutra 60/30/10 y
-    desviándose según lo bien que cada bloque puntúe EN ESA FASE respecto a su
-    propio nivel habitual, no respecto a los otros bloques.
-
-    El reparto anterior comparaba bloques por rentabilidad/riesgo absoluta. En una
-    muestra de 1990 a hoy la renta fija gana esa comparación en las cuatro fases
-    —mercado alcista de bonos de 35 años—, así que la cartera salía al 40 % de
-    renta variable en todas ellas: ni rotaba ni tenía el riesgo del índice contra
-    el que se mide. Estandarizar cada bloque contra sí mismo elimina ese sesgo."""
-    w = {}
-    for k in SLEEVES:
-        vals = np.array([float(scores_by_phase.get(p, {}).get(k, np.nan))
-                         for p in PHASES], dtype=float)
-        cur = float(scores_by_phase.get(phase, {}).get(k, np.nan))
-        m, sd = np.nanmean(vals), np.nanstd(vals)
-        if not np.isfinite(cur) or not np.isfinite(sd) or sd <= 1e-12:
-            z = 0.0
-        else:
-            z = float(np.clip((cur - m) / sd, -MAX_Z, MAX_Z)) / MAX_Z
-        lo, hi = SLEEVES[k][1], SLEEVES[k][2]
-        neutral = NEUTRAL[k]
-        # Banda completa y asimétrica. Antes se usaba min(neutral-lo, hi-neutral),
-        # que en renta variable daba 10pp y dejaba el rango efectivo en 50-70 %
-        # teniendo declarado 30-70. La palanca principal del reloj —bajar renta
-        # variable de verdad en Estanflación— quedaba amputada por simetría.
-        span = (hi - neutral) if z >= 0 else (neutral - lo)
-        w[k] = min(max(neutral + z * span, lo), hi)
+def _sleeve_weights(scores: dict) -> dict:
+    """Reparte el 100 % entre bloques en proporción a su puntuación, respetando las
+    bandas. Una puntuación negativa se trata como cero: ese bloque baja a su mínimo.
+    No hay ningún parámetro ajustado a los datos; las bandas son la única elección,
+    y se fijan por prudencia (nunca sin renta variable, nunca sin renta fija)."""
+    pos = {k: max(0.0, scores.get(k, 0.0)) for k in SLEEVES}
+    tot = sum(pos.values())
+    if tot <= 0:
+        raw = {k: (SLEEVES[k][1] + SLEEVES[k][2]) / 2 for k in SLEEVES}
+    else:
+        raw = {k: pos[k] / tot for k in SLEEVES}
+    # Proyección sobre las bandas: se recorta y el sobrante se reparte entre los
+    # bloques que aún tienen margen, hasta converger.
+    w = {k: min(max(raw[k], SLEEVES[k][1]), SLEEVES[k][2]) for k in SLEEVES}
     for _ in range(24):
         gap = 1.0 - sum(w.values())
         if abs(gap) < 1e-9:
@@ -1397,208 +1163,149 @@ def _sleeve_weights(scores_by_phase: dict, phase: str) -> dict:
     return w
 
 
+def _annual(series: pd.Series) -> dict:
+    y = (1 + series / 100.0).groupby(series.index.year).prod() - 1
+    return {int(k): round(float(v * 100), 2) for k, v in y.items()}
+
+
 def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
-             min_train: int = 120) -> dict:
-    """Cartera solo larga, siempre invertida al 100 %, con el mismo reparto por
-    bloques en todas las fases. La fase decide únicamente qué activos ocupan cada
-    bloque. Selección por rentabilidad contraída dividida entre volatilidad, y
-    reparto dentro del bloque por inverso de la volatilidad."""
-    print("7. Rotación por fase (solo largo, sin apalancar)…")
+             min_train: int = 240) -> dict:
+    """Cartera solo larga, siempre invertida al 100 %, sin apalancar ni cortos.
+    La fase decide qué activos ocupan cada bloque y cuánto pesa cada bloque dentro
+    de sus bandas. Se calculan los cuatro esquemas de reparto en paralelo sobre
+    exactamente la misma selección, para que la comparación aísle el efecto del
+    reparto y nada más."""
+    print("7. Rotación por fase (4 esquemas de reparto)…")
     common = X.dropna(how="all").index.intersection(phases.dropna().index)
-    # La estrategia y el índice de referencia tienen que cubrir exactamente los
-    # mismos meses. Las carteras de Ken French publican con dos meses de desfase,
-    # así que los dos últimos meses de la muestra tenían estrategia pero no
-    # benchmark, y además se calculaban con menos de la mitad del universo
-    # disponible. Se corta ahí.
-    for _c in ("Renta variable EE.UU. (mercado)", "Treasury 10 años"):
-        if _c in X.columns:
-            last = X[_c].dropna().index.max()
-            if last is not None:
-                common = common[common <= last]
     X = X.loc[common]
     ph = phases.loc[common]
     if len(common) < min_train + 60:
         return {}
 
-    def run(full_sample: bool = False):
-        """Recorre la muestra montando la cartera mes a mes. Con full_sample=True
-        las medias por fase se estiman con TODO el histórico, incluido el futuro:
-        es la misma regla jugada con ventaja, y la distancia entre las dos curvas
-        es la medida directa de cuánto de este resultado es sobreajuste."""
-        rets, dates, held = [], [], []
-        for k in range(min_train, len(common)):
-            t = common[k]
-            sig = ph.iloc[k - 1]
-            hist, hph = (X, ph) if full_sample else (X.iloc[:k], ph.iloc[:k])
-            vol, depth = hist.std(), hist.notna().sum()
-            avail = list(X.loc[t].dropna().index)
-            picks, scores = {}, {}
-            for phase in PHASES:
-                edge_p = _phase_edge(hist, hph, phase, vol)
-                scores[phase] = {}
-                for name, (classes, lo, hi, n_pick) in SLEEVES.items():
-                    w_p, s_p = _sleeve_pick(edge_p, vol, avail, classes,
-                                            cls_map, n_pick, depth)
-                    scores[phase][name] = s_p
-                    if phase == sig:
-                        picks[name] = w_p
-            budgets = _sleeve_weights(scores, sig)
-            w_all, r = {}, 0.0
-            for name, inner in picks.items():
-                for c, wt in inner.items():
-                    w_all[c] = w_all.get(c, 0.0) + budgets[name] * wt
-            if not w_all:
-                continue
-            tot = sum(w_all.values())
-            for c, wt in w_all.items():
-                r += (wt / tot) * float(X.loc[t, c])
-            rets.append(r)
-            dates.append(t)
-            held.append(sig)
-        return pd.Series(rets, index=dates), dates, held
+    def means(hist, hph, phase):
+        sub = hist[hph == phase]
+        if sub.empty:
+            return pd.Series(dtype=float)
+        grand = hist.mean()
+        mu = sub.mean()
+        se = sub.std() / np.sqrt(sub.notna().sum().clip(lower=1))
+        tau2 = (mu - grand).var()
+        return grand + (tau2 / (tau2 + se ** 2)).fillna(0.0) * (mu - grand)
 
-    R_is, _, _ = run(full_sample=True)
+    rets = {k: [] for k in SCHEMES}
+    turn = {k: [] for k in SCHEMES}
+    prev = {k: {} for k in SCHEMES}
+    dates, held = [], []
 
-    rets, dates, held = [], [], []
     for k in range(min_train, len(common)):
         t = common[k]
         sig = ph.iloc[k - 1]
         hist, hph = X.iloc[:k], ph.iloc[:k]
-        vol, depth = hist.std(), hist.notna().sum()
+        mu, vol = means(hist, hph, sig), hist.std()
         avail = list(X.loc[t].dropna().index)
-        # Puntuación de cada bloque en las cuatro fases, solo con datos pasados:
-        # hace falta para estandarizar la desviación respecto al neutro.
         picks, scores = {}, {}
-        for phase in PHASES:
-            edge_p = _phase_edge(hist, hph, phase, vol)
-            scores[phase] = {}
-            for name, (classes, lo, hi, n_pick) in SLEEVES.items():
-                w_p, s_p = _sleeve_pick(edge_p, vol, avail, classes, cls_map,
-                                        n_pick, depth)
-                scores[phase][name] = s_p
-                if phase == sig:
-                    picks[name] = w_p
-        budgets = _sleeve_weights(scores, sig)
-        w_all, r = {}, 0.0
-        for name, inner in picks.items():
-            for c, wt in inner.items():
-                w_all[c] = w_all.get(c, 0.0) + budgets[name] * wt
-        if not w_all:
+        for name, (classes, lo, hi, n_pick) in SLEEVES.items():
+            picks[name], scores[name] = _sleeve_pick(
+                mu, vol, avail, classes, cls_map, n_pick)
+        budgets = _sleeve_weights(scores)
+        if not any(picks.values()):
             continue
-        tot = sum(w_all.values())
-        for c, wt in w_all.items():
-            r += (wt / tot) * float(X.loc[t, c])
-        rets.append(r)
+        for sch in SCHEMES:
+            w_all = {}
+            for name, top in picks.items():
+                if not top:
+                    continue
+                w = _weights(top, vol, sch)
+                for c, wt in w.items():
+                    w_all[c] = w_all.get(c, 0.0) + budgets[name] * float(wt)
+            tot = sum(w_all.values())
+            if tot <= 0:
+                rets[sch].append(np.nan)
+                turn[sch].append(0.0)
+                continue
+            w_all = {c: v / tot for c, v in w_all.items()}
+            rets[sch].append(sum(w * float(X.loc[t, c]) for c, w in w_all.items()))
+            keys = set(w_all) | set(prev[sch])
+            turn[sch].append(sum(abs(w_all.get(c, 0) - prev[sch].get(c, 0))
+                                 for c in keys) / 2)
+            prev[sch] = w_all
         dates.append(t)
         held.append(sig)
 
-    R = pd.Series(rets, index=dates)
-    eq, bd = X.get("Renta variable EE.UU. (mercado)"), X.get("Treasury 10 años")
+    eq_c, bd_c = "Renta variable EE.UU. (mercado)", "Treasury 10 años"
+    eq, bd = X.get(eq_c), X.get(bd_c)
     bench = (0.6 * eq + 0.4 * bd).reindex(dates) if eq is not None and bd is not None else None
-
-    # Comportamiento por fase, para ver dónde gana y dónde pierde
-    by_phase = {}
     hp = pd.Series(held, index=dates)
-    for phase in PHASES:
-        m = hp == phase
-        if m.sum() < 12:
-            continue
-        entry = {"n": int(m.sum()),
-                 "ann": round(float(R[m].mean() * 12), 2)}
-        if bench is not None:
-            entry["bench_ann"] = round(float(bench[m].mean() * 12), 2)
-            entry["edge"] = round(entry["ann"] - entry["bench_ann"], 2)
-        by_phase[phase] = entry
+    bench_annual = _annual(bench.dropna()) if bench is not None else {}
 
-    # Guion de cartera: qué compraría hoy en cada fase, con toda la historia
-    playbook, sleeve_mix = {}, {}
-    vol_all, depth_all = X.std(), X.notna().sum()
-    # Un activo está vigente si ha publicado en los últimos LAG_TOLERANCE_M meses.
-    # Antes se exigía dato en el último mes exacto, y eso dejaba fuera todas las
-    # carteras sectoriales de Ken French, que van con dos meses de retraso.
-    recent = X.tail(LAG_TOLERANCE_M)
-    avail = [c for c in X.columns if recent[c].notna().any()]
-    picks_by_phase, scores_all = {}, {}
-    for phase in PHASES:
-        edge = _phase_edge(X, ph, phase, vol_all)
-        picks_by_phase[phase], scores_all[phase] = {}, {}
-        for sleeve, (classes, lo, hi, n_pick) in SLEEVES.items():
-            w_p, s_p = _sleeve_pick(edge, vol_all, avail, classes, cls_map,
-                                    n_pick, depth_all)
-            picks_by_phase[phase][sleeve] = w_p
-            scores_all[phase][sleeve] = s_p
-    for phase in PHASES:
-        picks = picks_by_phase[phase]
-        budgets = _sleeve_weights(scores_all, phase)
-        rows = []
-        for sleeve, inner in picks.items():
-            for c, wt in sorted(inner.items(), key=lambda kv: -kv[1]):
-                rows.append({"sleeve": sleeve, "name": c,
-                             "weight": round(budgets[sleeve] * wt * 100, 1),
-                             "class": cls_map.get(c, "")})
-        playbook[phase] = [r for r in rows if r["weight"] >= 0.5]
-        sleeve_mix[phase] = {k: round(v * 100, 1) for k, v in budgets.items()}
-
-    curve = [{"d": d.strftime("%Y-%m"), "s": round(float(R.loc[d]), 4),
-              "b": (round(float(bench.loc[d]), 4)
-                    if bench is not None and bench.loc[d] == bench.loc[d] else None)}
-             for d in dates]
-    print(f"  ✓ {len(R)} meses desde {dates[0].date()}")
-    def by_year(a: pd.Series, b: pd.Series) -> list:
-        """Rentabilidad de año natural de las dos carteras, compuesta mes a mes.
-        Solo años con los doce meses en ambas, para que la comparación sea justa:
-        el primero y el último suelen estar incompletos."""
-        out = []
-        for y, idx in a.groupby(a.index.year).groups.items():
-            ra, rb = a.loc[idx], b.reindex(idx)
-            if len(ra) < 12 or rb.isna().any():
+    vol_all = X.std()
+    out_schemes = {}
+    for sch, label in SCHEMES.items():
+        R = pd.Series(rets[sch], index=dates).dropna()
+        by_phase = {}
+        for phase in PHASES:
+            m = (hp == phase).reindex(R.index).fillna(False)
+            if m.sum() < 12:
                 continue
-            va = float((1 + ra / 100.0).prod() - 1) * 100
-            vb = float((1 + rb / 100.0).prod() - 1) * 100
-            out.append({"y": int(y), "s": round(va, 2), "b": round(vb, 2),
-                        "d": round(va - vb, 2)})
-        return out
+            e = {"n": int(m.sum()), "ann": round(float(R[m].mean() * 12), 2)}
+            if bench is not None:
+                e["bench_ann"] = round(float(bench.reindex(R.index)[m].mean() * 12), 2)
+                e["edge"] = round(e["ann"] - e["bench_ann"], 2)
+            by_phase[phase] = e
 
-    def weighting_variants() -> dict:
-        """Qué pasaría con otros repartos dentro de cada bloque. Se publican los
-        cuatro y el que manda sigue siendo el equiponderado, que es el que menos
-        parámetros estima. Están aquí como diagnóstico, no como menú: elegir a
-        posteriori el que mejor sale en el backtest es una decisión tomada con el
-        resultado delante, y eso no se puede medir después."""
-        global _inner_weights
-        guardado, out = _inner_weights, {}
-        try:
-            for etiqueta, fn in _INNER_SCHEMES.items():
-                _inner_weights = fn
-                r, _, _ = run()
-                out[etiqueta] = perf(r)
-        finally:
-            _inner_weights = guardado
-        return out
+        playbook, mix = {}, {}
+        for phase in PHASES:
+            mu = means(X, ph, phase)
+            avail = list(X.columns[X.iloc[-1].notna()])
+            picks, scores = {}, {}
+            for sl, (classes, lo, hi, n_pick) in SLEEVES.items():
+                picks[sl], scores[sl] = _sleeve_pick(
+                    mu, vol_all, avail, classes, cls_map, n_pick)
+            budgets = _sleeve_weights(scores)
+            rows = []
+            for sl, top in picks.items():
+                if not top:
+                    continue
+                w = _weights(top, vol_all, sch)
+                for c in top:
+                    rows.append({"sleeve": sl, "name": c,
+                                 "weight": round(budgets[sl] * float(w[c]) * 100, 1),
+                                 "class": cls_map.get(c, "")})
+            playbook[phase] = [r for r in rows if r["weight"] >= 0.3]
+            mix[phase] = {k: round(v * 100, 1) for k, v in budgets.items()}
 
-    return {"portfolio": perf(R),
-            "in_sample": perf(R_is),
-            "by_year": by_year(R, bench) if bench is not None else [],
-            "inner_weighting": weighting_variants(),
+        ann = _annual(R)
+        out_schemes[sch] = {
+            "label": label,
+            "portfolio": perf(R),
+            "by_phase": by_phase,
+            "playbook": playbook,
+            "sleeve_mix": mix,
+            "annual": ann,
+            "turnover": round(float(np.mean(turn[sch]) * 100), 1),
+            "wins_years": sum(1 for y, v in ann.items()
+                              if y in bench_annual and v > bench_annual[y]),
+            "n_years": len([y for y in ann if y in bench_annual]),
+            "curve": [{"d": d.strftime("%Y-%m"), "s": round(float(R.loc[d]), 4),
+                       "b": (round(float(bench.loc[d]), 4)
+                             if bench is not None and d in bench.index
+                             and bench.loc[d] == bench.loc[d] else None)}
+                      for d in R.index][-560:],
+        }
+
+    print("  ✓ " + " · ".join(
+        f"{SCHEMES[k]}: Sharpe {out_schemes[k]['portfolio'].get('sharpe')}"
+        for k in out_schemes))
+    return {"schemes": out_schemes, "default": "invvol",
             "bench_6040": perf(bench) if bench is not None else {},
-            "by_phase": by_phase, "playbook": playbook, "sleeve_mix": sleeve_mix,
-            "bands": {k: [round(v[1] * 100), round(v[2] * 100)] for k, v in SLEEVES.items()},
-            "curve": curve[-460:]}
+            "bench_annual": bench_annual,
+            "bands": {k: [round(v[1] * 100), round(v[2] * 100)]
+                      for k, v in SLEEVES.items()}}
 
 
 # ======================================================================================
 # 8. Validación
 # ======================================================================================
-
-def _phase_by_decade(phases: pd.Series) -> dict:
-    """Reparto de fases por década. Si dos cuadrantes salen vacíos durante veinte
-    años, la rotación no tiene nada que rotar y ningún ajuste de cartera lo
-    arregla. Es el primer sitio donde mirar."""
-    out = {}
-    for dec, sub in phases.dropna().groupby((phases.dropna().index.year // 10) * 10):
-        out[str(int(dec))] = {ph: int((sub == ph).sum()) for ph in PHASES}
-    return out
-
 
 def validation(df, F, phases):
     out = {}
@@ -1635,7 +1342,6 @@ def validation(df, F, phases):
     T = T.div(T.sum(axis=1).replace(0, np.nan), axis=0).fillna(0)
     out["transition"] = {a: {b: round(float(T.loc[a, b]), 3) for b in PHASES}
                          for a in PHASES}
-    out["by_decade"] = _phase_by_decade(phases)
     out["factor_corr"] = round(float(F["growth"].corr(F["inflation"])), 3)
     cw = [("Recuperación", "Sobrecalentamiento"), ("Sobrecalentamiento", "Estanflación"),
           ("Estanflación", "Reflación"), ("Reflación", "Recuperación")]
@@ -1668,16 +1374,6 @@ def main() -> None:
     conf = rank[0][1] - rank[1][1]
 
     X, ameta = fetch_assets(df)
-    if RETURNS_PATH:
-        try:
-            os.makedirs(os.path.dirname(RETURNS_PATH) or ".", exist_ok=True)
-            out = X.copy()
-            out.insert(0, "fase", phases.reindex(out.index))
-            out.round(6).to_csv(RETURNS_PATH, compression="gzip")
-            print(f"  ✓ retornos volcados en {RETURNS_PATH} "
-                  f"({os.path.getsize(RETURNS_PATH)/1024:.0f} KB)")
-        except Exception as exc:  # el volcado nunca debe tumbar la build
-            print(f"  ! no se pudo volcar retornos: {exc}")
     assets, astats = conditional_stats(X, phases, ameta)
     bt = backtest(X, phases)
     prot = defensive(X, F["growth"])
