@@ -38,7 +38,7 @@
     <figcaption>
       <span class="eyebrow">Plano de fase</span>
       <h2>Dónde está la economía y hacia dónde se mueve</h2>
-      <p class="cap">Cada punto es un mes. El rastro recorre los últimos <b id="trailLen">36</b>; la elipse marca el margen de error de la medición actual. La escala se ajusta sola al tramo que estás viendo, así que las marcas de los ejes cambian al mover el rastro.</p>
+      <p class="cap">Cada punto es un mes. El rastro recorre los últimos <b id="trailLen">36</b>; la elipse marca el margen de error de la medición actual.</p>
     </figcaption>
     <div class="plane-holder">
       <svg id="plane" viewBox="0 0 720 620" role="img" aria-label="Plano crecimiento-inflación"></svg>
@@ -92,11 +92,27 @@
   <p class="foot" id="matrixFoot"></p>
 </section>
 
+<section class="block" id="robustBlock"></section>
+
 <section class="block" id="rotationBlock"></section>
 
 <section class="block" id="defensiveBlock"></section>
 
 <section class="block" id="consensusBlock"></section>
+
+<section class="block">
+  <div class="block-head">
+    <span class="eyebrow">Prueba de fuego</span>
+    <h2>¿Sirve de algo o es sobreajuste?</h2>
+    <p class="cap">La cartera se reconstruye mes a mes usando solo información pasada. La versión con la muestra completa se muestra al lado a propósito: la diferencia es la medida del sobreajuste.</p>
+  </div>
+  <div class="bt-grid">
+    <div class="bt-chart">
+      <svg id="btChart" viewBox="0 0 900 340" role="img" aria-label="Curva de resultados"></svg>
+    </div>
+    <div class="bt-stats" id="btStats"></div>
+  </div>
+</section>
 
 <section class="block">
   <div class="block-head">
