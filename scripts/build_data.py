@@ -482,17 +482,19 @@ MARKET = {
     "TIPS (TIP)": ("Renta fija", "TIP", "tip.us", ""),
     "Municipales (MUB)": ("Renta fija", "MUB", "mub.us", ""),
     "Titulizaciones hipotecarias (MBB)": ("Renta fija", "MBB", "mbb.us", ""),
-    "Renta variable emergente": ("Renta variable", "EEM", "eem.us", ""),
-    "Renta variable internacional": ("Renta variable", "EFA", "efa.us", ""),
+    "Renta variable emergente": ("Índice regional", "EEM", "eem.us",
+                                 "índice de país, no sector: fuera de la selección"),
+    "Renta variable internacional": ("Índice regional", "EFA", "efa.us",
+                                     "índice de país, no sector: fuera de la selección"),
     "Small caps": ("Estilo", "IWM", "iwm.us", ""),
 }
 
 # Carteras internacionales de Ken French: misma fuente que ya funciona, historia
 # desde 1990, sin depender de proveedores que bloquean servidores.
 FRENCH_INTL = {
-    "Desarrollados ex EE.UU. (French)": ("Renta variable",
+    "Desarrollados ex EE.UU. (French)": ("Índice regional",
                                          "Developed_ex_US_3_Factors_CSV.zip"),
-    "Emergentes (French)": ("Renta variable", "Emerging_5_Factors_CSV.zip"),
+    "Emergentes (French)": ("Índice regional", "Emerging_5_Factors_CSV.zip"),
 }
 
 
@@ -626,8 +628,8 @@ def fetch_assets(df: pd.DataFrame):
     rf = None
     if ff is not None and "RF" in ff.columns:
         rf = ff["RF"]
-        add("Renta variable EE.UU. (mercado)", ff["Mkt-RF"] + rf, "Renta variable",
-            "Ken French")
+        add("Renta variable EE.UU. (mercado)", ff["Mkt-RF"] + rf, "Índice regional",
+            "Ken French", "índice agregado: referencia, no posición")
         add("Prima Value (HML)", ff["HML"], "Prima (largo-corto)", "Ken French",
             "no invertible en una cartera solo larga: queda fuera de la asignación")
         add("Prima Tamaño (SMB)", ff["SMB"], "Prima (largo-corto)", "Ken French",
@@ -1069,18 +1071,23 @@ def defensive(X: pd.DataFrame, growth: pd.Series) -> dict:
 # queda algo de renta variable y algo de renta fija; el oro y demás activos reales
 # pueden quedarse a cero si no aportan.
 SLEEVES = {
-    "Renta variable": ({"Renta variable"}, 0.30, 0.70, 4),
+    # Seis sectores, no cuatro: cuatro sectores concentrados son bastante más
+    # volátiles que el mercado entero, así que para igualar el riesgo del 60/40 la
+    # cartera se veía obligada a bajar la renta variable a su suelo del 30 % y
+    # rendía menos por fuerza. Diversificar el bloque permite llevar más peso en
+    # renta variable al mismo nivel de riesgo.
+    "Renta variable": ({"Renta variable"}, 0.30, 0.70, 6),
     "Renta fija": ({"Renta fija", "Liquidez"}, 0.20, 0.60, 3),
     "Activos reales": ({"Real / alternativos"}, 0.00, 0.15, 2),
 }
 
 # Índices agregados: sirven de referencia, no de posición. Si entran en la selección
 # copan siempre el bloque de renta variable y no hay rotación sectorial ninguna.
-NOT_SELECTABLE = {
-    "Renta variable EE.UU. (mercado)",
-    "Renta variable EE.UU. (Wilshire)",
-    "Otros sectores",
-}
+# La clase "Índice regional" no entra en ningún bloque: los índices agregados y de
+# país sirven de referencia, no de posición. Si compiten con los sectores los barren
+# siempre, porque un índice diversificado tiene mejor rentabilidad por unidad de
+# riesgo que cualquier sector suelto, y entonces no hay rotación sectorial ninguna.
+NOT_SELECTABLE = {"Otros sectores"}
 
 
 SCHEMES = {
@@ -1323,7 +1330,14 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
             mix[phase] = {k: round(v * 100, 1) for k, v in budgets.items()}
 
         ann = _annual(R)
+        realized = float(R.std() * math.sqrt(12))
+        bench_v = float(bench.dropna().std() * math.sqrt(12)) if bench is not None else None
         out_schemes[sch] = {
+            "vol_check": {
+                "cartera": round(realized, 2),
+                "objetivo_6040": round(bench_v, 2) if bench_v else None,
+                "desvio": round(realized - bench_v, 2) if bench_v else None,
+            },
             "label": label,
             "portfolio": perf(R),
             "by_phase": by_phase,
