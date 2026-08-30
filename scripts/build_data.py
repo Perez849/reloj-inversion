@@ -1076,8 +1076,8 @@ SLEEVES = {
     # cartera se veía obligada a bajar la renta variable a su suelo del 30 % y
     # rendía menos por fuerza. Diversificar el bloque permite llevar más peso en
     # renta variable al mismo nivel de riesgo.
-    "Renta variable": ({"Renta variable"}, 0.30, 0.70, 6),
-    "Renta fija": ({"Renta fija", "Liquidez"}, 0.20, 0.60, 3),
+    "Renta variable": ({"Renta variable"}, 0.30, 0.85, 6),
+    "Renta fija": ({"Renta fija", "Liquidez"}, 0.10, 0.60, 3),
     "Activos reales": ({"Real / alternativos"}, 0.00, 0.15, 2),
 }
 
@@ -1142,64 +1142,36 @@ def _sleeve_pick(mu, vol, avail, classes, cls_map, n_pick):
 
 
 def _sleeve_weights(scores: dict, cov=None, inner=None, target_vol=None) -> dict:
-    """Reparte el 100 % entre bloques.
+    """Reparte el 100 % entre bloques en proporción a lo que puntúa cada uno en la
+    fase, respetando las bandas. Una puntuación negativa se trata como cero: ese
+    bloque baja a su mínimo, y los activos reales pueden quedarse fuera del todo.
 
-    Punto clave: NO se pueden comparar bloques por rentabilidad ajustada al riesgo.
-    La renta fija siempre gana esa comparación porque su volatilidad es minúscula,
-    y el resultado es una cartera estructuralmente menos arriesgada que el 60/40 —
-    que rinde menos por construcción, no por acertar peor.
-
-    Así que el reparto se fija por RIESGO: los activos reales toman su parte según
-    lo que puntúen (cero si no aportan) y el resto se divide entre renta variable y
-    renta fija buscando que la volatilidad esperada de la cartera iguale la del
-    60/40. Comparación a igual riesgo, sin apalancar, y la mezcla se mueve sola con
-    la fase porque cambian las volatilidades y las correlaciones.
+    NOTA: una versión anterior forzaba la volatilidad de la cartera a igualar la del
+    60/40. Fue un error: el reparto proporcional ya salía con una volatilidad
+    prácticamente idéntica a la del índice por sí solo, y el forzado dejaba la renta
+    variable clavada en su suelo, costando unos tres puntos de rentabilidad al año.
+    Los argumentos cov/inner/target_vol se mantienen por compatibilidad y no se usan.
     """
     names = list(SLEEVES)
     lo = {k: SLEEVES[k][1] for k in names}
     hi = {k: SLEEVES[k][2] for k in names}
-
     pos = {k: max(0.0, scores.get(k, 0.0)) for k in names}
     tot = sum(pos.values())
-    real = "Activos reales"
-    r = 0.0 if tot <= 0 else min(hi[real], max(lo[real], pos[real] / tot))
-
-    if cov is None or inner is None or target_vol is None or not target_vol:
-        rest = 1.0 - r
-        eq_share = 0.5 if tot <= 0 else pos["Renta variable"] / max(
-            pos["Renta variable"] + pos["Renta fija"], 1e-9)
-        e = min(hi["Renta variable"], max(lo["Renta variable"], rest * eq_share))
-        return {"Renta variable": e, "Renta fija": rest - e, "Activos reales": r}
-
-    def port_vol(e, b):
-        w = {}
-        for k, share in (("Renta variable", e), ("Renta fija", b), (real, r)):
-            for c, wt in inner.get(k, {}).items():
-                w[c] = w.get(c, 0.0) + share * float(wt)
-        cols = [c for c in w if c in cov.index]
-        if not cols:
-            return None
-        vec = np.array([w[c] for c in cols])
-        var = float(vec @ cov.loc[cols, cols].values @ vec)
-        return math.sqrt(max(var, 0.0))
-
-    best, best_gap = None, 1e18
-    for e100 in range(int(lo["Renta variable"] * 100), int(hi["Renta variable"] * 100) + 1):
-        e = e100 / 100.0
-        b = 1.0 - r - e
-        if b < lo["Renta fija"] - 1e-9 or b > hi["Renta fija"] + 1e-9:
-            continue
-        v = port_vol(e, b)
-        if v is None:
-            continue
-        gap = abs(v - target_vol)
-        if gap < best_gap:
-            best, best_gap = (e, b), gap
-    if best is None:
-        rest = 1.0 - r
-        e = min(hi["Renta variable"], max(lo["Renta variable"], rest * 0.6))
-        return {"Renta variable": e, "Renta fija": rest - e, "Activos reales": r}
-    return {"Renta variable": best[0], "Renta fija": best[1], "Activos reales": r}
+    raw = ({k: (lo[k] + hi[k]) / 2 for k in names} if tot <= 0
+           else {k: pos[k] / tot for k in names})
+    w = {k: min(max(raw[k], lo[k]), hi[k]) for k in names}
+    for _ in range(24):
+        gap = 1.0 - sum(w.values())
+        if abs(gap) < 1e-9:
+            break
+        room = {k: (hi[k] - w[k]) if gap > 0 else (w[k] - lo[k]) for k in names}
+        total = sum(room.values())
+        if total <= 1e-12:
+            break
+        for k in names:
+            w[k] += gap * room[k] / total
+        w = {k: min(max(w[k], lo[k]), hi[k]) for k in names}
+    return w
 
 
 def _annual(series: pd.Series) -> dict:
@@ -1305,7 +1277,9 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
         playbook, mix = {}, {}
         for phase in PHASES:
             mu = means(X, ph, phase)
-            avail = list(X.columns[X.iloc[-1].notna()])
+            # Ken French publica con un mes de retraso: exigir dato en el último
+            # mes dejaba fuera todos los sectores y el bloque salía vacío.
+            avail = list(X.columns[X.tail(4).notna().any()])
             picks, scores = {}, {}
             for sl, (classes, lo, hi, n_pick) in SLEEVES.items():
                 picks[sl], scores[sl] = _sleeve_pick(
