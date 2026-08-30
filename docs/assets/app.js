@@ -96,7 +96,6 @@ function render() {
   renderRotation();
   renderDefensive();
   renderConsensus();
-  renderBacktest();
   renderValidation();
   renderDiagnostics();
   renderMethod();
@@ -904,57 +903,6 @@ function renderDefensive() {
       resultado, así que están las ${p.n_variants} publicadas y no solo la ganadora.
       El disparador es ${p.trigger}, sin ningún parámetro ajustado a los datos.</p>`;
 }
-
-/* -------------------------------- backtest ------------------------------ */
-function renderBacktest() {
-  const bt = D.backtest || {};
-  if (!bt.long) {
-    $("#btStats").innerHTML = `<p class="cap">No hay histórico suficiente para el backtest.</p>`;
-    return;
-  }
-  drawBtChart(bt);
-  const rows = [
-    ["Larga, fuera de muestra", bt.long],
-    ["Inclinada (80% 60/40 + 20% fase)", bt.tilt],
-    ["Larga, volatilidad igualada", bt.scaled],
-    ["Larga menos corta (señal pura)", bt.spread],
-    ["60/40 estático", bt.bench_6040],
-    ["Equiponderada", bt.equal_weight],
-    ["Larga, en muestra (trampa)", bt.in_sample],
-  ].filter(r => r[1] && r[1].cagr != null);
-
-  const gap = bt.in_sample && bt.long ? bt.in_sample.cagr - bt.long.cagr : null;
-  const bench = bt.bench_6040 || {};
-  const edge = bt.scaled && bench.sharpe != null
-    ? bt.scaled.sharpe - bench.sharpe : null;
-  $("#btStats").innerHTML = `
-    <table>
-      <thead><tr><th>Cartera</th><th>Anual</th><th>Vol</th><th>Sharpe</th><th>Caída máx.</th><th>Peor año</th><th>t</th></tr></thead>
-      <tbody>${rows.map(([n, s]) => `
-        <tr><td>${n}</td><td>${fmtNum(s.cagr, 1)}%</td><td>${fmtNum(s.vol, 1)}%</td>
-        <td>${fmtNum(s.sharpe, 2)}</td><td>${fmtNum(s.maxdd, 1)}%</td>
-        <td>${fmtNum(s.worst12, 1)}%</td><td>${fmtNum(s.t, 1)}</td></tr>`).join("")}
-      </tbody>
-    </table>
-    <p class="gap-note">${gap == null ? "" : `Optimizar con la muestra completa habría dado
-      <b>${fmtNum(gap, 1)} puntos</b> más al año. Esa diferencia es sobreajuste: no existía
-      en tiempo real. ${bt.long.months} meses fuera de muestra desde ${bt.long.from.slice(0, 7)},
-      ${bt.top_k} activos equiponderados.`}</p>
-    ${edge == null ? "" : `<p class="gap-note" style="border-left-color:${edge > 0.05 ? "var(--recuperacion)" : "var(--estanflacion)"}">
-      Comparación limpia: con la volatilidad igualada al 60/40, el Sharpe es
-      <b>${fmtNum(bt.scaled.sharpe, 2)}</b> frente a <b>${fmtNum(bench.sharpe, 2)}</b>.
-      ${edge > 0.05
-        ? "La fase aporta información más allá de asumir más riesgo."
-        : "Sin ventaja ajustada por riesgo: la rentabilidad extra viene de cargar más riesgo, no de acertar la fase."}
-      La inclinada es la versión implementable en una cartera real: un 60/40 de base con un
-      20 % desviado hacia lo mejor de la fase.
-      La cartera larga-corta aísla la señal sin beta de mercado: ${
-        bt.spread && bt.spread.t != null
-          ? `t = ${fmtNum(bt.spread.t, 1)} sobre ${bt.spread.months} meses.`
-          : "sin datos."}</p>`}`;
-}
-
-function drawBtChart(bt) { drawCurve("#btChart", bt.curve || [], "Reloj, fuera de muestra", "60/40"); }
 
 function drawCurve(sel, c, labelA, labelB) {
   const svg = $(sel);
