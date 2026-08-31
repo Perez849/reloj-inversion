@@ -436,7 +436,6 @@ FRENCH_IND = {
 FRENCH_49 = {
     "Gold": ("Metales preciosos (mineras)", "Real / alternativos",
              "mineras de oro, no lingote: el oro físico ya no está en FRED"),
-    "Mines": ("Minería no férrea", "Real / alternativos", ""),
     "RlEst": ("Inmobiliario", "Real / alternativos",
               "sustituye al índice Wilshire, retirado de FRED"),
 }
@@ -447,10 +446,11 @@ FRENCH_49 = {
 FRED_TR: dict[str, tuple[str, list[str]]] = {}
 
 FRED_PX = {
-    "Petróleo WTI (spot)": ("Real / alternativos", ["WTISPLC", "MCOILWTICO"],
-                            "spot mensual desde 1946"),
-    "Cesta de producción (PPI)": ("Real / alternativos", ["PPIACO"],
-                                  "proxy de precios, no invertible directamente"),
+    # No invertibles: se conservan como referencia en la matriz, fuera de la cartera.
+    "Petróleo WTI (spot)": ("Referencia", ["WTISPLC", "MCOILWTICO"],
+                            "precio spot, no comprable directamente"),
+    "Cesta de producción (PPI)": ("Referencia", ["PPIACO"],
+                                  "índice de precios, no invertible"),
 }
 
 FRED_YIELD = {
@@ -468,12 +468,12 @@ FRED_YIELD = {
 MARKET = {
     "Oro (lingote)": ("Real / alternativos", "GC=F", "xauusd",
                       "futuro continuo de oro; el histórico largo lo cubren las mineras"),
-    "Oro (ETF físico)": ("Real / alternativos", "GLD", "gld.us", "respaldado por lingote"),
+
     "Plata": ("Real / alternativos", "SI=F", "xagusd", ""),
     "Materias primas (índice)": ("Real / alternativos", "^SPGSCI", "^spgsci", "GSCI"),
-    "Materias primas (ETF)": ("Real / alternativos", "DBC", "dbc.us", ""),
+
     "Cobre": ("Real / alternativos", "HG=F", "hg.f", ""),
-    "REITs": ("Real / alternativos", "VNQ", "vnq.us", ""),
+
     "Crédito Investment Grade (LQD)": ("Renta fija", "LQD", "lqd.us",
                                        "retorno total real, desde 2002"),
     "Crédito High Yield (HYG)": ("Renta fija", "HYG", "hyg.us",
@@ -1227,8 +1227,60 @@ def _annual(series: pd.Series) -> dict:
     return {int(k): round(float(v * 100), 2) for k, v in y.items()}
 
 
+def factor_betas(hist: pd.DataFrame, F: pd.DataFrame, half_life: int = HALF_LIFE_M):
+    """Regresión ponderada de cada activo sobre los dos factores macro.
+
+    Trocear la historia en cuatro cubos deja fases con veintitantos meses y
+    estimaciones que son ruido. Aquí cada activo se regresa sobre crecimiento e
+    inflación usando TODOS los meses disponibles: la estanflación deja de ser un
+    cubo con pocos datos y pasa a ser una región del plano hacia la que el modelo
+    extrapola con la muestra entera. Los meses recientes pesan más, igual que antes.
+
+    Las pendientes se contraen hacia cero en proporción a su error típico: si un
+    activo no muestra sensibilidad clara a un factor, se le asigna la media general.
+    """
+    idx = hist.index.intersection(F.index)
+    if len(idx) < 60:
+        return None
+    g = F.loc[idx, "growth"].values
+    i = F.loc[idx, "inflation"].values
+    ref = idx[-1]
+    months = np.array([(ref.year - d.year) * 12 + (ref.month - d.month)
+                       for d in idx], dtype=float)
+    w = 0.5 ** (months / half_life)
+    A = np.column_stack([np.ones(len(idx)), g, i])
+    out = {}
+    for col in hist.columns:
+        y = hist.loc[idx, col].values
+        ok = np.isfinite(y)
+        if ok.sum() < 48:
+            continue
+        Aw, yw, ww = A[ok], y[ok], w[ok]
+        WA = Aw * ww[:, None]
+        try:
+            XtX = Aw.T @ WA
+            beta = np.linalg.solve(XtX + 1e-6 * np.eye(3), Aw.T @ (ww * yw))
+        except np.linalg.LinAlgError:
+            continue
+        resid = yw - Aw @ beta
+        dof = max(ww.sum() - 3, 1.0)
+        s2 = float((ww * resid ** 2).sum() / dof)
+        try:
+            cov = s2 * np.linalg.inv(XtX + 1e-6 * np.eye(3))
+        except np.linalg.LinAlgError:
+            continue
+        se = np.sqrt(np.clip(np.diag(cov), 1e-12, None))
+        # Contracción de cada pendiente hacia cero según su relación señal/ruido
+        shrink = np.array([1.0,
+                           beta[1] ** 2 / (beta[1] ** 2 + se[1] ** 2),
+                           beta[2] ** 2 / (beta[2] ** 2 + se[2] ** 2)])
+        out[col] = beta * shrink
+    return out or None
+
+
 def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
-             probs: pd.DataFrame | None = None, min_train: int = 240) -> dict:
+             probs: pd.DataFrame | None = None, F: pd.DataFrame | None = None,
+             min_train: int = 240) -> dict:
     """Cartera solo larga, siempre invertida al 100 %, sin apalancar ni cortos.
     La fase decide qué activos ocupan cada bloque y cuánto pesa cada bloque dentro
     de sus bandas. Se calculan los cuatro esquemas de reparto en paralelo sobre
@@ -1251,7 +1303,30 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
         ww = frame.notna().mul(w, axis=0)
         return frame.mul(w, axis=0).sum() / ww.sum().replace(0, np.nan)
 
+    def centroid(hph, phase, upto):
+        """Punto medio del plano (crecimiento, inflación) en el que vive la fase."""
+        if F is None:
+            return None
+        m = hph[hph == phase].index.intersection(F.index)
+        if len(m) < 6:
+            return None
+        return float(F.loc[m, "growth"].mean()), float(F.loc[m, "inflation"].mean())
+
+    def factor_means(hist, hph, phase):
+        """Rentabilidad esperada de cada activo en el centro de la fase, según la
+        regresión sobre los dos factores. Usa toda la historia, no solo los meses
+        de esa fase."""
+        b = factor_betas(hist, F) if F is not None else None
+        c = centroid(hph, phase, hist.index[-1])
+        if not b or c is None:
+            return None
+        g, i = c
+        return pd.Series({k: v[0] + v[1] * g + v[2] * i for k, v in b.items()})
+
     def means(hist, hph, phase):
+        fm = factor_means(hist, hph, phase)
+        if fm is not None and fm.notna().sum() >= 5:
+            return fm.reindex(hist.columns)
         sub = hist[hph == phase]
         if sub.empty:
             return pd.Series(dtype=float)
@@ -1449,8 +1524,8 @@ def _spearman(a, b) -> float:
     return float((ra @ rb) / d) if d > 0 else float("nan")
 
 
-LAB_MIN_HALF = 15   # meses mínimos en cada mitad para que algo sea evaluable
-LAB_MIN_TOTAL = 30  # meses mínimos de la fase para entrar en el universo
+LAB_MIN_HALF = 12   # meses mínimos en cada mitad para que algo sea evaluable
+LAB_MIN_TOTAL = 24  # meses mínimos de la fase para entrar en el universo
 
 
 def laboratory(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
@@ -1531,6 +1606,13 @@ def laboratory(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
                 spans.append(f"{h1.index[0].year}-{h2.index[-1].year}")
                 keep.append(combo)
             if len(keep) < 10:
+                phase_out["sleeves"][sleeve] = {
+                    "universe": cand, "k": k, "n_combos": 0,
+                    "note": ("los activos de este bloque no acumulan suficientes meses "
+                             "en esta fase: la mayoría empieza en los años 2000 y esta "
+                             "fase es sobre todo anterior"),
+                    "assets_h1_h2": arows, "rank_ic": None, "asset_ic": None,
+                }
                 continue
             r1, r2 = np.array(r1), np.array(r2)
             ic = _spearman(r1, r2)
@@ -1639,7 +1721,7 @@ def main() -> None:
     for d, gg, ii in zip(F.index, F["growth"], F["inflation"]):
         prob_rows[d] = phase_probs(float(gg), float(ii), sg, si)
     probs_df = pd.DataFrame(prob_rows).T.shift(1)
-    rot = rotation(X, phases, cls_map, probs_df)
+    rot = rotation(X, phases, cls_map, probs_df, F)
     lab = laboratory(X, phases, cls_map)
     val = validation(df, F, phases)
     rec = recession_model(df, F.index)
