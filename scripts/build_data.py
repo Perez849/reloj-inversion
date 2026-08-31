@@ -272,14 +272,29 @@ def transform(s: pd.Series, kind: str) -> pd.Series:
 
 
 def expanding_z(s: pd.Series, min_periods: int = 120) -> pd.Series:
-    """Ventana adaptativa: 120 meses es lo deseable, pero una serie más corta no
-    debe quedarse fuera en silencio. Se exige un tercio de su historia con un
-    suelo de 48 meses."""
+    """z-score expansivo ROBUSTO: mediana y desviación absoluta mediana en lugar de
+    media y desviación típica.
+
+    El motivo es concreto. Marzo y abril de 2020 y el rebote de 2021 son valores de
+    ±10 desviaciones. Con media y desviación típica esos meses inflan la referencia
+    durante años: un 2023 con crecimiento perfectamente normal salía "por debajo de
+    tendencia" y el clasificador mantuvo la etiqueta de estanflación diecinueve
+    meses seguidos, mientras el mercado subía. La mediana no se mueve por unos pocos
+    valores extremos; la MAD tampoco. Escalada por 1,4826 equivale a la desviación
+    típica cuando los datos son normales, así que los umbrales no cambian de
+    significado.
+
+    Ventana adaptativa: 120 meses es lo deseable, pero una serie corta no debe
+    quedarse fuera en silencio; se exige un tercio de su historia con suelo de 48.
+    """
     n = int(s.notna().sum())
     mp = min(min_periods, max(48, n // 3))
-    mu = s.expanding(min_periods=mp).mean()
+    med = s.expanding(min_periods=mp).median()
+    mad = (s - med).abs().expanding(min_periods=mp).median() * 1.4826
+    # Si la MAD es degenerada (serie casi constante), se recurre a la desviación
     sd = s.expanding(min_periods=mp).std()
-    return ((s - mu) / sd).clip(-4, 4)
+    scale = mad.where(mad > 1e-8, sd)
+    return ((s - med) / scale).clip(-4, 4)
 
 
 def build_blocks(df: pd.DataFrame):
