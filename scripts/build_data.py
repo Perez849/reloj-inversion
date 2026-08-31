@@ -1078,7 +1078,11 @@ SLEEVES = {
     # renta variable al mismo nivel de riesgo.
     "Renta variable": ({"Renta variable"}, 0.30, 0.70, 4),
     "Renta fija": ({"Renta fija", "Liquidez"}, 0.20, 0.60, 3),
-    "Activos reales": ({"Real / alternativos"}, 0.00, 0.15, 2),
+    # Los activos reales son, con diferencia, lo más rentable del universo (oro, plata,
+    # cobre, materias primas: entre el 10 % y el 16 % anual). El techo del 15 % era
+    # prudencia mía, no un resultado. Al 30 % pueden aportar de verdad, y siguen
+    # pudiendo quedarse a cero cuando no les toca.
+    "Activos reales": ({"Real / alternativos"}, 0.00, 0.30, 3),
 }
 
 # Índices agregados: sirven de referencia, no de posición. Si entran en la selección
@@ -1106,6 +1110,14 @@ VOL_FLOOR_Q = 0.20
 # lo de hace una década y unas treinta veces más que lo de hace cincuenta años,
 # sin que nada llegue a desaparecer. Se aplica igual a todos los activos.
 HALF_LIFE_M = 120
+
+# Meses mínimos de una fase que debe tener un activo para que se le estime una
+# media PROPIA de esa fase. Por debajo, se usa su media general: sigue pudiendo
+# entrar en cartera, pero no se le atribuye un comportamiento cíclico deducido de
+# dos años de datos. Sin esta regla, la plata (27 meses en Estanflación) o las
+# materias primas (29) entraban con estimaciones que eran puro ruido, y rendían
+# -8 % y -27 % en la fase en la que se las compraba.
+MIN_PHASE_OBS = 36
 
 
 SCHEMES = {
@@ -1216,7 +1228,7 @@ def _annual(series: pd.Series) -> dict:
 
 
 def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
-             min_train: int = 240) -> dict:
+             probs: pd.DataFrame | None = None, min_train: int = 240) -> dict:
     """Cartera solo larga, siempre invertida al 100 %, sin apalancar ni cortos.
     La fase decide qué activos ocupan cada bloque y cuánto pesa cada bloque dentro
     de sus bandas. Se calculan los cuatro esquemas de reparto en paralelo sobre
@@ -1247,9 +1259,14 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
         w_all, w_sub = _ew(hist, ref), _ew(sub, ref)
         grand = _wmean(hist, w_all)
         mu = _wmean(sub, w_sub)
-        se = sub.std() / np.sqrt(sub.notna().sum().clip(lower=1))
+        n_ph = sub.notna().sum()
+        se = sub.std() / np.sqrt(n_ph.clip(lower=1))
         tau2 = (mu - grand).var()
-        return grand + (tau2 / (tau2 + se ** 2)).fillna(0.0) * (mu - grand)
+        shrink_w = (tau2 / (tau2 + se ** 2)).fillna(0.0)
+        # Sin muestra suficiente de la fase, la media de la fase no se usa: el
+        # activo se valora por su comportamiento general.
+        shrink_w = shrink_w.where(n_ph >= MIN_PHASE_OBS, 0.0)
+        return grand + shrink_w * (mu - grand)
 
     def ew_vol(hist):
         ref = hist.index[-1]
@@ -1269,7 +1286,24 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
         t = common[k]
         sig = ph.iloc[k - 1]
         hist, hph = X.iloc[:k], ph.iloc[:k]
-        mu, vol = means(hist, hph, sig), ew_vol(hist)
+        vol = ew_vol(hist)
+        if probs is not None and t in probs.index:
+            # Mezcla por probabilidad: cuando la clasificación es dudosa —y ahora
+            # mismo lo es, con dos fases al 38 % y al 37 %— apostar el 100 % a la
+            # ganadora tira información que ya tenemos calculada. Se ponderan las
+            # rentabilidades esperadas de las cuatro fases por su probabilidad.
+            pr = probs.loc[t]
+            mu = None
+            for phase in PHASES:
+                w_p = float(pr.get(phase, 0.0))
+                if w_p <= 0.01:
+                    continue
+                m_p = means(hist, hph, phase)
+                mu = m_p * w_p if mu is None else mu.add(m_p * w_p, fill_value=0.0)
+            if mu is None:
+                mu = means(hist, hph, sig)
+        else:
+            mu = means(hist, hph, sig)
         avail = list(X.loc[t].dropna().index)
         picks, scores = {}, {}
         for name, (classes, lo, hi, n_pick) in SLEEVES.items():
@@ -1395,6 +1429,135 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
                       for k, v in SLEEVES.items()}}
 
 
+
+# ======================================================================================
+# 7c. Laboratorio: qué combinaciones funcionaron y si siguieron funcionando
+# ======================================================================================
+
+from itertools import combinations  # noqa: E402
+
+
+def _spearman(a, b) -> float:
+    a, b = np.asarray(a, float), np.asarray(b, float)
+    ok = np.isfinite(a) & np.isfinite(b)
+    if ok.sum() < 8:
+        return float("nan")
+    ra = pd.Series(a[ok]).rank().values
+    rb = pd.Series(b[ok]).rank().values
+    ra, rb = ra - ra.mean(), rb - rb.mean()
+    d = math.sqrt(float((ra @ ra) * (rb @ rb)))
+    return float((ra @ rb) / d) if d > 0 else float("nan")
+
+
+LAB_MIN_HALF = 15   # meses mínimos en cada mitad para que algo sea evaluable
+LAB_MIN_TOTAL = 30  # meses mínimos de la fase para entrar en el universo
+
+
+def laboratory(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
+               k_pick: int = 4, max_universe: int = 18) -> dict:
+    """Para cada fase, evalúa todas las combinaciones posibles de k activos dentro
+    de cada bloque y comprueba si la que mandaba en la primera mitad seguía
+    mandando en la segunda.
+
+    Ningún activo queda fuera por tener menos historia. La partición en mitades no
+    usa una fecha común —que dejaría a un ETF de 2007 sin primera mitad— sino la
+    MEDIANA DE SU PROPIA MUESTRA: cada activo y cada combinación se parte por la
+    mitad de los meses en que existe. A cambio, las mitades ya no cubren las mismas
+    fechas entre unos y otros, así que se publican los meses usados y el tramo
+    temporal de cada uno para que la comparación se lea con esa cautela.
+    """
+    print("8. Laboratorio de combinaciones…")
+    out = {}
+    sleeve_defs = {
+        "Renta variable": {"Renta variable"},
+        "Renta fija": {"Renta fija"},
+        "Activos reales": {"Real / alternativos"},
+    }
+
+    def halves(series):
+        """Parte una serie por la mediana de SUS PROPIOS meses disponibles."""
+        s2 = series.dropna()
+        if s2.size < 2 * LAB_MIN_HALF:
+            return None, None
+        cut = s2.index[s2.size // 2]
+        return s2[s2.index <= cut], s2[s2.index > cut]
+
+    for phase in PHASES:
+        months = phases[phases == phase].index.intersection(X.index)
+        if len(months) < 2 * LAB_MIN_HALF:
+            out[phase] = {"skipped": f"solo {len(months)} meses de esta fase"}
+            continue
+        Xi = X.loc[months]
+        phase_out = {"n": len(months), "sleeves": {}}
+
+        for sleeve, classes in sleeve_defs.items():
+            cand = [c for c in Xi.columns
+                    if cls_map.get(c) in classes and c not in NOT_SELECTABLE
+                    and Xi[c].notna().sum() >= LAB_MIN_TOTAL]
+            if len(cand) > max_universe:
+                cov = Xi[cand].notna().sum().sort_values(ascending=False)
+                cand = list(cov.head(max_universe).index)
+            k = min(k_pick, max(2, len(cand) - 1))
+            if len(cand) < k + 1:
+                continue
+
+            # Activo a activo, cada uno partido por su propia mediana
+            arows, a1, a2 = [], [], []
+            for c in cand:
+                h1, h2 = halves(Xi[c])
+                if h1 is None:
+                    arows.append({"name": c, "h1": None, "h2": None,
+                                  "n": int(Xi[c].notna().sum()),
+                                  "span": None, "thin": True})
+                    continue
+                v1, v2 = float(h1.mean() * 12), float(h2.mean() * 12)
+                a1.append(v1)
+                a2.append(v2)
+                arows.append({"name": c, "h1": round(v1, 2), "h2": round(v2, 2),
+                              "n": int(h1.size + h2.size),
+                              "span": f"{h1.index[0].year}-{h2.index[-1].year}",
+                              "thin": h1.size < LAB_MIN_HALF * 1.5})
+
+            combos = list(combinations(sorted(cand), k))
+            r1, r2, nn, spans, keep = [], [], [], [], []
+            for combo in combos:
+                port = Xi[list(combo)].dropna().mean(axis=1)
+                h1, h2 = halves(port)
+                if h1 is None:
+                    continue
+                r1.append(float(h1.mean() * 12))
+                r2.append(float(h2.mean() * 12))
+                nn.append(int(h1.size + h2.size))
+                spans.append(f"{h1.index[0].year}-{h2.index[-1].year}")
+                keep.append(combo)
+            if len(keep) < 10:
+                continue
+            r1, r2 = np.array(r1), np.array(r2)
+            ic = _spearman(r1, r2)
+            order = np.argsort(-r1)
+            top = order[:8]
+            phase_out["sleeves"][sleeve] = {
+                "universe": cand, "k": k, "n_combos": len(keep),
+                "n_discarded": len(combos) - len(keep),
+                "rank_ic": round(ic, 3) if ic == ic else None,
+                "all_h2_mean": round(float(np.nanmean(r2)), 2),
+                "all_h2_sd": round(float(np.nanstd(r2)), 2),
+                "best_h1_pct_in_h2": round(float((r2 < r2[order[0]]).mean()), 3),
+                "top": [{"assets": list(keep[i]), "h1": round(float(r1[i]), 2),
+                         "h2": round(float(r2[i]), 2), "n": nn[i], "span": spans[i],
+                         "pct_h2": round(float((r2 < r2[i]).mean()), 3)} for i in top],
+                "assets_h1_h2": arows,
+                "asset_ic": (round(_spearman(a1, a2), 3) if len(a1) > 7 else None),
+            }
+        out[phase] = phase_out
+        eq = out[phase]["sleeves"].get("Renta variable", {})
+        print(f"  · {phase:<20} {len(months):>4} meses · "
+              f"persistencia {eq.get('rank_ic')} · "
+              f"universos " + "/".join(str(len(v.get('universe', [])))
+                                       for v in out[phase]["sleeves"].values()))
+    return out
+
+
 # ======================================================================================
 # 8. Validación
 # ======================================================================================
@@ -1470,7 +1633,14 @@ def main() -> None:
     bt = backtest(X, phases)
     prot = defensive(X, F["growth"])
     cls_map = {k: v.get("class", "Otros") for k, v in ameta.items()}
-    rot = rotation(X, phases, cls_map)
+    # Probabilidad de cada fase en cada mes, con la misma fórmula que el panel usa
+    # para el mes actual. Se desplaza un mes: en t solo se conoce la de t-1.
+    prob_rows = {}
+    for d, gg, ii in zip(F.index, F["growth"], F["inflation"]):
+        prob_rows[d] = phase_probs(float(gg), float(ii), sg, si)
+    probs_df = pd.DataFrame(prob_rows).T.shift(1)
+    rot = rotation(X, phases, cls_map, probs_df)
+    lab = laboratory(X, phases, cls_map)
     val = validation(df, F, phases)
     rec = recession_model(df, F.index)
 
@@ -1551,7 +1721,8 @@ def main() -> None:
         },
         "pca": pca, "indicators": indicators, "history": history, "nber": nber,
         "assets": assets, "asset_stats": astats, "consensus": consensus[:14],
-        "backtest": bt, "defensive": prot, "rotation": rot, "validation": val,
+        "backtest": bt, "defensive": prot, "rotation": rot, "lab": lab,
+        "validation": val,
         "phases": PHASES, "phase_long": PHASE_LONG,
     }
 
