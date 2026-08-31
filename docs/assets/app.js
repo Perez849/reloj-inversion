@@ -94,6 +94,7 @@ function render() {
   renderMatrix();
   renderRobustness();
   renderRotation();
+  renderLab();
   renderDefensive();
   renderConsensus();
   renderValidation();
@@ -768,14 +769,20 @@ function renderRotation() {
     <p class="foot" style="margin-bottom:26px">Barras verdes: años en que la cartera batió al 60/40.
       Ganó <b>${S.wins_years} de ${S.n_years}</b> años.</p>
 
-    <h3 style="font-family:var(--display);font-size:17px;margin-bottom:10px">Dónde gana y dónde no</h3>
+    <h3 style="font-family:var(--display);font-size:17px;margin-bottom:4px">Dónde gana y dónde no</h3>
+    <p class="cap" style="margin-bottom:10px">Las fases con menos de 60 meses salen atenuadas:
+      con año y medio o dos años de datos, la diferencia es ruido y no debe leerse como
+      que el sistema funcione mejor o peor ahí.</p>
     <div class="scores-grid" style="margin-bottom:26px">
       ${D.phases.filter(x => S.by_phase[x]).map(x => {
         const e = S.by_phase[x];
-        return `<div class="score-card" style="background:${PHASE_COLOR[x]};opacity:${x === D.current.phase ? 1 : .62}">
+        const thin = e.n < 60;
+        return `<div class="score-card" style="background:${PHASE_COLOR[x]};opacity:${
+          thin ? .35 : (x === D.current.phase ? 1 : .62)}">
           <div style="font-size:.85em">${x}</div>
           <div style="font-size:1.5em">${signed(e.edge, 1)} pp</div>
-          <div style="font-size:.78em;opacity:.85">${e.n} meses · ${(e.edge ?? 0) > 0 ? "por delante" : "por detrás"}</div>
+          <div style="font-size:.78em;opacity:.9">${e.n} meses · ${
+            thin ? "<b>muestra insuficiente</b>" : ((e.edge ?? 0) > 0 ? "por delante" : "por detrás")}</div>
         </div>`;
       }).join("")}
     </div>
@@ -849,6 +856,120 @@ function drawAnnual(sel, ann, bench) {
         transform: `rotate(-60 ${x(i)} ${H - 10})` }, svg);
       t.textContent = String(yr).slice(2);
     }
+  });
+}
+
+
+/* ------------------------------ laboratorio ----------------------------- */
+let labPhase = null, labSleeve = "Renta variable";
+
+function icVerdict(ic) {
+  if (ic == null || Number.isNaN(ic)) return ["—", "var(--muted)", "sin datos"];
+  if (ic >= 0.4) return [fmtNum(ic, 2), "var(--recuperacion)",
+    "lo que funcionó antes siguió funcionando: seleccionar por historia tiene sentido aquí"];
+  if (ic >= 0.15) return [fmtNum(ic, 2), "var(--sobrecalentamiento)",
+    "persistencia débil: algo hay, pero poco donde agarrarse"];
+  if (ic > -0.15) return [fmtNum(ic, 2), "var(--muted)",
+    "sin persistencia: elegir por lo que funcionó antes equivale a elegir al azar"];
+  return [fmtNum(ic, 2), "var(--estanflacion)",
+    "persistencia negativa: lo que mejor funcionó antes tendió a funcionar peor después"];
+}
+
+function renderLab() {
+  const L = D.lab || {};
+  const phases = D.phases.filter(p => L[p] && !L[p].skipped);
+  if (!phases.length) { $("#labBlock").innerHTML = ""; return; }
+  labPhase = phases.includes(labPhase) ? labPhase : (phases.includes(D.current.phase) ? D.current.phase : phases[0]);
+  const P = L[labPhase];
+  const sleeves = Object.keys(P.sleeves || {});
+  labSleeve = sleeves.includes(labSleeve) ? labSleeve : sleeves[0];
+  const S = P.sleeves[labSleeve] || {};
+  const [icTxt, icCol, icMsg] = icVerdict(S.rank_ic);
+  const [aTxt, aCol, aMsg] = icVerdict(S.asset_ic);
+
+  $("#labBlock").innerHTML = `
+    <div class="block-head">
+      <span class="eyebrow">Laboratorio</span>
+      <h2>Qué combinaciones funcionaron, y si siguieron funcionando</h2>
+      <p class="cap">Para cada fase se evalúan <b>todas</b> las combinaciones posibles de
+        ${S.k ?? 4} activos dentro del bloque, partiendo los meses de esa fase en dos mitades.
+        Las combinaciones se ordenan con la primera mitad y se miran en la segunda, que no se
+        usó para elegirlas. La mejor de ${S.n_combos ?? "cientos"} siempre parece brillante;
+        lo que importa es si aguanta fuera de su propia muestra.</p>
+      <p class="cap" style="margin-top:8px">Ningún activo queda fuera por tener menos historia:
+        cada uno se parte por la mediana de <b>su propia</b> muestra, así que un ETF de 2009 se
+        compara consigo mismo. A cambio, las mitades no cubren las mismas fechas entre unos y
+        otros — junto a cada fila van los meses usados y el tramo, y las muestras cortas salen
+        atenuadas.</p>
+    </div>
+
+    <div class="seg" id="labPhaseSeg" style="margin-bottom:10px">
+      ${phases.map(p => `<button type="button" data-p="${p}" aria-pressed="${p === labPhase}"
+        style="${p === labPhase ? `border-color:${PHASE_COLOR[p]};color:${PHASE_COLOR[p]}` : ""}">${p}</button>`).join("")}
+    </div>
+    <div class="seg" id="labSleeveSeg" style="margin-bottom:16px">
+      ${sleeves.map(x => `<button type="button" data-s="${x}" aria-pressed="${x === labSleeve}">${x}</button>`).join("")}
+    </div>
+
+    <div class="band" style="margin-bottom:18px">
+      <div class="item"><dt>Persistencia de combinaciones</dt>
+        <dd style="color:${icCol}">${icTxt}</dd><small>${icMsg}</small></div>
+      <div class="item"><dt>Persistencia por activo suelto</dt>
+        <dd style="color:${aCol}">${aTxt}</dd><small>${aMsg}</small></div>
+      <div class="item"><dt>Muestra</dt>
+        <dd>${P.n} meses</dd><small>${P.n_h1} antes y ${P.n_h2} después de ${P.split?.slice(0, 7)}</small></div>
+      <div class="item"><dt>Media de todas las combinaciones</dt>
+        <dd>${fmtNum(S.all_h2_mean, 1)}%</dd><small>en la segunda mitad · dispersión ±${fmtNum(S.all_h2_sd, 1)} pp</small></div>
+    </div>
+
+    <div class="matrix-holder" style="margin-bottom:12px">
+      <table class="matrix">
+        <thead><tr>
+          <th>Mejores combinaciones según la primera mitad</th>
+          <th style="text-align:right">1ª mitad</th>
+          <th style="text-align:right">2ª mitad</th>
+          <th style="text-align:right">Percentil en la 2ª</th>
+        </tr></thead>
+        <tbody>${(S.top || []).map(t => `
+          <tr><td class="asset">${t.assets.join(" · ")}
+            <small>${t.n} meses · ${t.span}</small></td>
+            <td style="text-align:right;font-family:var(--mono)">${fmtNum(t.h1, 1)}%</td>
+            <td style="text-align:right;font-family:var(--mono);color:${
+              t.h2 > (S.all_h2_mean ?? 0) ? "var(--recuperacion)" : "var(--estanflacion)"}">${fmtNum(t.h2, 1)}%</td>
+            <td style="text-align:right;font-family:var(--mono);color:${
+              t.pct_h2 > 0.5 ? "var(--recuperacion)" : "var(--estanflacion)"}">${fmtPct(t.pct_h2, 0)}</td></tr>`).join("")}
+        </tbody>
+      </table>
+    </div>
+    <p class="foot" style="margin-bottom:24px">Percentil 50 % significa que esa combinación
+      quedó justo en la media de las ${S.n_combos} posibles en la segunda mitad, o sea que
+      elegirla no aportó nada. La mejor de la primera mitad acabó en el percentil
+      <b style="color:${(S.best_h1_pct_in_h2 ?? 0) > 0.5 ? "var(--recuperacion)" : "var(--estanflacion)"}">${fmtPct(S.best_h1_pct_in_h2, 0)}</b>.</p>
+
+    <h3 style="font-family:var(--display);font-size:16px;margin-bottom:10px">Activo por activo</h3>
+    <div class="matrix-holder">
+      <table class="matrix">
+        <thead><tr><th>Activo</th>
+          <th style="text-align:right">1ª mitad</th>
+          <th style="text-align:right">2ª mitad</th>
+          <th style="text-align:right">Diferencia</th></tr></thead>
+        <tbody>${(S.assets_h1_h2 || []).slice()
+          .sort((a, b) => (b.h1 ?? -999) - (a.h1 ?? -999)).map(a => `
+          <tr style="${a.thin ? "opacity:.6" : ""}"><td class="asset">${a.name}
+            <small>${a.n} meses${a.span ? ` · ${a.span}` : ""}${a.thin ? " · muestra corta" : ""}</small></td>
+            <td style="text-align:right;font-family:var(--mono)">${fmtNum(a.h1, 1)}%</td>
+            <td style="text-align:right;font-family:var(--mono)">${fmtNum(a.h2, 1)}%</td>
+            <td style="text-align:right;font-family:var(--mono);color:${
+              a.h2 - a.h1 >= 0 ? "var(--recuperacion)" : "var(--estanflacion)"}">${signed(a.h2 - a.h1, 1)}</td></tr>`).join("")}
+        </tbody>
+      </table>
+    </div>`;
+
+  $("#labPhaseSeg").querySelectorAll("button").forEach(b => {
+    b.onclick = () => { labPhase = b.dataset.p; renderLab(); };
+  });
+  $("#labSleeveSeg").querySelectorAll("button").forEach(b => {
+    b.onclick = () => { labSleeve = b.dataset.s; renderLab(); };
   });
 }
 
