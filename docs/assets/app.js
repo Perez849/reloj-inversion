@@ -884,6 +884,7 @@ function renderLab() {
   const sleeves = Object.keys(P.sleeves || {});
   labSleeve = sleeves.includes(labSleeve) ? labSleeve : sleeves[0];
   const S = P.sleeves[labSleeve] || {};
+  const noCombos = !S.n_combos;
   const [icTxt, icCol, icMsg] = icVerdict(S.rank_ic);
   const [aTxt, aCol, aMsg] = icVerdict(S.asset_ic);
 
@@ -922,6 +923,10 @@ function renderLab() {
         <dd>${fmtNum(S.all_h2_mean, 1)}%</dd><small>en la segunda mitad · dispersión ±${fmtNum(S.all_h2_sd, 1)} pp</small></div>
     </div>
 
+    ${noCombos ? `<div class="errbox" style="border-color:var(--sobrecalentamiento);background:rgba(242,163,60,.07);margin-bottom:18px">
+      <h2>Sin combinaciones evaluables en este bloque</h2>
+      <p>${S.note || "No hay muestra suficiente."} Los activos sueltos sí aparecen abajo con los meses de que dispone cada uno.</p>
+    </div>` : `
     <div class="matrix-holder" style="margin-bottom:12px">
       <table class="matrix">
         <thead><tr>
@@ -944,7 +949,7 @@ function renderLab() {
     <p class="foot" style="margin-bottom:24px">Percentil 50 % significa que esa combinación
       quedó justo en la media de las ${S.n_combos} posibles en la segunda mitad, o sea que
       elegirla no aportó nada. La mejor de la primera mitad acabó en el percentil
-      <b style="color:${(S.best_h1_pct_in_h2 ?? 0) > 0.5 ? "var(--recuperacion)" : "var(--estanflacion)"}">${fmtPct(S.best_h1_pct_in_h2, 0)}</b>.</p>
+      <b style="color:${(S.best_h1_pct_in_h2 ?? 0) > 0.5 ? "var(--recuperacion)" : "var(--estanflacion)"}">${fmtPct(S.best_h1_pct_in_h2, 0)}</b>.</p>`}
 
     <h3 style="font-family:var(--display);font-size:16px;margin-bottom:10px">Activo por activo</h3>
     <div class="matrix-holder">
