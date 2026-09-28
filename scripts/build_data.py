@@ -271,28 +271,42 @@ def transform(s: pd.Series, kind: str) -> pd.Series:
     raise ValueError(kind)
 
 
-def expanding_z(s: pd.Series, min_periods: int = 120) -> pd.Series:
-    """z-score expansivo ROBUSTO: mediana y desviación absoluta mediana en lugar de
-    media y desviación típica.
+ROLL_WINDOW_M = 120  # diez años: cubre un ciclo económico completo sin arrastrar
+                     # un cambio de régimen de cuarenta años (ver nota más abajo)
 
-    El motivo es concreto. Marzo y abril de 2020 y el rebote de 2021 son valores de
-    ±10 desviaciones. Con media y desviación típica esos meses inflan la referencia
-    durante años: un 2023 con crecimiento perfectamente normal salía "por debajo de
-    tendencia" y el clasificador mantuvo la etiqueta de estanflación diecinueve
-    meses seguidos, mientras el mercado subía. La mediana no se mueve por unos pocos
-    valores extremos; la MAD tampoco. Escalada por 1,4826 equivale a la desviación
-    típica cuando los datos son normales, así que los umbrales no cambian de
-    significado.
 
-    Ventana adaptativa: 120 meses es lo deseable, pero una serie corta no debe
-    quedarse fuera en silencio; se exige un tercio de su historia con suelo de 48.
+def rolling_z(s: pd.Series, window: int = ROLL_WINDOW_M) -> pd.Series:
+    """z-score en VENTANA MÓVIL de diez años, ROBUSTO (mediana y desviación
+    absoluta mediana en lugar de media y desviación típica).
+
+    Dos requisitos, y los dos importan.
+
+    Posición cíclica, no nivel. Con ventana EXPANSIVA (toda la historia desde el
+    arranque de la serie), el pico inflacionista de los setenta queda dentro de la
+    referencia para siempre: de 1990 a 2020 la inflación aparece permanentemente
+    por debajo de "lo normal" y el reloj se pasa dos décadas usando solo dos de
+    sus cuatro cuadrantes — comprobado sobre los datos reales de este panel, los
+    años noventa y la década de 2010 no registraban ni un solo mes de
+    Sobrecalentamiento ni de Estanflación. Una ventana de diez años responde a la
+    pregunta correcta, "¿alto o bajo respecto a lo que ha sido normal
+    últimamente?", en vez de comparar contra medio siglo de historia.
+
+    Robustez frente a valores extremos. Marzo y abril de 2020 y el rebote de 2021
+    son valores de ±10 desviaciones; con media y desviación típica esos meses
+    dominan una ventana de diez años durante todo el tiempo que permanecen dentro
+    de ella. La mediana no se mueve por unos pocos valores extremos; la MAD
+    tampoco. Escalada por 1,4826 equivale a la desviación típica cuando los datos
+    son normales, así que los umbrales no cambian de significado.
+
+    Ventana adaptativa al arranque: mientras no hay diez años de historia se usa
+    toda la disponible (equivalente a expansiva), con suelo de 48 meses.
     """
     n = int(s.notna().sum())
-    mp = min(min_periods, max(48, n // 3))
-    med = s.expanding(min_periods=mp).median()
-    mad = (s - med).abs().expanding(min_periods=mp).median() * 1.4826
+    mp = min(window, max(48, n // 3))
+    med = s.rolling(window, min_periods=mp).median()
+    mad = (s - med).abs().rolling(window, min_periods=mp).median() * 1.4826
     # Si la MAD es degenerada (serie casi constante), se recurre a la desviación
-    sd = s.expanding(min_periods=mp).std()
+    sd = s.rolling(window, min_periods=mp).std()
     scale = mad.where(mad > 1e-8, sd)
     return ((s - med) / scale).clip(-4, 4)
 
@@ -307,7 +321,7 @@ def build_blocks(df: pd.DataFrame):
         x = transform(df[spec.fred_id], spec.transform)
         if spec.invert:
             x = -x
-        z = expanding_z(x).shift(spec.lag_m)
+        z = rolling_z(x).shift(spec.lag_m)
         if z.dropna().empty:
             warn(f"{spec.fred_id}: sin z-score utilizable "
                  f"({int(x.notna().sum())} observaciones tras transformar)")
