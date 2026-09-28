@@ -59,7 +59,6 @@ p{margin:0}
 b,strong{font-weight:600}
 a{color:var(--accent-ink)}
 h1,h2,h3,h4{font-family:var(--serif);font-weight:600;letter-spacing:-.01em;margin:0;color:var(--ink)}
-.tnum{font-variant-numeric:tabular-nums}
 code,.mono{font-family:var(--mono)}
 
 /* ---------- utilidades tipográficas ---------- */
@@ -259,16 +258,8 @@ table.matrix{border-collapse:collapse;width:100%;min-width:780px}
 .cons-card .pair span{color:var(--ink-faint);display:block;font-family:var(--sans);font-size:10.5px}
 
 /* ---------- backtest / charts ---------- */
-.bt-grid{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:20px}
-.bt-grid>*{min-width:0}
-.bt-chart,.bt-stats{border:1px solid var(--line);border-radius:var(--r-md);background:var(--paper-raised);padding:18px;box-shadow:var(--shadow-card)}
-#btChart,#rotChart,#annChart{width:100%;height:auto;display:block}
-.bt-stats table{width:100%;border-collapse:collapse}
-.bt-stats th,.bt-stats td{padding:7px 4px;font-size:12.5px;border-bottom:1px solid var(--line-soft);text-align:right}
-.bt-stats th:first-child,.bt-stats td:first-child{text-align:left}
-.bt-stats thead th{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-faint)}
-.bt-stats td{font-family:var(--mono)}
-.bt-stats td:first-child{font-family:var(--sans);color:var(--ink-soft)}
+.bt-chart{border:1px solid var(--line);border-radius:var(--r-md);background:var(--paper-raised);padding:18px;box-shadow:var(--shadow-card)}
+#rotChart,#annChart{width:100%;height:auto;display:block}
 
 /* ---------- score cards (playbook) ---------- */
 .scores-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
@@ -314,7 +305,6 @@ table.matrix{border-collapse:collapse;width:100%;min-width:780px}
 /* ---------- responsive ---------- */
 @media (max-width:980px){
   .hero-grid{grid-template-columns:minmax(0,1fr)}
-  .bt-grid{grid-template-columns:minmax(0,1fr)}
 }
 @media (max-width:640px){
   .wrap{padding:0 18px}

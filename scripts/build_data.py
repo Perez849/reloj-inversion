@@ -647,6 +647,26 @@ def fetch_assets(df: pd.DataFrame):
             ASSET_LOG.append({"name": name, "source": source, "status": "descartado",
                               "detail": f"{s.size} meses, mínimo {MIN_MONTHS}"})
             return
+        # Guardián de plausibilidad. Nace de un caso real: una fuente devolvió un
+        # índice acumulado disfrazado de retornos mensuales (media del 25% mensual,
+        # 99,9% de los meses en positivo, porque un índice acumulado casi nunca baja).
+        # El primer filtro exige las DOS cosas a la vez, no una sola: la liquidez y
+        # los bonos cortos son legítimamente positivos el 95%+ de los meses (es
+        # interés devengado, casi nunca negativo) con una media baja, y un filtro
+        # que solo mirara "casi siempre positivo" los habría descartado a ellos, no
+        # al índice disfrazado. Lo que delata al índice acumulado es ir siempre en
+        # positivo Y con una media que ningún retorno mensual real alcanza.
+        share_pos = float((s > 0).mean())
+        mean_m = float(s.mean())
+        max_abs = float(s.abs().max())
+        looks_like_index = share_pos > 0.90 and mean_m > 3.0
+        implausible = looks_like_index or share_pos < 0.15 or mean_m > 8.0 or max_abs > 150.0
+        if implausible:
+            ASSET_LOG.append({"name": name, "source": source, "status": "descartado",
+                              "detail": f"no parece un retorno mensual plausible "
+                                        f"({share_pos:.0%} de meses positivos, media "
+                                        f"{mean_m:.1f}%, máximo {max_abs:.0f}%)"})
+            return
         if name in rets:
             ASSET_LOG.append({"name": name, "source": source, "status": "duplicado",
                               "detail": "ya cargado desde otra fuente"})
@@ -1041,16 +1061,19 @@ def backtest(X: pd.DataFrame, phases: pd.Series, top_k: int = 5, min_train: int 
 # comparación que importa aquí es contra la propia renta variable (bench_100eq
 # en rotation()), no contra un 60/40 que esta cartera ni tiene ni pretende imitar.
 SLEEVES = {
-    # Cinco de los once sectores posibles: pocos para que la rotación signifique
-    # algo (elegir 10 de 11 es casi comprar el índice), suficientes para no vivir
-    # y morir por un solo sector — cuatro sectores concentrados sobre una cartera
-    # 100% invertida son un nivel de riesgo idiosincrático que nadie pidió.
-    "Renta variable": ({"Renta variable"}, 0.80, 1.00, 5),
-    # Oro físico y mineras de oro, las dos únicas exposiciones de la clase "Oro"
-    # (ver FRENCH_49 y MARKET): un seguro, no una apuesta. Banda 0-20%: puede
-    # desaparecer del todo si no aporta en la fase, nunca superar a la renta
-    # variable en peso.
-    "Oro": ({"Oro"}, 0.00, 0.20, 2),
+    # El número de sectores NO es fijo: cada mes se queda con los que puntúan
+    # positivo de verdad en esa fase (ver _sleeve_pick), entre un suelo y un
+    # techo. Suelo de 3: la banda del 80% mínimo en renta variable tiene que
+    # ir a algún sitio, así que nunca se concentra en menos. Techo de 7: con
+    # 8 o más de los 11 sectores ya casi es comprar el índice entero, y no
+    # queda rotación que evaluar. Entre medias, tres, cuatro, cinco sectores
+    # — lo que la fase sostenga, ni uno más.
+    "Renta variable": ({"Renta variable"}, 0.80, 1.00, 3, 7),
+    # Oro físico y mineras de oro, las dos únicas exposiciones de la clase
+    # "Oro" (ver FRENCH_49 y MARKET). Sin suelo: puede quedarse en 0, 1 o 2
+    # nombres. Es un seguro táctico, no una posición obligatoria, y nunca
+    # supera a la renta variable en peso (banda 0-20%).
+    "Oro": ({"Oro"}, 0.00, 0.20, 0, 2),
 }
 
 # Índices agregados: sirven de referencia, no de posición. Si entran en la selección
@@ -1127,8 +1150,16 @@ def _weights(names, vol, scheme: str) -> pd.Series:
     return (0.5 * eq + 0.5 * (iv / iv.sum()))
 
 
-def _sleeve_pick(mu, vol, avail, classes, cls_map, n_pick):
-    """Selecciona los mejores del bloque y devuelve su orden y su puntuación.
+def _sleeve_pick(mu, vol, avail, classes, cls_map, n_min, n_max):
+    """Selecciona los del bloque que de verdad convienen en esta fase y
+    devuelve su orden y su puntuación. El número elegido no es fijo: se
+    queda con cuantos puntúen positivo (rentabilidad esperada por unidad de
+    volatilidad > 0), acotado entre n_min y n_max. Con menos de n_min
+    positivos se completa hasta n_min con los siguientes mejores aunque
+    puntúen flojo o negativo — n_min es el suelo de diversificación del
+    bloque, no una opinión sobre esos activos concretos; con más de n_max
+    positivos se recorta a los n_max mejores, para que la cartera siga
+    siendo una apuesta por unos pocos nombres y no el índice disfrazado.
     La selección es idéntica para los cuatro esquemas: lo único que cambia entre
     ellos es cómo se reparte el dinero entre los ya elegidos."""
     cand = [c for c in avail
@@ -1142,7 +1173,12 @@ def _sleeve_pick(mu, vol, avail, classes, cls_map, n_pick):
     ir = (mu.reindex(cand) / vc).replace([np.inf, -np.inf], np.nan).dropna()
     if ir.empty:
         return [], 0.0
-    top = list(ir.sort_values(ascending=False).head(n_pick).index)
+    ir = ir.sort_values(ascending=False)
+    n_positive = int((ir > 0).sum())
+    n_take = min(max(n_positive, n_min), n_max, len(ir))
+    top = list(ir.head(n_take).index)
+    if not top:
+        return [], 0.0
     v = vc.reindex(top)
     iv = 1.0 / v
     w = (iv / iv.sum()) if iv.notna().any() else pd.Series(1.0 / len(top), index=top)
@@ -1248,12 +1284,19 @@ def factor_betas(hist: pd.DataFrame, F: pd.DataFrame, half_life: int = HALF_LIFE
 
 def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
              probs: pd.DataFrame | None = None, F: pd.DataFrame | None = None,
-             min_train: int = 240) -> dict:
+             min_train: int = 120) -> dict:
     """Cartera solo larga, siempre invertida al 100 %, sin apalancar ni cortos.
     La fase decide qué activos ocupan cada bloque y cuánto pesa cada bloque dentro
     de sus bandas. Se calculan los cuatro esquemas de reparto en paralelo sobre
     exactamente la misma selección, para que la comparación aísle el efecto del
-    reparto y nada más."""
+    reparto y nada más.
+
+    min_train=120, no 240: con historia desde 1970 y 240 meses de entrenamiento el
+    backtest no arranca hasta 1990 y se pierde Volcker (1979-1982), el episodio de
+    estanflación y desinflación forzada más severo del histórico — justo el tipo de
+    tramo que más interesa ver atravesar a una cartera que rota por fase. El coste
+    es que las estimaciones de los primeros años, con menos meses de referencia,
+    son más ruidosas."""
     print("7. Rotación por fase (4 esquemas de reparto)…")
     common = X.dropna(how="all").index.intersection(phases.dropna().index)
     X = X.loc[common]
@@ -1349,9 +1392,9 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
             mu = means(hist, hph, sig)
         avail = list(X.loc[t].dropna().index)
         picks, scores = {}, {}
-        for name, (classes, lo, hi, n_pick) in SLEEVES.items():
+        for name, (classes, lo, hi, n_min, n_max) in SLEEVES.items():
             picks[name], scores[name] = _sleeve_pick(
-                mu, vol, avail, classes, cls_map, n_pick)
+                mu, vol, avail, classes, cls_map, n_min, n_max)
         if not any(picks.values()):
             continue
 
@@ -1408,9 +1451,9 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
             # mes dejaba fuera todos los sectores y el bloque salía vacío.
             avail = list(X.columns[X.tail(4).notna().any()])
             picks, scores = {}, {}
-            for sl, (classes, lo, hi, n_pick) in SLEEVES.items():
+            for sl, (classes, lo, hi, n_min, n_max) in SLEEVES.items():
                 picks[sl], scores[sl] = _sleeve_pick(
-                    mu, vol_all, avail, classes, cls_map, n_pick)
+                    mu, vol_all, avail, classes, cls_map, n_min, n_max)
             inner_pb = {sl: _weights(top, vol_all, sch).to_dict()
                         for sl, top in picks.items() if top}
             budgets = _sleeve_weights(scores)
@@ -1485,10 +1528,18 @@ LAB_MIN_TOTAL = 24  # meses mínimos de la fase para entrar en el universo
 
 
 def laboratory(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
-               k_pick: int = 4, max_universe: int = 18) -> dict:
+               k_pick: int = 5, max_universe: int = 18) -> dict:
     """Para cada fase, evalúa todas las combinaciones posibles de k activos dentro
     de cada bloque y comprueba si la que mandaba en la primera mitad seguía
     mandando en la segunda.
+
+    k es fijo a propósito, aunque la cartera real (SLEEVES) elige un número
+    variable de sectores según cuántos puntúen positivo en la fase: evaluar
+    "todas las combinaciones posibles" solo es tratable con un tamaño fijo, y
+    5 es el valor típico dentro del rango 3-7 que usa la cartera real. Esta
+    sección responde una pregunta distinta y más simple —¿lo que ganaba antes
+    seguía ganando después, a tamaño de combinación constante?—, no reproduce
+    el algoritmo de selección de la cartera.
 
     Ningún activo queda fuera por tener menos historia. La partición en mitades no
     usa una fecha común —que dejaría a un ETF de 2007 sin primera mitad— sino la

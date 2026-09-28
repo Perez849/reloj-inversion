@@ -14,18 +14,19 @@ GitHub Pages sirve la página.
 
 ---
 
-## Qué lo diferencia de la versión anterior
+## Cómo se construye la fase y la cartera, en corto
 
-| | Antes | Ahora |
-|---|---|---|
-| Umbrales | escritos a mano (`si IPC > 4 % …`) | z-scores robustos (mediana/MAD) en ventana móvil de 10 años |
-| Pesos | puntos asignados por criterio | primer componente principal de cada bloque |
-| Confianza | `(máx − 2.º) / máx` sobre puntos inventados | probabilidad de cuadrante bajo la dispersión real del factor |
-| Fase | 10 series, reglas fijas | 28 series en tres bloques, con retraso de publicación aplicado |
-| Recomendaciones | tabla de opiniones | exceso condicionado con t de Newey-West y control de FDR |
-| Histórico | 5 años | desde los años sesenta (sectores desde 1926) |
-| Validación | ninguna | contraste con el NBER, matriz de transición y backtest walk-forward |
-| Sobreajuste | invisible | se publica la diferencia entre dentro y fuera de muestra |
+- **La fase**: 28 series de FRED en tres bloques (crecimiento, inflación,
+  adelantado), cada una estandarizada con z-score robusto (mediana/MAD) en
+  ventana móvil de 10 años. El peso de cada serie dentro de su bloque sale del
+  primer componente principal, no de un criterio a mano. El cuadrante es el
+  signo de los dos ejes resultantes; la confianza, la probabilidad real de ese
+  cuadrante frente al segundo más probable.
+- **La cartera**: 100 % renta variable de sectores (entre 3 y 7 de los 11
+  posibles, según cuántos puntúen positivo en la fase — nunca un número fijo),
+  con oro y mineras de oro como único seguro no bursátil (0-20 %). Cada
+  recomendación lleva el contraste estadístico (t de Newey-West, control de
+  FDR) y el backtest walk-forward completo, comparado contra el S&P 500.
 
 ---
 
