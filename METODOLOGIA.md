@@ -213,7 +213,16 @@ Estrella y Mishkin (1998); el NFCI, de la propia construcción del Chicago Fed.
 
 Para cada activo y cada fase:
 
-1. Se toma el exceso mensual sobre el tipo libre de riesgo.
+1. Se toma el exceso mensual sobre el tipo libre de riesgo (letras del Tesoro a 3
+   meses). **Esto no es un detalle solo de esta sección**: todo el panel trabaja
+   sobre esta serie de excesos — la matriz, el backtest de 7.1, la cartera de
+   rotación de 7.2. Cualquier "CAGR" o "rentabilidad anual" que aparece en la web,
+   incluida la comparación de la cartera contra el S&P 500, es exceso sobre
+   letras del Tesoro, no el retorno total del índice. Es la convención estándar
+   para que el Sharpe (retorno entre riesgo) signifique lo que dice significar, y
+   la comparación entre dos carteras es igual de válida en excesos que en bruto —
+   pero el número absoluto del S&P 500 en bruto es más alto que el que se publica
+   aquí, aproximadamente en el tipo de interés sin riesgo del periodo.
 2. Se calcula la media dentro de la fase y se compara con **la media incondicional
    del propio activo**. La pregunta no es «¿sube la tecnología en recuperación?»
    —casi todo sube— sino «¿sube más de lo que sube normalmente?».
@@ -392,6 +401,10 @@ reloj gira al revés; solo muy por encima se puede hablar de un ciclo con direcc
 
 ## 9. Lo que no hace
 
+- **Los "CAGR" del panel no son el retorno total del índice.** Son exceso sobre
+  letras del Tesoro a 3 meses (sección 6.1) — la convención estándar para que el
+  Sharpe tenga sentido, pero significa que el número del S&P 500 que se muestra
+  es más bajo que su rentabilidad histórica real en bruto.
 - **No valora.** El reloj dice qué fase es, no si el activo ya está caro. Un sector
   puede ser el correcto y estar en el percentil 95 de PER.
 - **No usa datos en tiempo real de verdad.** Respeta el retraso de publicación pero

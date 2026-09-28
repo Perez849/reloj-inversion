@@ -777,18 +777,25 @@ function renderRotation() {
         agregados quedan fuera de la selección, así que esto es una apuesta por sectores, no el
         S&amp;P 500 disfrazado — y la pregunta que responde esta sección es si esa apuesta
         <b>compensó</b> frente a comprar el índice sin más.</p>
+      <p class="cap" style="margin-top:8px">Todos los números de esta sección son <b>exceso sobre
+        letras del Tesoro a 3 meses</b>, no el retorno total del índice — es la convención estándar
+        para que el Sharpe signifique lo que dice significar. El S&amp;P 500 en términos brutos ha
+        rentado más que la cifra de abajo, aproximadamente el tipo de interés sin riesgo del
+        periodo; la comparación entre cartera y mercado es igual de válida porque a los dos se les
+        resta lo mismo.</p>
     </div>
 
     <div class="outlook" style="margin-bottom:24px;border-color:${beatsMkt ? POS : PHASE_COLOR["Sobrecalentamiento"]}">
-      <div class="item"><dt>Cartera de rotación</dt><dd style="color:${beatsMkt ? POS : "var(--ink)"}">${fmtNum(p.cagr, 1)}% anual</dd>
+      <div class="item"><dt>Cartera de rotación</dt><dd style="color:${beatsMkt ? POS : "var(--ink)"}">${fmtNum(p.cagr, 1)}% anual*</dd>
         <small>Sharpe ${fmtNum(p.sharpe, 2)} · caída máxima ${fmtNum(p.maxdd, 1)}%</small></div>
-      <div class="item"><dt>S&amp;P 500 / mercado</dt><dd>${fmtNum(mkt.cagr, 1)}% anual</dd>
+      <div class="item"><dt>S&amp;P 500 / mercado</dt><dd>${fmtNum(mkt.cagr, 1)}% anual*</dd>
         <small>Sharpe ${fmtNum(mkt.sharpe, 2)} · caída máxima ${fmtNum(mkt.maxdd, 1)}%</small></div>
       <div class="item"><dt>Diferencia</dt><dd style="color:${beatsMkt ? POS : NEG}">${signed((p.cagr ?? 0) - (mkt.cagr ?? 0), 1)} pp/año</dd>
-        <small>${beatsMkt ? "la rotación por fase bate al índice en CAGR, no solo en riesgo" : "el índice bate a la rotación en CAGR bruto; mira el Sharpe y la caída máxima antes de descartarla"}</small></div>
+        <small>${beatsMkt ? "la rotación por fase bate al índice en rentabilidad, no solo en riesgo" : "el índice bate a la rotación en rentabilidad; mira el Sharpe y la caída máxima antes de descartarla"}</small></div>
       <div class="item"><dt>Sharpe</dt><dd style="color:${(p.sharpe ?? 0) > (mkt.sharpe ?? 0) ? POS : "var(--ink)"}">${fmtNum(p.sharpe, 2)} vs ${fmtNum(mkt.sharpe, 2)}</dd>
         <small>rentabilidad por unidad de riesgo asumido</small></div>
     </div>
+    <p class="foot" style="margin-top:-14px;margin-bottom:20px">* Exceso anualizado sobre letras del Tesoro a 3 meses (ver nota arriba), no CAGR del índice en bruto.</p>
 
     <h3 style="font-family:var(--serif);font-size:17px;margin-bottom:4px">¿Y si el reparto interno cambia?</h3>
     <p class="cap" style="margin-bottom:14px">La selección de sectores y de oro es idéntica en los cuatro
@@ -801,7 +808,7 @@ function renderRotation() {
     <div class="matrix-holder" style="margin-bottom:14px">
       <table class="matrix">
         <thead><tr>
-          <th>Esquema de reparto</th><th style="text-align:right">Anual</th>
+          <th>Esquema de reparto</th><th style="text-align:right">Anual*</th>
           <th style="text-align:right">Vol</th><th style="text-align:right">Sharpe</th>
           <th style="text-align:right">Caída máx.</th><th style="text-align:right">Peor año</th>
           <th style="text-align:right">Años ganados</th>
@@ -828,12 +835,12 @@ function renderRotation() {
     </div>
     <p class="foot" style="margin-bottom:14px">${beatsMkt && (p.sharpe ?? 0) > (mkt.sharpe ?? 0)
       ? `Sin matices: en este histórico la rotación por sectores bate al S&amp;P 500 tanto en
-         rentabilidad bruta como en Sharpe y en caída máxima, con menos volatilidad. No es "gana
+         rentabilidad como en Sharpe y en caída máxima, con menos volatilidad. No es "gana
          porque asume más riesgo": gana llevando <b>menos</b>.`
       : beatsMkt
-        ? `Gana en CAGR bruto, pero compara siempre el Sharpe antes de concluir que la selección de
+        ? `Gana en rentabilidad, pero compara siempre el Sharpe antes de concluir que la selección de
            sectores aporta: parte de la ventaja puede venir simplemente de llevar más riesgo.`
-        : `El S&amp;P 500 gana en CAGR bruto en este histórico. Compara el Sharpe y la caída máxima
+        : `El S&amp;P 500 gana en rentabilidad en este histórico. Compara el Sharpe y la caída máxima
            antes de descartar la rotación: llevar menos riesgo con rentabilidad parecida también
            es ganar, aunque no lo parezca mirando solo el número grande.`}</p>
     ${S.vol_check ? `<p class="foot" style="margin-bottom:10px">

@@ -16,12 +16,13 @@ GitHub Pages sirve la página.
 
 ## Cómo se construye la fase y la cartera, en corto
 
-- **La fase**: 28 series de FRED en tres bloques (crecimiento, inflación,
-  adelantado), cada una estandarizada con z-score robusto (mediana/MAD) en
-  ventana móvil de 10 años. El peso de cada serie dentro de su bloque sale del
-  primer componente principal, no de un criterio a mano. El cuadrante es el
-  signo de los dos ejes resultantes; la confianza, la probabilidad real de ese
-  cuadrante frente al segundo más probable.
+- **La fase**: 28 series de FRED, cada una estandarizada con z-score robusto
+  (mediana/MAD) en ventana móvil de 10 años. 26 se reparten en tres bloques
+  (crecimiento, inflación, adelantado) y se resumen por componente principal —
+  el peso de cada serie sale de ahí, no de un criterio a mano; las 2 restantes
+  (la curva de tipos) se muestran aparte, fuera de cualquier PCA. El cuadrante
+  es el signo de los dos ejes resultantes; la confianza, la probabilidad real
+  de ese cuadrante frente al segundo más probable.
 - **La cartera**: 100 % renta variable de sectores (entre 3 y 7 de los 11
   posibles, según cuántos puntúen positivo en la fase — nunca un número fijo),
   con oro y mineras de oro como único seguro no bursátil (0-20 %). Cada
