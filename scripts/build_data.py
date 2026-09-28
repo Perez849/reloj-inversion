@@ -452,7 +452,15 @@ def recession_model(df: pd.DataFrame, idx) -> dict:
 
 FRENCH_BASE = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/"
 FRENCH_IND = {
-    "NoDur": "Consumo básico", "Durbl": "Consumo duradero", "Manuf": "Industria",
+    # "Durbl" (bienes duraderos: coches, electrodomésticos, muebles) se excluyó
+    # aposta. Ken French la separa de "Shops" como industria propia, con su
+    # propia serie de retornos, pero no existe un ETF sectorial real que la
+    # trackee aparte del consumo discrecional — IYC y XLY cubren coches,
+    # electrodomésticos y muebles igual que el resto del consumo discrecional.
+    # Tenerla como sector aparte invitaba a recomendar "Consumo duradero" Y
+    # "Consumo discrecional" a la vez, dos nombres para la misma orden de
+    # compra (el mismo IYC dos veces en la misma cartera).
+    "NoDur": "Consumo básico", "Manuf": "Industria",
     "Enrgy": "Energía", "Chems": "Materiales / Químicas", "BusEq": "Tecnología",
     "Telcm": "Comunicaciones", "Utils": "Utilities", "Shops": "Consumo discrecional",
     "Hlth": "Salud", "Money": "Financiero", "Other": "Otros sectores",
@@ -1536,7 +1544,12 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
     print("  ✓ " + " · ".join(
         f"{SCHEMES[k]}: Sharpe {out_schemes[k]['portfolio'].get('sharpe')}"
         for k in out_schemes))
-    return {"schemes": out_schemes, "default": "invvol",
+    # El esquema por defecto es el de mayor CAGR realizado en el propio
+    # walk-forward, no uno fijado a mano: la web deja elegir los cuatro,
+    # pero lo que se muestra sin tocar nada tiene que ser el que de verdad
+    # ha rentado más, no una preferencia de diseño.
+    best_scheme = max(out_schemes, key=lambda k: out_schemes[k]["portfolio"].get("cagr", -1e9))
+    return {"schemes": out_schemes, "default": best_scheme,
             "bench_100eq": perf(bench) if bench is not None else {},
             "bench_6040": perf(bench_6040) if bench_6040 is not None else {},
             "bench_annual": bench_annual,
