@@ -1343,33 +1343,48 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
         return pd.Series({k: v[0] + v[1] * g + v[2] * i for k, v in b.items()})
 
     def means(hist, hph, phase):
-        """Rentabilidad esperada de cada activo en esta fase — la misma media
-        condicionada con contracción empírica de Bayes que alimenta la matriz
-        de evidencia (sección 6): si un activo no muestra diferencia real entre
-        fases ahí, tampoco la muestra aquí. Solo se recurre a la regresión sobre
-        factores (factor_means) cuando la muestra directa de la fase es
-        demasiado corta para casi todo el universo."""
-        sub = hist[hph == phase]
-        direct = None
-        if not sub.empty:
-            ref = hist.index[-1]
-            w_all, w_sub = _ew(hist, ref), _ew(sub, ref)
-            grand = _wmean(hist, w_all)
-            mu = _wmean(sub, w_sub)
-            n_ph = sub.notna().sum()
-            se = sub.std() / np.sqrt(n_ph.clip(lower=1))
-            tau2 = (mu - grand).var()
-            shrink_w = (tau2 / (tau2 + se ** 2)).fillna(0.0)
-            # Sin muestra suficiente de la fase, la media de la fase no se usa: el
-            # activo se valora por su comportamiento general.
-            shrink_w = shrink_w.where(n_ph >= MIN_PHASE_OBS, 0.0)
-            direct = grand + shrink_w * (mu - grand)
-            if int((n_ph >= MIN_PHASE_OBS).sum()) >= 5:
-                return direct
-        fm = factor_means(hist, hph, phase)
-        if fm is not None and fm.notna().sum() >= 5:
-            return fm.reindex(hist.columns)
-        return direct if direct is not None else pd.Series(dtype=float)
+        """Rentabilidad esperada de cada activo en esta fase: contracción
+        empírica de Bayes de CADA ACTIVO ENTRE SUS PROPIAS CUATRO FASES —la
+        misma fórmula, activo por activo, que shrink() usa para la matriz de
+        evidencia de la sección 6—, no una regresión aparte y no una
+        contracción cruzada entre activos.
+
+        Una versión anterior contraía "entre activos dentro de la misma fase"
+        (tau2 = varianza de mu-grand A TRAVÉS DE LOS ACTIVOS), que no es la
+        fórmula de James-Stein para esto: la dispersión que hay que comparar
+        con el ruido de estimación es la de CADA activo entre sus fases, no la
+        de todos los activos entre sí en una fase. El resultado práctico era
+        que apenas contraía nada y el oro salía recomendado en fases donde la
+        matriz de evidencia —con la fórmula correcta— dice que no aporta.
+        """
+        ref = hist.index[-1]
+        grand = _wmean(hist, _ew(hist, ref))
+        mu_p, se_p, n_p = {}, {}, {}
+        for p in PHASES:
+            sub = hist[hph == p]
+            if sub.empty:
+                continue
+            mu_p[p] = _wmean(sub, _ew(sub, ref))
+            n = sub.notna().sum()
+            n_p[p] = n
+            se_p[p] = sub.std() / np.sqrt(n.clip(lower=1))
+        if phase not in mu_p or len(mu_p) < 2:
+            fm = factor_means(hist, hph, phase)
+            if fm is not None and fm.notna().sum() >= 5:
+                return fm.reindex(hist.columns)
+            return mu_p.get(phase, grand)
+        M = pd.DataFrame(mu_p).T          # filas: fases con datos · columnas: activos
+        SE2 = pd.DataFrame(se_p).T ** 2
+        N = pd.DataFrame(n_p).T
+        # tau2 por activo: dispersión de sus medias ENTRE FASES menos el ruido
+        # medio de estimación. Igual que shrink(), aquí vectorizado por columna.
+        tau2 = (M.var(axis=0, ddof=1) - SE2.mean(axis=0)).clip(lower=0.0)
+        d = tau2 + SE2.loc[phase]
+        w = (tau2 / d).where(d > 0, 0.0).fillna(0.0)
+        # Sin muestra suficiente de ESTA fase para un activo, su media de fase
+        # no se usa: se valora por su comportamiento general.
+        w = w.where(N.loc[phase] >= MIN_PHASE_OBS, 0.0)
+        return grand + w * (M.loc[phase] - grand)
 
     def ew_vol(hist):
         ref = hist.index[-1]
