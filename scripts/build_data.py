@@ -1183,7 +1183,16 @@ def _sleeve_pick(mu, vol, avail, classes, cls_map, n_min, n_max):
     ir = (mu.reindex(cand) / vc).replace([np.inf, -np.inf], np.nan).dropna()
     if ir.empty:
         return [], 0.0
-    ir = ir.sort_values(ascending=False)
+    # Desempate por volatilidad, no por orden de columna: con contracción total
+    # (tau2 = 0) varios activos empatan EXACTOS en 0 — sin ninguna ventaja de
+    # fase distinguible del ruido, no hay motivo para preferir uno sobre otro
+    # salvo cuál añade menos riesgo. Sin este desempate explícito, el orden de
+    # pandas.sort_values entre empates depende del orden de columnas de X, que
+    # no significa nada: así se coló Tecnología en Estanflación (empatada a 0
+    # con Financiero y Utilities, pero la peor con diferencia de las tres según
+    # la propia matriz de evidencia) solo por el azar de esa ordenación.
+    ir = pd.DataFrame({"ir": ir, "vol": vc.reindex(ir.index)}) \
+        .sort_values(["ir", "vol"], ascending=[False, True])["ir"]
     n_positive = int((ir > 0).sum())
     n_take = min(max(n_positive, n_min), n_max, len(ir))
     top = list(ir.head(n_take).index)
@@ -1496,33 +1505,6 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
         playbook, mix = {}, {}
         for phase in PHASES:
             mu = means(X, ph, phase)
-            if sch == "equal":
-                import sys
-                eq_names = [c for c in mu.index if cls_map.get(c) == "Renta variable"]
-                srt = mu.reindex(eq_names).sort_values(ascending=False)
-                print(f"DEBUG means() {phase}:", file=sys.stderr)
-                for nm, v in srt.items():
-                    print(f"  {nm:28s} mu={v:.4f} vol={vol_all.get(nm):.4f}", file=sys.stderr)
-                if phase == "Recuperación":
-                    ref2 = X.index[-1]
-                    grand2 = _wmean(X, _ew(X, ref2))
-                    mu_p2, se_p2, n_p2 = {}, {}, {}
-                    for p2 in PHASES:
-                        sub2 = X[ph == p2]
-                        mu_p2[p2] = _wmean(sub2, _ew(sub2, ref2))
-                        n2 = sub2.notna().sum()
-                        n_p2[p2] = n2
-                        se_p2[p2] = sub2.std() / np.sqrt(n2.clip(lower=1))
-                    M2 = pd.DataFrame(mu_p2).T
-                    SE22 = pd.DataFrame(se_p2).T ** 2
-                    N2 = pd.DataFrame(n_p2).T
-                    tau22 = (M2.var(axis=0, ddof=1) - SE22.mean(axis=0)).clip(lower=0.0)
-                    for nm in ["Tecnología", "Financiero", "Utilities", "Comunicaciones", "Industria"]:
-                        if nm in M2.columns:
-                            print(f"DEBUG2 {nm}: grand={grand2[nm]:.4f} M={M2[nm].to_dict()} "
-                                  f"SE2={SE22[nm].to_dict()} var={M2[nm].var(ddof=1):.4f} "
-                                  f"se2mean={SE22[nm].mean():.4f} tau2={tau22[nm]:.4f} "
-                                  f"N={N2[nm].to_dict()}", file=sys.stderr)
             # Ken French publica con un mes de retraso: exigir dato en el último
             # mes dejaba fuera todos los sectores y el bloque salía vacío.
             avail = list(X.columns[X.tail(4).notna().any()])
