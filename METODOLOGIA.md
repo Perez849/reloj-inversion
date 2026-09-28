@@ -316,7 +316,7 @@ explícita, no un hallazgo del backtest. En el mes *t*:
 3. **El número de activos no es fijo.** Dentro de cada bloque se quedan los que
    puntúan **positivo** en esa rentabilidad esperada dividida entre volatilidad
    —los que de verdad convienen en esta fase, no un top-N arbitrario—, acotado
-   entre un suelo y un techo: **Renta variable**, entre 2 y 7 de los 11
+   entre un suelo y un techo: **Renta variable**, entre 2 y 7 de los 10
    sectores posibles; **Oro**, entre 0 y 2 (oro físico y mineras de oro). Con
    menos positivos que el suelo, se completa hasta el suelo con los siguientes
    mejores aunque puntúen flojo — el suelo evita la cartera vacía o
@@ -325,9 +325,10 @@ explícita, no un hallazgo del backtest. En el mes *t*:
    sectores; otro, 6 — y el oro puede no aparecer en absoluto si la fase no lo
    sostiene, que es exactamente lo que ocurre fuera de Reflación.
 4. Dentro de cada bloque, el reparto entre los elegidos sigue uno de cuatro
-   esquemas —equiponderado, inverso de volatilidad (el que usa por defecto el
-   panel), por puesto, o mitad y mitad— calculados en paralelo; el panel deja
-   elegir cuál mirar.
+   esquemas —equiponderado, inverso de volatilidad, por puesto, o mitad y
+   mitad— calculados en paralelo. El panel abre con el que de verdad ha dado
+   más CAGR en el propio backtest walk-forward, no uno fijado de antemano —el
+   que gane puede cambiar de un dato a otro—, y deja elegir cuál mirar.
 5. El reparto **entre** los dos bloques parte de bandas fijas —80-100 % renta
    variable, 0-20 % oro— y se mueve dentro de ellas en proporción a la
    rentabilidad esperada de cada bloque en esa fase. Una puntuación negativa se
@@ -340,10 +341,11 @@ explícita, no un hallazgo del backtest. En el mes *t*:
 | Regla | Motivo |
 |---|---|
 | Bandas 80-100 % renta variable, 0-20 % oro | Nunca sin renta variable; el oro es un seguro táctico, no puede superar a la renta variable en peso |
-| Entre 2 y 7 sectores, nunca fijo | Un único sector sobre una cartera 100 % invertida es un riesgo idiosincrático que nadie pidió; 8 o más de 11 es casi comprar el índice entero y no queda rotación que evaluar. Dentro de ese rango, manda la fase: cuantos puntúen positivo de verdad, ni uno más para rellenar cupo |
+| Entre 2 y 7 sectores, nunca fijo | Un único sector sobre una cartera 100 % invertida es un riesgo idiosincrático que nadie pidió; 8 o más de 10 es casi comprar el índice entero y no queda rotación que evaluar. Dentro de ese rango, manda la fase: cuantos puntúen positivo de verdad, ni uno más para rellenar cupo |
 | Índices agregados excluidos de la selección | S&P total, EAFE, emergentes y small caps copan la selección si se les deja, y desaparece la rotación sectorial. Siguen en la matriz como referencia |
 | Series no invertibles excluidas | PPI y WTI spot no se pueden mantener en cartera |
-| Los 11 sectores son mutuamente excluyentes por construcción | Las 12 industrias de Ken French (11 aquí, sin "Otros sectores") no se solapan entre sí: no hay un "Bancos" aparte de "Financiero" ni un "Semiconductores" aparte de "Tecnología" que pudieran duplicar la misma apuesta. No hace falta ninguna regla de deduplicación dentro del bloque de renta variable |
+| "Consumo duradero" (Durbl) excluido del todo | Ken French lo separa de "Consumo discrecional" (Shops) como industria propia, con su propia serie de retornos, pero no existe un ETF sectorial real que trackee bienes duraderos aparte del consumo discrecional — el mapeo real caía en el mismo IYC/XLY que "Consumo discrecional". Con los dos como sectores independientes, la cartera podía recomendar ambos a la vez en la misma fase: dos nombres, dos líneas en "qué comprar ahora", **la misma orden de compra**. Se descarta la industria entera de la fuente en vez de parchear la selección, porque el problema no es la selección — es que ese sector no tiene una forma real de comprarse aparte |
+| Los 10 sectores restantes son mutuamente excluyentes por construcción | No hay un "Bancos" aparte de "Financiero" ni un "Semiconductores" aparte de "Tecnología" que pudieran duplicar la misma apuesta, y cada uno tiene un ETF sectorial real y distinto (ver el mapeo en `app.js`). No hace falta ninguna regla de deduplicación dentro del bloque de renta variable |
 | Oro físico y mineras de oro pueden convivir | No son la misma apuesta: el lingote es exposición pura al precio del oro, las mineras añaden apalancamiento operativo y riesgo de renta variable encima. Correlacionados, pero no intercambiables — de ahí que el bloque de oro pueda sostener los dos a la vez, hasta su techo de 2 |
 | Mínimo 60 meses de historia | Un ETF con dos años de datos no gana la selección por ruido |
 | Tolerancia de 4 meses al retraso de publicación | Ken French publica con dos meses de desfase; exigir dato del último mes exacto dejaba fuera todos los sectores |

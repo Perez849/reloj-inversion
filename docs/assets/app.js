@@ -64,7 +64,6 @@ const ETF_MAP = {
   "Utilities": [["IDU","iShares US Utilities"], ["XLU","Utilities Select Sector SPDR"]],
   "Consumo discrecional": [["IYC","iShares US Consumer Discretionary"], ["XLY","Consumer Discretionary SPDR"]],
   "Consumo básico": [["IYK","iShares US Consumer Goods"], ["XLP","Consumer Staples Select Sector SPDR"]],
-  "Consumo duradero": [["IYC","iShares US Consumer Discretionary (aprox.)"]],
   "Inmobiliario": [["IYR","iShares US Real Estate"], ["XLRE","Real Estate Select Sector SPDR"]],
   "Metales preciosos (mineras)": [["RING","iShares MSCI Global Gold Miners"], ["GDX","VanEck Gold Miners"]],
   "Oro (lingote)": [["IAU","iShares Gold Trust"]],
@@ -253,13 +252,26 @@ function renderHero() {
 }
 
 function mostLikelyNext() {
+  // row[a][b] es la probabilidad, mes a mes, de que el mes que viene sea b
+  // estando ahora en a — INCLUYE quedarse en la misma fase, que casi
+  // siempre domina (las fases duran años, no meses). Mostrar esa fracción
+  // cruda como "la transición más probable" confunde: un 11% suena bajo
+  // para ser "lo más probable" y además se parece, sin serlo, al 32% de
+  // probabilidad de fase actual del bloque de arriba (dos cosas distintas:
+  // esa es cuán segura está la clasificación de ESTE mes, no hacia dónde
+  // va el que viene). Lo que se muestra aquí es la pregunta que de verdad
+  // importa: SI la fase cambia, ¿adónde suele ir? — la distribución entre
+  // las otras tres fases, normalizada a que sumen 100% entre ellas.
   const row = D.validation.transition?.[D.current.phase] || {};
+  const stay = row[D.current.phase] || 0;
+  const moves = Object.entries(row).filter(([p]) => p !== D.current.phase);
+  const moveTotal = moves.reduce((s, [, v]) => s + v, 0);
   let best = { phase: "—", p: 0 };
-  for (const [p, v] of Object.entries(row)) {
-    if (p === D.current.phase) continue;
-    if (v > best.p) best = { phase: p, p: v };
+  for (const [p, v] of moves) {
+    const cond = moveTotal > 0 ? v / moveTotal : 0;
+    if (cond > best.p) best = { phase: p, p: cond };
   }
-  return best;
+  return { ...best, stay };
 }
 
 function renderOutlook() {
@@ -272,9 +284,12 @@ function renderOutlook() {
       <dd style="color:${lead >= 0 ? POS : NEG}">${signed(lead, 2)} σ</dd>
       <small>Curva, condiciones financieras, permisos, horas y diferenciales. ${
         dir == null ? "" : dir >= 0 ? "Mejorando frente a hace 6 meses." : "Deteriorándose frente a hace 6 meses."}</small></div>
-    <div class="item"><dt>Transición más probable</dt>
+    <div class="item"><dt>Si la fase cambia, va hacia</dt>
       <dd style="color:${PHASE_COLOR[next.phase]}">${next.phase}</dd>
-      <small>${fmtPct(next.p, 0)} de los meses que siguieron a esta fase en el histórico terminaron aquí.</small></div>
+      <small>Lo más probable, con diferencia, es que ${c.phase.toLowerCase()} simplemente siga
+        (${fmtPct(next.stay, 0)} de los meses). Cuando sí ha cambiado en el histórico, ${fmtPct(next.p, 0)}
+        de esas veces fue a parar aquí — no confundir con el ${fmtPct(c.probs?.[next.phase], 0)} de
+        arriba, que es cuánto se parece <i>este mes</i> a ${next.phase}, no hacia dónde va el que viene.</small></div>
     <div class="item"><dt>Persistencia media</dt>
       <dd>${fmtNum(D.validation.duration_months?.[c.phase], 1)} meses</dd>
       <small>Duración media histórica de un tramo en ${c.phase}.</small></div>
@@ -321,7 +336,8 @@ function renderBuy() {
     bursátil, hasta un 20% y solo cuando la fase lo justifica. Reparto <b>${scheme.label.toLowerCase()}</b>
     dentro de cada bloque; el peso entre bloques se mueve según lo bien que puntúa cada uno en
     <b>${phase}</b>, dentro de bandas fijadas de antemano (80–100% renta variable, 0–20% oro).
-    Fuente: rotación walk-forward desde 1970, sección «El backtest» más abajo.
+    Fuente: rotación walk-forward desde ${(scheme.portfolio?.from || "").slice(0, 4) || "—"},
+    sección «El backtest» más abajo.
     ${lowConf ? ` Con solo <b>${fmtPct(c.confidence)}</b> de margen sobre ${c.alt_phase}, conviene mirar
       también el bloque de «solapamiento» — lo que ha pagado en las dos fases candidatas a la vez.` : ""}`;
 }
@@ -770,7 +786,7 @@ function renderRotation() {
   $("#rotationBlock").innerHTML = `
     <div class="section-head">
       <div class="eyebrow">El backtest</div>
-      <h2>¿Bate al S&amp;P 500? Fase a fase, desde 1970</h2>
+      <h2>¿Bate al S&amp;P 500? Fase a fase, desde ${(p.from || "").slice(0, 4) || "—"}</h2>
       <p class="cap">Cartera 100% renta variable de sectores (más oro y mineras de oro como único
         seguro no bursátil, hasta un 20%), solo de compras y sin apalancar. La fase decide qué
         sectores ocupan la cartera y cuánto peso lleva el oro dentro de su banda. Los índices
