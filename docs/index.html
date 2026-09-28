@@ -3,132 +3,207 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Reloj de inversión · fase del ciclo y asignación</title>
-<meta name="description" content="Clasificación del ciclo económico a partir de factores macro estimados por componentes principales, con retornos condicionales contrastados estadísticamente.">
+<title>Reloj de inversión · fase del ciclo y qué comprar</title>
+<meta name="description" content="Clasificación del ciclo económico de EE.UU. por componentes principales sobre datos de la Fed, con los sectores de renta variable (y el oro como único seguro) que han pagado más en cada fase, contrastados estadísticamente y con ETFs reales — comparado con el S&P 500.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
 
 <header class="top">
   <div class="wrap top-inner">
-    <div class="brand">
-      <span class="brand-mark" aria-hidden="true"></span>
-      <div>
-        <h1>Reloj de inversión</h1>
-        <p class="brand-sub">Crecimiento e inflación medidos, no opinados</p>
-      </div>
-    </div>
-    <dl class="vitals" id="vitals"></dl>
+    <a class="brand" href="#top">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+        <circle cx="16" cy="16" r="14.5" fill="none" stroke="#1B1810" stroke-width="1.3"/>
+        <path d="M16 16 L16 6.5" stroke="#A9752C" stroke-width="1.6" stroke-linecap="round"/>
+        <path d="M16 16 L23 20" stroke="#1B1810" stroke-width="1.6" stroke-linecap="round"/>
+        <circle cx="16" cy="16" r="1.6" fill="#1B1810"/>
+      </svg>
+      <span>
+        <span class="brand-word">Reloj de inversión</span><br>
+        <span class="brand-tag">CICLO · SECTORES · EVIDENCIA</span>
+      </span>
+    </a>
+    <nav class="top-nav">
+      <a href="#buy">Qué comprar</a>
+      <a href="#why">Por qué</a>
+      <a href="#evidence">Evidencia</a>
+      <a href="#backtest">Backtest</a>
+      <a href="#method">Metodología</a>
+    </nav>
+    <span class="top-updated" id="topUpdated"></span>
   </div>
 </header>
 
-<main class="wrap" id="app">
+<main id="app">
   <div class="loading" id="loading">
     <div class="loading-bars"><i></i><i></i><i></i><i></i></div>
-    <p>Cargando el panel…</p>
+    <p>Leyendo el ciclo…</p>
   </div>
 </main>
 
 <template id="tpl-main">
-<section class="hero">
-  <figure class="plane-card">
-    <figcaption>
-      <span class="eyebrow">Plano de fase</span>
-      <h2>Dónde está la economía y hacia dónde se mueve</h2>
-      <p class="cap">Cada punto es un mes. El rastro recorre los últimos <b id="trailLen">36</b>; la elipse marca el margen de error de la medición actual.</p>
-    </figcaption>
-    <div class="plane-holder">
-      <svg id="plane" viewBox="0 0 720 620" role="img" aria-label="Plano crecimiento-inflación"></svg>
-      <div class="tooltip" id="planeTip" hidden></div>
+
+<section class="hero" id="top">
+  <div class="wrap hero-grid">
+    <div>
+      <div class="eyebrow hero-eyebrow">Fase vigente del ciclo · EE.UU.</div>
+      <h1 class="phase-name" id="phaseName"></h1>
+      <p class="phase-window" id="phaseWindow"></p>
+      <p class="phase-why" id="phaseWhy"></p>
+
+      <div class="conf-block" id="confBlock"></div>
+      <p class="conf-note" id="confNote"></p>
+
+      <dl class="hero-stats" id="heroStats"></dl>
     </div>
-    <div class="plane-controls">
-      <label class="ctl"><input type="range" id="trailRange" min="6" max="120" step="6" value="36"><span>Meses de rastro</span></label>
-      <button class="ghost" id="playBtn" type="button">Recorrer el histórico</button>
+
+    <figure class="plane-card">
+      <div class="plane-top">
+        <h3>Crecimiento × inflación</h3>
+        <span class="small-cap mono" id="trailLenLbl"></span>
+      </div>
+      <p class="cap" style="margin-bottom:12px">Cada punto, un mes. El halo marca el margen de error de la medición actual.</p>
+      <div class="plane-holder">
+        <svg id="plane" viewBox="0 0 560 500" role="img" aria-label="Plano crecimiento-inflación"></svg>
+        <div class="tooltip" id="planeTip" hidden></div>
+      </div>
+      <div class="plane-controls">
+        <label class="ctl"><input type="range" id="trailRange" min="6" max="120" step="6" value="36"><span>Meses de rastro</span></label>
+        <button class="ghost" id="playBtn" type="button">Recorrer histórico</button>
+      </div>
+    </figure>
+  </div>
+</section>
+
+<div class="wrap"><dl class="outlook" id="outlookBand"></dl></div>
+
+<div class="rule-wrap"><hr class="rule"></div>
+
+<section class="section" id="buy">
+  <div class="wrap">
+    <div class="buy">
+      <div class="buy-inner">
+        <div class="eyebrow">La respuesta</div>
+        <h2>Qué comprar ahora</h2>
+        <p class="lede">100% renta variable de sectores, sin renta fija: el oro y las mineras de oro son
+          el único seguro no bursátil, y nunca superan el 20%. Selección construida hacia atrás desde
+          1970: en cada fase, qué sectores han pagado más de lo que pagan de media, con reparto por
+          inverso de volatilidad. Entre paréntesis, el ETF real
+          más parecido para ejecutarlo hoy.</p>
+        <div class="buy-cols" id="buyCols"></div>
+        <p class="buy-foot" id="buyFoot"></p>
+      </div>
     </div>
-  </figure>
-
-  <aside class="verdict" id="verdict"></aside>
-</section>
-
-<section class="band" id="outlookBand"></section>
-
-<section class="block">
-  <div class="block-head">
-    <span class="eyebrow">Los factores por dentro</span>
-    <h2>Qué está empujando cada eje</h2>
-    <p class="cap">Cada serie entra estandarizada con su propia historia. El peso no lo elijo yo: sale del primer componente principal de cada bloque.</p>
-  </div>
-  <div class="ind-grid" id="indicators"></div>
-</section>
-
-<section class="block">
-  <div class="block-head">
-    <span class="eyebrow">Histórico</span>
-    <h2>Fases desde <span id="histFrom"></span></h2>
-    <p class="cap">Franja superior: fase asignada cada mes. Las bandas grises son recesiones oficiales del NBER, que el modelo no ve.</p>
-  </div>
-  <div class="timeline-holder">
-    <svg id="timeline" viewBox="0 0 1200 300" role="img" aria-label="Histórico de fases"></svg>
-    <div class="tooltip" id="tlTip" hidden></div>
   </div>
 </section>
 
-<section class="block">
-  <div class="block-head">
-    <span class="eyebrow">Asignación</span>
-    <h2>Qué ha pagado cada activo en cada fase</h2>
-    <p class="cap">Exceso anualizado sobre el comportamiento medio del propio activo. La nota resume el contraste estadístico: <b>+++</b> exige p&lt;0,01 y superar el control de falsos descubrimientos.</p>
+<section class="section tight" id="why">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">Por dentro</div>
+      <h2>Qué está empujando cada eje</h2>
+      <p class="cap">Cada serie entra estandarizada contra su propia historia reciente (ventana móvil
+        de diez años). El peso no lo elige nadie: sale del primer componente principal de cada bloque.</p>
+    </div>
+    <div class="ind-grid" id="indicators"></div>
   </div>
-  <div class="matrix-tools">
-    <div class="seg" id="classFilter"></div>
-    <label class="ctl inline"><input type="checkbox" id="onlySig"><span>Solo casillas significativas</span></label>
-  </div>
-  <div class="matrix-holder">
-    <table class="matrix" id="matrix"></table>
-  </div>
-  <p class="foot" id="matrixFoot"></p>
 </section>
 
-<section class="block" id="robustBlock"></section>
-
-<section class="block" id="rotationBlock"></section>
-
-<section class="block" id="labBlock"></section>
-
-<section class="block" id="defensiveBlock"></section>
-
-<section class="block" id="consensusBlock"></section>
-
-<section class="block">
-  <div class="block-head">
-    <span class="eyebrow">Control de calidad</span>
-    <h2>Cómo se comporta el clasificador</h2>
+<section class="section tight">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">Histórico</div>
+      <h2>Fases desde <span id="histFrom"></span></h2>
+      <p class="cap">Franja superior: fase asignada cada mes. Las bandas grises son recesiones
+        oficiales del NBER, que el modelo nunca ve.</p>
+    </div>
+    <div class="timeline-holder">
+      <svg id="timeline" viewBox="0 0 1200 300" role="img" aria-label="Histórico de fases"></svg>
+      <div class="tooltip" id="tlTip" hidden></div>
+    </div>
   </div>
-  <div class="val-grid" id="validation"></div>
 </section>
 
-<section class="block" id="diagBlock"></section>
-
-<section class="block method">
-  <div class="block-head">
-    <span class="eyebrow">Metodología</span>
-    <h2>Las reglas, una por una</h2>
+<section class="section" id="evidence">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">La evidencia</div>
+      <h2>Qué ha pagado cada activo en cada fase</h2>
+      <p class="cap">Exceso anualizado sobre el comportamiento medio del propio activo, con el
+        contraste estadístico delante: <b>+++</b> exige p&lt;0,01 y superar el control de falsos
+        descubrimientos entre las ~150 casillas evaluadas a la vez.</p>
+    </div>
+    <div class="matrix-tools">
+      <div class="seg" id="classFilter"></div>
+      <label class="ctl"><input type="checkbox" id="onlySig"><span>Solo casillas significativas</span></label>
+    </div>
+    <div class="matrix-holder">
+      <table class="matrix" id="matrix"></table>
+    </div>
+    <p class="foot" id="matrixFoot"></p>
   </div>
-  <ol class="rules" id="rules"></ol>
-  <details class="limits">
-    <summary>Lo que este panel no puede hacer</summary>
-    <div id="limits"></div>
-  </details>
 </section>
+
+<section class="section tight" id="robustBlock"></section>
+<section class="section tight" id="consensusBlock"></section>
+
+<section class="section" id="backtest">
+  <div class="wrap" id="rotationBlock"></div>
+</section>
+
+<section class="section tight" id="labBlock"></section>
+
+<section class="section tight">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">Control de calidad</div>
+      <h2>Cómo se comporta el clasificador</h2>
+    </div>
+    <div class="val-grid" id="validation"></div>
+  </div>
+</section>
+
+<section class="section tight" id="diagBlock"></section>
+
+<section class="section method" id="method">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">Metodología</div>
+      <h2>Las reglas, una por una</h2>
+    </div>
+    <ol class="rules" id="rules"></ol>
+    <details class="details">
+      <summary>Lo que este panel no puede hacer</summary>
+      <div class="body" id="limits"></div>
+    </details>
+  </div>
+</section>
+
 </template>
 
 <footer class="foot-bar">
   <div class="wrap">
-    <p id="footMeta"></p>
-    <p class="disclaimer">Herramienta de análisis. No es recomendación de inversión ni asesoramiento financiero.</p>
+    <div class="foot-cols">
+      <div>
+        <h5>Fuentes</h5>
+        <p>FRED (Reserva Federal de St. Louis) · biblioteca de datos de Kenneth French (Dartmouth) ·
+        ICE BofA / Moody's · Yahoo Finance · Stooq.</p>
+      </div>
+      <div>
+        <h5>Cómo se actualiza</h5>
+        <p id="footMeta"></p>
+      </div>
+      <div>
+        <h5>Código</h5>
+        <p><a href="METODOLOGIA.md">Metodología completa</a> · <a href="https://github.com/Perez849/reloj-inversion">Repositorio en GitHub</a></p>
+      </div>
+    </div>
+    <p class="disclaimer" style="margin-top:20px">Herramienta de análisis cuantitativo. No constituye
+      recomendación de inversión ni asesoramiento financiero. La rentabilidad histórica no garantiza
+      resultados futuros; los backtests no descuentan comisiones, horquilla ni impuestos.</p>
   </div>
 </footer>
 

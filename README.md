@@ -1,8 +1,11 @@
 # Reloj de inversión
 
 Panel que clasifica el ciclo económico de EE.UU. en uno de los cuatro cuadrantes del
-*investment clock* y muestra qué ha pagado históricamente cada activo en ese
-cuadrante, con el contraste estadístico delante.
+*investment clock* (Recuperación, Sobrecalentamiento, Estanflación, Reflación) y
+muestra qué sectores de renta variable comprar en cada fase —sin renta fija, con el
+oro y las mineras de oro como único seguro no bursátil—, con el ETF real más
+parecido para ejecutarlo, a partir de lo que ha pagado *históricamente* cada sector
+en esa fase, contrastado estadísticamente y comparado contra el propio S&P 500.
 
 Se actualiza solo: una acción programada regenera los datos cada día laborable y
 GitHub Pages sirve la página.
@@ -15,7 +18,7 @@ GitHub Pages sirve la página.
 
 | | Antes | Ahora |
 |---|---|---|
-| Umbrales | escritos a mano (`si IPC > 4 % …`) | z-scores con media y desviación expansivas |
+| Umbrales | escritos a mano (`si IPC > 4 % …`) | z-scores robustos (mediana/MAD) en ventana móvil de 10 años |
 | Pesos | puntos asignados por criterio | primer componente principal de cada bloque |
 | Confianza | `(máx − 2.º) / máx` sobre puntos inventados | probabilidad de cuadrante bajo la dispersión real del factor |
 | Fase | 10 series, reglas fijas | 28 series en tres bloques, con retraso de publicación aplicado |
@@ -91,8 +94,10 @@ docs/data/data.json     salida del pipeline (la genera la acción)
 - **Añadir un indicador**: una línea en la lista `SERIES` de `build_data.py` con su
   bloque, su transformación y su retraso de publicación. El PCA recalcula los pesos
   solo; no hay que ajustar nada más.
-- **Añadir un activo**: entrada en `FRED_TR` (índices de retorno total de FRED) o en
-  `STOOQ`. Si la serie tiene menos de 60 meses, se descarta sola.
+- **Añadir un activo**: entrada en `FRED_YIELD` (aproximado por TIR), `MARKET`
+  (Yahoo con respaldo en Stooq) o `FRENCH_IND`/`FRENCH_49` (Ken French). Si la serie
+  tiene menos de 60 meses, se descarta sola. Para que aparezca con su ticker en
+  «Qué comprar ahora», añade la entrada correspondiente a `ETF_MAP` en `app.js`.
 - **Cambiar el horizonte**: `HORIZON_M` en `main()`. Afecta a la anchura de la elipse
   de incertidumbre y, por tanto, a cuándo se activa la cartera de consenso.
 - **Cambiar el umbral de consenso**: la constante `0.6` en `app.js` y en el texto de

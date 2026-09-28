@@ -96,31 +96,40 @@ Esto no reconstruye las **revisiones** posteriores de cada dato —para eso har�
 falta una base de datos de vintages tipo ALFRED—, así que el backtest sigue siendo
 algo optimista. Está señalado en las limitaciones del panel.
 
-### 2.4 Estandarización con ventana móvil
+### 2.4 Estandarización con ventana móvil robusta
 
-`z_t = (x_t − media(x_{t−119}..x_t)) / desv(x_{t−119}..x_t)`, diez años, y ventana
-expansiva mientras no hay historia suficiente. Se recorta a ±4σ para que un dato
-como marzo de 2020 no domine la extracción del componente principal.
+`z_t = (x_t − mediana(x_{t−119}..x_t)) / (1,4826 · MAD(x_{t−119}..x_t))`, diez años
+(120 meses), con arranque adaptativo mientras no hay historia suficiente (suelo de
+48 meses). Se recorta a ±4σ para que un dato extremo aislado no domine la extracción
+del componente principal.
 
-Dos requisitos, y el segundo costó descubrirlo.
+Tres requisitos, y los dos últimos costó descubrirlos con datos reales del propio
+panel, no en la pizarra.
 
 **Causalidad.** Estandarizar con la muestra completa mete información del futuro en
 cada punto del pasado: en 1975 nadie conocía la media 1959-2026. La ventana solo
 mira hacia atrás.
 
-**Posición cíclica, no nivel.** La versión anterior usaba ventana expansiva, es
-decir la media desde 1959 en adelante. Con eso, el pico inflacionista de los setenta
-se queda dentro de la referencia para siempre, y el resultado era que de 1990 a 2020
-la inflación aparecía permanentemente por debajo de lo normal: en los años noventa y
-en la década de 2010 no había **ni un solo mes** de Sobrecalentamiento ni de
-Estanflación. El reloj se pasó veinte años usando dos de sus cuatro cuadrantes, y
-cualquier cartera medida sobre ese tramo estaba alternando dos etiquetas del mismo
-régimen macro.
+**Posición cíclica, no nivel.** Una ventana *expansiva* (toda la historia desde el
+arranque de la serie) no resuelve esto: el pico inflacionista de los setenta se
+queda dentro de la referencia para siempre, y el resultado es que de 1990 a 2020 la
+inflación aparece permanentemente por debajo de lo normal. Comprobado sobre el
+histórico real de este panel: con ventana expansiva, los años noventa y toda la
+década de 2010 no registraban **ni un solo mes** de Sobrecalentamiento ni de
+Estanflación — dos de las cuatro fases, ausentes durante veinte años. Con la ventana
+móvil de diez años las cuatro fases aparecen en todas las décadas desde 1970.
 
 Un reloj mide dónde estás en el ciclo, no el nivel absoluto frente a medio siglo de
 historia. La pregunta correcta es «¿alto o bajo respecto a lo que ha sido normal
-últimamente?». Diez meses de ventana cubren un ciclo económico completo sin arrastrar
-un cambio de régimen de cuarenta años.
+últimamente?». Diez *años* de ventana cubren un ciclo económico completo sin
+arrastrar un cambio de régimen de cuarenta años.
+
+**Robustez frente a valores extremos.** Marzo y abril de 2020 son lecturas de hasta
+±10 desviaciones. Con media y desviación típica, esos meses dominan la ventana de
+diez años durante todo el tiempo que permanecen dentro de ella. La mediana y la
+desviación absoluta mediana (MAD, escalada por 1,4826 para equivaler a la
+desviación típica bajo normalidad) apenas se mueven por un puñado de valores
+extremos.
 
 El precio de este cambio es real y conviene tenerlo presente: una ventana móvil
 tiende a poblar los cuatro cuadrantes por construcción, así que parte de los cambios
@@ -257,38 +266,55 @@ aportaba el reloj era exposición, no información.
 
 ### 7.2 La cartera implementable (sección de asignación)
 
-Es la que el panel recomienda. En el mes *t*:
+Es la que el panel recomienda: **100 % renta variable de sectores**, con el oro y
+las mineras de oro como único seguro no bursátil. Sin renta fija — decisión
+explícita, no un hallazgo del backtest. En el mes *t*:
 
 1. Se lee la fase vigente en *t−1*, ya publicada y con sus retrasos aplicados.
-2. Con datos hasta *t−1* se calcula, para cada activo, su **ventaja de fase**: la
-   media condicionada a esa fase menos su propia media incondicional, por unidad de
-   volatilidad. Es lo único que el reloj dice saber. Ordenar por
-   rentabilidad/volatilidad absoluta —lo que se hacía antes— selecciona el mismo
-   puñado de activos defensivos en las cuatro fases y no es una rotación.
-3. Cada bloque se queda con sus mejores por esa ventaja: 4 en renta variable, 3 en
-   renta fija, 2 en activos reales, **equiponderados** entre sí.
-4. El reparto entre bloques parte de una postura neutra 60/30/10 y se desvía según
-   lo bien que puntúe cada bloque en esa fase respecto a su propio nivel habitual.
-5. Se mantiene durante el mes *t*, siempre invertida al 100 %, sin apalancar y sin
-   cortos.
+2. Con datos hasta *t−1* se calcula, para cada activo, su **rentabilidad
+   esperada en el centro de la fase**: la pendiente de una regresión del activo
+   sobre los dos factores (crecimiento, inflación), evaluada en el punto medio
+   del plano en el que vive esa fase, con las pendientes contraídas hacia cero
+   según su propio error típico. Con menos de 5 activos con pendiente fiable, se
+   cae a la media condicionada a la fase con contracción empírica de Bayes de la
+   sección 6. Es lo único que el reloj dice saber; ordenar por rentabilidad
+   absoluta sin dividir por volatilidad selecciona siempre lo más volátil por
+   serlo, no lo que mejor conviene a la fase.
+3. **Renta variable**: los 5 mejores sectores (de 11 posibles) por esa
+   rentabilidad esperada dividida entre volatilidad. **Oro**: hasta 2 exposiciones
+   (oro físico y mineras de oro) con el mismo criterio.
+4. Dentro de cada bloque, el reparto entre los elegidos sigue uno de cuatro
+   esquemas —equiponderado, inverso de volatilidad (el que usa por defecto el
+   panel), por puesto, o mitad y mitad— calculados en paralelo; el panel deja
+   elegir cuál mirar.
+5. El reparto **entre** los dos bloques parte de bandas fijas —80-100 % renta
+   variable, 0-20 % oro— y se mueve dentro de ellas en proporción a la
+   rentabilidad esperada de cada bloque en esa fase. Una puntuación negativa se
+   trata como cero: el oro puede desaparecer del todo si no aporta.
+6. Se mantiene durante el mes *t*, siempre invertida al 100 %, sin apalancar y
+   sin cortos.
 
 **Reglas de selección**, todas fijadas antes de mirar resultados:
 
 | Regla | Motivo |
 |---|---|
-| Bandas 30-70 % renta variable, 20-60 % renta fija, 0-15 % activos reales | Nunca sin renta variable ni sin renta fija; el oro puede irse a cero si no se lo gana |
-| Neutro en 60/30/10 | Misma postura de riesgo que el índice contra el que se mide. Si el neutro fuera 40/45/15, la comparación mediría nivel de riesgo, no rotación |
-| Desviación máxima de 1σ de la puntuación del bloque entre fases | Una fase excepcional lleva el bloque al borde de su banda, no más allá |
-| Índices agregados excluidos de la selección | S&P total, EAFE, emergentes y small caps copan el bloque de renta variable si se les deja, y desaparece la rotación sectorial. Siguen en la matriz como referencia |
+| Bandas 80-100 % renta variable, 0-20 % oro | Nunca sin renta variable; el oro es un seguro táctico, no puede superar a la renta variable en peso |
+| Cinco sectores, no cuatro ni diez | Cuatro sectores concentrados sobre una cartera 100 % invertida son un riesgo idiosincrático que nadie pidió; diez de once es casi comprar el índice y no queda rotación que evaluar |
+| Índices agregados excluidos de la selección | S&P total, EAFE, emergentes y small caps copan la selección si se les deja, y desaparece la rotación sectorial. Siguen en la matriz como referencia |
 | Series no invertibles excluidas | PPI y WTI spot no se pueden mantener en cartera |
-| Un vehículo por subyacente | Oro lingote y oro ETF son literalmente lo mismo, igual que GSCI y DBC, el hipotecario aproximado y MBB, el crédito Baa y LQD, o los dos TIPS. Se colapsan antes de puntuar y gana el de más historia: con datos idénticos, el criterio es la calidad de la serie |
-| Una exposición por grupo solapado | Bancos está dentro de Financiero; Software y Semiconductores están dentro de Tecnología; REITs e Inmobiliario son lo mismo; oro lingote y mineras de oro son la misma apuesta. Comprar las dos patas no es diversificar, es la misma posición escrita dos veces, y en un bloque de cuatro nombres se lleva media cartera. Aquí no vale colapsar por historia —las series de Ken French empiezan todas en 1970 y el desempate sería alfabético—, así que la restricción se aplica al elegir: se ordena por ventaja de fase y se salta cualquier candidato que comparta grupo con algo ya seleccionado. Gana el que mejor puntúa |
+| Un vehículo por subyacente | Oro lingote y oro ETF son literalmente lo mismo, igual que GSCI y DBC. Se colapsan antes de puntuar y gana el de más historia: con datos idénticos, el criterio es la calidad de la serie |
+| Una exposición por grupo solapado | Bancos está dentro de Financiero; Software y Semiconductores están dentro de Tecnología. Comprar las dos patas no es diversificar, es la misma posición escrita dos veces. La restricción se aplica al elegir: se ordena por rentabilidad esperada y se salta cualquier candidato que comparta grupo con algo ya seleccionado |
 | Mínimo 60 meses de historia | Un ETF con dos años de datos no gana la selección por ruido |
 | Tolerancia de 4 meses al retraso de publicación | Ken French publica con dos meses de desfase; exigir dato del último mes exacto dejaba fuera todos los sectores |
-| Guardián de plausibilidad | Una serie que no puede ser un retorno mensual no entra: más del 90 % de meses en positivo (es un índice acumulado, no retornos), menos del 15 % (signo invertido), media por encima del 8 % mensual o un mes por encima del 150 %. Nace de un caso real: una fuente devolvió un índice acumulado disfrazado de bono, con media del 25 % mensual y el 99,9 % de meses en verde. Un activo así gana cualquier selección en todas las fases y convierte el backtest en ficción sin que nada lo delate |
-| Equiponderación dentro del bloque | El inverso de volatilidad cancelaba la señal: si el reloj pide duración larga, eliges el Treasury a 30 años y acto seguido le pones cuatro veces menos peso por ser cuatro veces más volátil. El nivel de riesgo lo fijan las bandas entre bloques |
+| Guardián de plausibilidad | Una serie que no puede ser un retorno mensual no entra: más del 90 % de meses en positivo (es un índice acumulado, no retornos), menos del 15 % (signo invertido), media por encima del 8 % mensual o un mes por encima del 150 %. Nace de un caso real: una fuente devolvió un índice acumulado disfrazado de bono, con media del 25 % mensual y el 99,9 % de meses en verde |
 | 120 meses de entrenamiento antes de la primera operación | Con 240 el backtest arrancaba en 1990 y se perdía Volcker, que es donde el reloj tiene las cuatro fases pobladas. El coste es que las estimaciones de los primeros años son más ruidosas |
-| Muestra recortada al último mes con benchmark | La estrategia y el 60/40 tienen que cubrir exactamente los mismos meses |
+| Muestra recortada al último mes con benchmark | La estrategia y el S&P 500 tienen que cubrir exactamente los mismos meses |
+
+La comparación primaria es contra la **renta variable estadounidense al 100 %**
+(el propio S&P 500 / mercado), no contra un 60/40: esta cartera no lleva renta
+fija, así que compararla contra una que sí la lleva mediría dos carteras
+distintas, no si la rotación por sectores aporta. El 60/40 se publica aparte,
+solo como referencia de contexto para quien lo pida.
 
 ### 7.3 La medida del sobreajuste
 
@@ -350,3 +376,9 @@ reloj gira al revés; solo muy por encima se puede hablar de un ciclo con direcc
 - **La ventana móvil tiene un coste.** Puebla los cuatro cuadrantes por
   construcción, así que parte de los cambios de fase son ruido. Se vigila con la
   tabla de cuadrantes por década y con la duración media de los tramos.
+- **Sin renta fija, por decisión, no por resultado del backtest.** Una cartera
+  100 % en renta variable —rote por sectores o no— lleva más volatilidad y
+  caídas más profundas que cualquier mezcla con bonos; eso no lo cambia acertar
+  la fase. El panel publica el Sharpe y la caída máxima frente al S&P 500 al
+  lado del CAGR precisamente para que ese coste no quede escondido detrás de
+  una rentabilidad más alta.
