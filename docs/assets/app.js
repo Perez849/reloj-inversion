@@ -826,9 +826,16 @@ function renderRotation() {
         </tbody>
       </table>
     </div>
-    <p class="foot" style="margin-bottom:14px">Sin trampa: el S&amp;P 500 va apalancado en riesgo frente a
-      cualquier cartera con un seguro en oro, así que si gana en CAGR bruto no significa que la selección
-      de sectores no aporte — mira el Sharpe. Si además gana en CAGR, gana sin más.</p>
+    <p class="foot" style="margin-bottom:14px">${beatsMkt && (p.sharpe ?? 0) > (mkt.sharpe ?? 0)
+      ? `Sin matices: en este histórico la rotación por sectores bate al S&amp;P 500 tanto en
+         rentabilidad bruta como en Sharpe y en caída máxima, con menos volatilidad. No es "gana
+         porque asume más riesgo": gana llevando <b>menos</b>.`
+      : beatsMkt
+        ? `Gana en CAGR bruto, pero compara siempre el Sharpe antes de concluir que la selección de
+           sectores aporta: parte de la ventaja puede venir simplemente de llevar más riesgo.`
+        : `El S&amp;P 500 gana en CAGR bruto en este histórico. Compara el Sharpe y la caída máxima
+           antes de descartar la rotación: llevar menos riesgo con rentabilidad parecida también
+           es ganar, aunque no lo parezca mirando solo el número grande.`}</p>
     ${S.vol_check ? `<p class="foot" style="margin-bottom:10px">
       Control de riesgo: la cartera terminó con <b>${fmtNum(S.vol_check.cartera, 1)}%</b> de
       volatilidad frente al <b>${fmtNum(S.vol_check.objetivo_mercado, 1)}%</b> de la renta variable pura
