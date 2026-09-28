@@ -1503,6 +1503,26 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
                 print(f"DEBUG means() {phase}:", file=sys.stderr)
                 for nm, v in srt.items():
                     print(f"  {nm:28s} mu={v:.4f} vol={vol_all.get(nm):.4f}", file=sys.stderr)
+                if phase == "Recuperación":
+                    ref2 = X.index[-1]
+                    grand2 = _wmean(X, _ew(X, ref2))
+                    mu_p2, se_p2, n_p2 = {}, {}, {}
+                    for p2 in PHASES:
+                        sub2 = X[ph == p2]
+                        mu_p2[p2] = _wmean(sub2, _ew(sub2, ref2))
+                        n2 = sub2.notna().sum()
+                        n_p2[p2] = n2
+                        se_p2[p2] = sub2.std() / np.sqrt(n2.clip(lower=1))
+                    M2 = pd.DataFrame(mu_p2).T
+                    SE22 = pd.DataFrame(se_p2).T ** 2
+                    N2 = pd.DataFrame(n_p2).T
+                    tau22 = (M2.var(axis=0, ddof=1) - SE22.mean(axis=0)).clip(lower=0.0)
+                    for nm in ["Tecnología", "Financiero", "Utilities", "Comunicaciones", "Industria"]:
+                        if nm in M2.columns:
+                            print(f"DEBUG2 {nm}: grand={grand2[nm]:.4f} M={M2[nm].to_dict()} "
+                                  f"SE2={SE22[nm].to_dict()} var={M2[nm].var(ddof=1):.4f} "
+                                  f"se2mean={SE22[nm].mean():.4f} tau2={tau22[nm]:.4f} "
+                                  f"N={N2[nm].to_dict()}", file=sys.stderr)
             # Ken French publica con un mes de retraso: exigir dato en el último
             # mes dejaba fuera todos los sectores y el bloque salía vacío.
             avail = list(X.columns[X.tail(4).notna().any()])
