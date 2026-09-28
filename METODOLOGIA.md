@@ -280,24 +280,50 @@ las mineras de oro como único seguro no bursátil. Sin renta fija — decisión
 explícita, no un hallazgo del backtest. En el mes *t*:
 
 1. Se lee la fase vigente en *t−1*, ya publicada y con sus retrasos aplicados.
-2. Con datos hasta *t−1* se calcula, para cada activo, su **rentabilidad
-   esperada en el centro de la fase**: la pendiente de una regresión del activo
-   sobre los dos factores (crecimiento, inflación), evaluada en el punto medio
-   del plano en el que vive esa fase, con las pendientes contraídas hacia cero
-   según su propio error típico. Con menos de 5 activos con pendiente fiable, se
-   cae a la media condicionada a la fase con contracción empírica de Bayes de la
-   sección 6. Es lo único que el reloj dice saber; ordenar por rentabilidad
-   absoluta sin dividir por volatilidad selecciona siempre lo más volátil por
-   serlo, no lo que mejor conviene a la fase.
+2. Con datos hasta *t−1* se calcula, para cada activo, su **ventaja esperada
+   en esta fase frente a su propia media**: la misma fórmula de contracción
+   empírica de Bayes de la sección 6 —los meses reales en que el activo
+   estuvo en esa fase, contra su propia media—, activo por activo, no una
+   construcción aparte. Es a propósito: si un activo no muestra diferencia
+   real entre fases en la matriz de evidencia, tampoco debe mostrarla aquí.
+   Una versión anterior devolvía el nivel absoluto (media general + la
+   desviación contraída) en vez de la desviación sola, y ese nivel absoluto
+   es casi siempre positivo tanto para el oro como para cualquier sector a
+   largo plazo: "puntúa positivo" no discriminaba nada y el oro competía por
+   presupuesto con el nivel de una racha alcista de 25 años que no depende
+   de la fase, no con una ventaja de fase real. Otra versión anterior a esa
+   usaba la pendiente de una regresión sobre los dos factores (crecimiento,
+   inflación) evaluada en el centro de la fase, y esa regresión extrapolaba
+   oro como atractivo en las cuatro fases —incluidas las tres en las que la
+   propia matriz de evidencia dice que no aporta nada—, así que la cartera
+   recomendaba una posición que los datos no respaldaban. La regresión se
+   conserva solo como respaldo, para cuando la muestra directa de la fase es
+   demasiado corta para casi todo el universo.
+
+   **Una diferencia real con la sección 6, y a propósito**: ahí la media de
+   cada fase pesa igual el dato de 1935 que el de 2025; aquí pesa con una
+   vida media de diez años (la misma que usa el backtest de asignación, ver
+   más abajo), porque es la decisión que se ejecuta hoy y da igual lo que
+   hiciera una tecnológica en 1935. Con esto, el signo de una casilla casi
+   plana en la sección 6 —próxima a cero, sin marca de significancia— puede
+   salir con el signo contrario aquí si el comportamiento de la última
+   década pesa distinto que el conjunto de la serie: no es un error, es la
+   misma contracción con otra ponderación temporal. Cuanto más fuerte sea la
+   marca de significancia en la sección 6 (`++`, `+++` y sus negativos), más
+   improbable es que la última década por sí sola la contradiga, pero no hay
+   una garantía matemática de que no pueda ocurrir en una serie con muy poca
+   historia reciente en esa fase.
 3. **El número de activos no es fijo.** Dentro de cada bloque se quedan los que
    puntúan **positivo** en esa rentabilidad esperada dividida entre volatilidad
    —los que de verdad convienen en esta fase, no un top-N arbitrario—, acotado
-   entre un suelo y un techo: **Renta variable**, entre 3 y 7 de los 11
+   entre un suelo y un techo: **Renta variable**, entre 2 y 7 de los 11
    sectores posibles; **Oro**, entre 0 y 2 (oro físico y mineras de oro). Con
    menos positivos que el suelo, se completa hasta el suelo con los siguientes
-   mejores aunque puntúen flojo — el suelo es diversificación mínima del
-   bloque, no una opinión sobre esos activos. Con más positivos que el techo,
-   se recorta a los mejores. Un mes puede tener 3 sectores; otro, 6.
+   mejores aunque puntúen flojo — el suelo evita la cartera vacía o
+   concentrada en un único nombre, no es una opinión sobre esos activos. Con
+   más positivos que el techo, se recorta a los mejores. Un mes puede tener 2
+   sectores; otro, 6 — y el oro puede no aparecer en absoluto si la fase no lo
+   sostiene, que es exactamente lo que ocurre fuera de Reflación.
 4. Dentro de cada bloque, el reparto entre los elegidos sigue uno de cuatro
    esquemas —equiponderado, inverso de volatilidad (el que usa por defecto el
    panel), por puesto, o mitad y mitad— calculados en paralelo; el panel deja
@@ -314,7 +340,7 @@ explícita, no un hallazgo del backtest. En el mes *t*:
 | Regla | Motivo |
 |---|---|
 | Bandas 80-100 % renta variable, 0-20 % oro | Nunca sin renta variable; el oro es un seguro táctico, no puede superar a la renta variable en peso |
-| Entre 3 y 7 sectores, nunca fijo en uno solo | Menos de 3 sobre una cartera 100 % invertida es un riesgo idiosincrático que nadie pidió; 8 o más de 11 es casi comprar el índice entero y no queda rotación que evaluar. Dentro de ese rango, manda la fase: cuantos puntúen positivo |
+| Entre 2 y 7 sectores, nunca fijo | Un único sector sobre una cartera 100 % invertida es un riesgo idiosincrático que nadie pidió; 8 o más de 11 es casi comprar el índice entero y no queda rotación que evaluar. Dentro de ese rango, manda la fase: cuantos puntúen positivo de verdad, ni uno más para rellenar cupo |
 | Índices agregados excluidos de la selección | S&P total, EAFE, emergentes y small caps copan la selección si se les deja, y desaparece la rotación sectorial. Siguen en la matriz como referencia |
 | Series no invertibles excluidas | PPI y WTI spot no se pueden mantener en cartera |
 | Los 11 sectores son mutuamente excluyentes por construcción | Las 12 industrias de Ken French (11 aquí, sin "Otros sectores") no se solapan entre sí: no hay un "Bancos" aparte de "Financiero" ni un "Semiconductores" aparte de "Tecnología" que pudieran duplicar la misma apuesta. No hace falta ninguna regla de deduplicación dentro del bloque de renta variable |

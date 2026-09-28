@@ -847,7 +847,7 @@ function renderRotation() {
       Control de riesgo: la cartera terminó con <b>${fmtNum(S.vol_check.cartera, 1)}%</b> de
       volatilidad frente al <b>${fmtNum(S.vol_check.objetivo_mercado, 1)}%</b> de la renta variable pura
       (${signed(S.vol_check.desvio, 1)} puntos) — el seguro de oro y la diversificación entre varios
-      sectores (entre 3 y 7 según la fase, nunca un número fijo), no un objetivo impuesto.</p>` : ""}
+      sectores (entre 2 y 7 según la fase, nunca un número fijo), no un objetivo impuesto.</p>` : ""}
     <p class="foot" style="margin-bottom:24px">Rotación media de cartera: <b>${fmtNum(S.turnover, 1)}%</b>
       al mes. Los costes de transacción no están descontados; a 15 puntos básicos por unidad de rotación
       restarían del orden de ${fmtNum(S.turnover * 0.15 * 12 / 100, 2)} puntos al año.</p>
@@ -1034,7 +1034,7 @@ function renderLab() {
           si aguanta fuera de su propia muestra.</p>
         <p class="cap" style="margin-top:8px">Tamaño fijo a propósito — evaluar "todas las
           combinaciones" solo es tratable con un número constante. La cartera real de «Qué comprar
-          ahora» no usa este número: elige entre 3 y 7 sectores según cuántos puntúen positivo en la
+          ahora» no usa este número: elige entre 2 y 7 sectores según cuántos puntúen positivo en la
           fase, nunca un tamaño fijo. Esta sección responde una pregunta distinta y más simple: si lo
           que ganaba antes seguía ganando después.</p>
       </div>

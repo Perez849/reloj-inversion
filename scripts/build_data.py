@@ -1063,12 +1063,14 @@ def backtest(X: pd.DataFrame, phases: pd.Series, top_k: int = 5, min_train: int 
 SLEEVES = {
     # El número de sectores NO es fijo: cada mes se queda con los que puntúan
     # positivo de verdad en esa fase (ver _sleeve_pick), entre un suelo y un
-    # techo. Suelo de 3: la banda del 80% mínimo en renta variable tiene que
-    # ir a algún sitio, así que nunca se concentra en menos. Techo de 7: con
-    # 8 o más de los 11 sectores ya casi es comprar el índice entero, y no
-    # queda rotación que evaluar. Entre medias, tres, cuatro, cinco sectores
-    # — lo que la fase sostenga, ni uno más.
-    "Renta variable": ({"Renta variable"}, 0.80, 1.00, 3, 7),
+    # techo — nunca se mete un sector con puntuación floja o negativa solo por
+    # rellenar un cupo. Suelo de 2, no más: la banda del 80% mínimo en renta
+    # variable tiene que ir a algún sitio, así que nunca se queda vacía ni
+    # concentrada en un único nombre, pero por debajo de eso manda la fase, no
+    # un mínimo de diversificación inventado. Techo de 7: con 8 o más de los
+    # 11 sectores ya casi es comprar el índice entero, y no queda rotación que
+    # evaluar. Entre medias, lo que la fase sostenga, ni uno más.
+    "Renta variable": ({"Renta variable"}, 0.80, 1.00, 2, 7),
     # Oro físico y mineras de oro, las dos únicas exposiciones de la clase
     # "Oro" (ver FRENCH_49 y MARKET). Sin suelo: puede quedarse en 0, 1 o 2
     # nombres. Es un seguro táctico, no una posición obligatoria, y nunca
@@ -1153,8 +1155,8 @@ def _weights(names, vol, scheme: str) -> pd.Series:
 def _sleeve_pick(mu, vol, avail, classes, cls_map, n_min, n_max):
     """Selecciona los del bloque que de verdad convienen en esta fase y
     devuelve su orden y su puntuación. El número elegido no es fijo: se
-    queda con cuantos puntúen positivo (rentabilidad esperada por unidad de
-    volatilidad > 0), acotado entre n_min y n_max. Con menos de n_min
+    queda con cuantos puntúen positivo (ventaja esperada frente a su propia
+    media, por unidad de volatilidad > 0), acotado entre n_min y n_max. Con menos de n_min
     positivos se completa hasta n_min con los siguientes mejores aunque
     puntúen flojo o negativo — n_min es el suelo de diversificación del
     bloque, no una opinión sobre esos activos concretos; con más de n_max
@@ -1183,9 +1185,9 @@ def _sleeve_pick(mu, vol, avail, classes, cls_map, n_min, n_max):
     iv = 1.0 / v
     w = (iv / iv.sum()) if iv.notna().any() else pd.Series(1.0 / len(top), index=top)
     # Dos métricas distintas, y la diferencia importa:
-    #   - DENTRO del bloque se ordena por rentabilidad entre volatilidad, porque se
+    #   - DENTRO del bloque se ordena por ventaja entre volatilidad, porque se
     #     comparan activos de riesgo parecido y así no gana el más volátil por serlo.
-    #   - ENTRE bloques se compara la rentabilidad esperada A SECAS. Usar el cociente
+    #   - ENTRE bloques se compara la ventaja esperada A SECAS. Usar el cociente
     #     también aquí premiaría sistemáticamente al oro, bastante menos volátil que
     #     la renta variable, y dejaría la cartera con menos bolsa que su propio suelo
     #     del 80%: rendiría menos por invertir menos, no por elegir peor.
@@ -1326,7 +1328,13 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
     def factor_means(hist, hph, phase):
         """Rentabilidad esperada de cada activo en el centro de la fase, según la
         regresión sobre los dos factores. Usa toda la historia, no solo los meses
-        de esa fase."""
+        de esa fase. Respaldo para cuando falta muestra directa de la fase — ver
+        means() —, nunca la fuente principal: un modelo lineal de dos factores
+        extrapola bien la tendencia media, pero no cosas como el comportamiento
+        del oro, que no es lineal en crecimiento/inflación y que la propia
+        matriz de evidencia (sección 6) muestra sin señal real fuera de
+        Reflación. Usar la regresión como fuente principal recomendaba oro en
+        fases donde la evidencia directa dice que no aporta nada."""
         b = factor_betas(hist, F) if F is not None else None
         c = centroid(hph, phase, hist.index[-1])
         if not b or c is None:
@@ -1335,24 +1343,57 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
         return pd.Series({k: v[0] + v[1] * g + v[2] * i for k, v in b.items()})
 
     def means(hist, hph, phase):
-        fm = factor_means(hist, hph, phase)
-        if fm is not None and fm.notna().sum() >= 5:
-            return fm.reindex(hist.columns)
-        sub = hist[hph == phase]
-        if sub.empty:
-            return pd.Series(dtype=float)
+        """Ventaja esperada de cada activo EN ESTA FASE, relativa a su propia
+        media incondicional (grand): cuánto mejor o peor rinde esta fase
+        frente a lo que ese activo hace de media, contraída con la misma
+        fórmula de James-Stein activo por activo que usa shrink() para la
+        matriz de evidencia de la sección 6 — no el nivel absoluto.
+
+        El nivel absoluto (grand + contracción, que es lo que devolvía una
+        versión anterior) rompía la selección: casi cualquier sector de bolsa
+        y el oro tienen media incondicional positiva a largo plazo, así que
+        "puntúa positivo" casi nunca discriminaba nada (de ahí que renta
+        variable tocara siempre el techo de 7) y, al comparar el nivel entre
+        bloques, ganaba el bloque con mejor racha histórica general — el oro
+        desde 2000, sin ninguna fase con señal real (rel_shrunk = 0.0 en las
+        cuatro, ver sección 6) pero con una media incondicional del 12 % que
+        competía de tú a tú con la renta variable EN TODAS LAS FASES por
+        igual. Devolviendo la desviación respecto a la propia media (0 cuando
+        no hay contracción, como en el oro), un activo solo cuenta como
+        favorable cuando ESTA fase concreta le sienta mejor que su media —que
+        es lo que hay que rotar— y dos activos solo compiten por sitio si los
+        dos tienen de verdad algo que aportar en la fase, no porque uno de
+        los dos rinda más en términos absolutos.
+        """
         ref = hist.index[-1]
-        w_all, w_sub = _ew(hist, ref), _ew(sub, ref)
-        grand = _wmean(hist, w_all)
-        mu = _wmean(sub, w_sub)
-        n_ph = sub.notna().sum()
-        se = sub.std() / np.sqrt(n_ph.clip(lower=1))
-        tau2 = (mu - grand).var()
-        shrink_w = (tau2 / (tau2 + se ** 2)).fillna(0.0)
-        # Sin muestra suficiente de la fase, la media de la fase no se usa: el
-        # activo se valora por su comportamiento general.
-        shrink_w = shrink_w.where(n_ph >= MIN_PHASE_OBS, 0.0)
-        return grand + shrink_w * (mu - grand)
+        grand = _wmean(hist, _ew(hist, ref))
+        mu_p, se_p, n_p = {}, {}, {}
+        for p in PHASES:
+            sub = hist[hph == p]
+            if sub.empty:
+                continue
+            mu_p[p] = _wmean(sub, _ew(sub, ref))
+            n = sub.notna().sum()
+            n_p[p] = n
+            se_p[p] = sub.std() / np.sqrt(n.clip(lower=1))
+        if phase not in mu_p or len(mu_p) < 2:
+            fm = factor_means(hist, hph, phase)
+            if fm is not None and fm.notna().sum() >= 5:
+                return fm.reindex(hist.columns) - grand
+            return mu_p.get(phase, grand) - grand
+        M = pd.DataFrame(mu_p).T          # filas: fases con datos · columnas: activos
+        SE2 = pd.DataFrame(se_p).T ** 2
+        N = pd.DataFrame(n_p).T
+        # tau2 por activo: dispersión de sus medias ENTRE FASES menos el ruido
+        # medio de estimación. Igual que shrink(), aquí vectorizado por columna.
+        tau2 = (M.var(axis=0, ddof=1) - SE2.mean(axis=0)).clip(lower=0.0)
+        d = tau2 + SE2.loc[phase]
+        w = (tau2 / d).where(d > 0, 0.0).fillna(0.0)
+        # Sin muestra suficiente de ESTA fase para un activo, su media de fase
+        # no se usa: se valora por su comportamiento general, es decir, 0 de
+        # desviación — ni favorece ni penaliza.
+        w = w.where(N.loc[phase] >= MIN_PHASE_OBS, 0.0)
+        return w * (M.loc[phase] - grand)
 
     def ew_vol(hist):
         ref = hist.index[-1]
