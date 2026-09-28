@@ -1063,12 +1063,14 @@ def backtest(X: pd.DataFrame, phases: pd.Series, top_k: int = 5, min_train: int 
 SLEEVES = {
     # El número de sectores NO es fijo: cada mes se queda con los que puntúan
     # positivo de verdad en esa fase (ver _sleeve_pick), entre un suelo y un
-    # techo. Suelo de 3: la banda del 80% mínimo en renta variable tiene que
-    # ir a algún sitio, así que nunca se concentra en menos. Techo de 7: con
-    # 8 o más de los 11 sectores ya casi es comprar el índice entero, y no
-    # queda rotación que evaluar. Entre medias, tres, cuatro, cinco sectores
-    # — lo que la fase sostenga, ni uno más.
-    "Renta variable": ({"Renta variable"}, 0.80, 1.00, 3, 7),
+    # techo — nunca se mete un sector con puntuación floja o negativa solo por
+    # rellenar un cupo. Suelo de 2, no más: la banda del 80% mínimo en renta
+    # variable tiene que ir a algún sitio, así que nunca se queda vacía ni
+    # concentrada en un único nombre, pero por debajo de eso manda la fase, no
+    # un mínimo de diversificación inventado. Techo de 7: con 8 o más de los
+    # 11 sectores ya casi es comprar el índice entero, y no queda rotación que
+    # evaluar. Entre medias, lo que la fase sostenga, ni uno más.
+    "Renta variable": ({"Renta variable"}, 0.80, 1.00, 2, 7),
     # Oro físico y mineras de oro, las dos únicas exposiciones de la clase
     # "Oro" (ver FRENCH_49 y MARKET). Sin suelo: puede quedarse en 0, 1 o 2
     # nombres. Es un seguro táctico, no una posición obligatoria, y nunca
@@ -1326,7 +1328,13 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
     def factor_means(hist, hph, phase):
         """Rentabilidad esperada de cada activo en el centro de la fase, según la
         regresión sobre los dos factores. Usa toda la historia, no solo los meses
-        de esa fase."""
+        de esa fase. Respaldo para cuando falta muestra directa de la fase — ver
+        means() —, nunca la fuente principal: un modelo lineal de dos factores
+        extrapola bien la tendencia media, pero no cosas como el comportamiento
+        del oro, que no es lineal en crecimiento/inflación y que la propia
+        matriz de evidencia (sección 6) muestra sin señal real fuera de
+        Reflación. Usar la regresión como fuente principal recomendaba oro en
+        fases donde la evidencia directa dice que no aporta nada."""
         b = factor_betas(hist, F) if F is not None else None
         c = centroid(hph, phase, hist.index[-1])
         if not b or c is None:
@@ -1335,24 +1343,33 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
         return pd.Series({k: v[0] + v[1] * g + v[2] * i for k, v in b.items()})
 
     def means(hist, hph, phase):
+        """Rentabilidad esperada de cada activo en esta fase — la misma media
+        condicionada con contracción empírica de Bayes que alimenta la matriz
+        de evidencia (sección 6): si un activo no muestra diferencia real entre
+        fases ahí, tampoco la muestra aquí. Solo se recurre a la regresión sobre
+        factores (factor_means) cuando la muestra directa de la fase es
+        demasiado corta para casi todo el universo."""
+        sub = hist[hph == phase]
+        direct = None
+        if not sub.empty:
+            ref = hist.index[-1]
+            w_all, w_sub = _ew(hist, ref), _ew(sub, ref)
+            grand = _wmean(hist, w_all)
+            mu = _wmean(sub, w_sub)
+            n_ph = sub.notna().sum()
+            se = sub.std() / np.sqrt(n_ph.clip(lower=1))
+            tau2 = (mu - grand).var()
+            shrink_w = (tau2 / (tau2 + se ** 2)).fillna(0.0)
+            # Sin muestra suficiente de la fase, la media de la fase no se usa: el
+            # activo se valora por su comportamiento general.
+            shrink_w = shrink_w.where(n_ph >= MIN_PHASE_OBS, 0.0)
+            direct = grand + shrink_w * (mu - grand)
+            if int((n_ph >= MIN_PHASE_OBS).sum()) >= 5:
+                return direct
         fm = factor_means(hist, hph, phase)
         if fm is not None and fm.notna().sum() >= 5:
             return fm.reindex(hist.columns)
-        sub = hist[hph == phase]
-        if sub.empty:
-            return pd.Series(dtype=float)
-        ref = hist.index[-1]
-        w_all, w_sub = _ew(hist, ref), _ew(sub, ref)
-        grand = _wmean(hist, w_all)
-        mu = _wmean(sub, w_sub)
-        n_ph = sub.notna().sum()
-        se = sub.std() / np.sqrt(n_ph.clip(lower=1))
-        tau2 = (mu - grand).var()
-        shrink_w = (tau2 / (tau2 + se ** 2)).fillna(0.0)
-        # Sin muestra suficiente de la fase, la media de la fase no se usa: el
-        # activo se valora por su comportamiento general.
-        shrink_w = shrink_w.where(n_ph >= MIN_PHASE_OBS, 0.0)
-        return grand + shrink_w * (mu - grand)
+        return direct if direct is not None else pd.Series(dtype=float)
 
     def ew_vol(hist):
         ref = hist.index[-1]
