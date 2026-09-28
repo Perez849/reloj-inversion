@@ -314,30 +314,45 @@ explícita, no un hallazgo del backtest. En el mes *t*:
    una garantía matemática de que no pueda ocurrir en una serie con muy poca
    historia reciente en esa fase.
 3. **El número de activos no es fijo.** Dentro de cada bloque se quedan los que
-   puntúan **positivo** en esa rentabilidad esperada dividida entre volatilidad
-   —los que de verdad convienen en esta fase, no un top-N arbitrario—, acotado
-   entre un suelo y un techo: **Renta variable**, entre 2 y 7 de los 10
-   sectores posibles; **Oro**, entre 0 y 2 (oro físico y mineras de oro). Con
-   menos positivos que el suelo, se completa hasta el suelo con los siguientes
-   mejores aunque puntúen flojo — el suelo evita la cartera vacía o
-   concentrada en un único nombre, no es una opinión sobre esos activos. Con
-   más positivos que el techo, se recorta a los mejores. Un mes puede tener 2
-   sectores; otro, 6 — y el oro puede no aparecer en absoluto si la fase no lo
+   **no muestran desventaja de fase** —esa rentabilidad esperada dividida
+   entre volatilidad, ≥ 0, no hace falta ventaja, basta con que la fase no
+   le siente peor que su propia media—, acotado entre un suelo y un techo:
+   **Renta variable**, entre 2 y 7 de los 10 sectores posibles; **Oro**,
+   entre 0 y 2 (oro físico y mineras de oro). Con menos aceptables que el
+   suelo, se completa hasta el suelo con los siguientes mejores aunque
+   puntúen negativo — el suelo evita la cartera vacía o concentrada en un
+   único nombre, no es una opinión sobre esos activos. Con más aceptables
+   que el techo, se recorta a los mejores. Un mes puede tener 2 sectores;
+   otro, 7 — y el oro puede no aparecer en absoluto si la fase no lo
    sostiene, que es exactamente lo que ocurre fuera de Reflación.
 
-   **Empate a cero, desempatado por volatilidad.** Cuando la contracción es
-   total (tau2 = 0: la fase no explica nada de la dispersión de un activo que
-   el propio ruido de estimación no explique ya), varios activos empatan
-   EXACTOS en cero —ninguna ventaja de fase distinguible, ni a favor ni en
-   contra— y aun así puede hacer falta completar el suelo con alguno de
-   ellos. Entre empatados, se prefiere el de menor volatilidad: sin ninguna
-   señal que los diferencie, añadir menos riesgo es el único criterio que
-   queda. Sin este desempate explícito, ganaba el que primero apareciera en
-   las columnas del histórico —una casualidad de tabla, no una decisión—, y
-   así se coló Tecnología en Estanflación en un dato real: empatada a cero
-   con Financiero y Utilities, pero la peor con diferencia de las tres según
-   la propia matriz de evidencia de la sección 6 (rel_shrunk -5,19, nota
-   "-", frente a rel_shrunk 0,0 de Utilities y -2,62 de Financiero).
+   **Un empate en 0 solo es aceptable si, además, no es mediocre.** Con
+   contracción total (tau2 = 0: la fase no explica nada de la dispersión de
+   un activo que el propio ruido de estimación no explique ya), un activo
+   puntúa exacto 0 — ninguna ventaja de fase distinguible, pero tampoco
+   ninguna desventaja. Descartarlo sin más (como si 0 fuera negativo) tiene
+   un coste real: Tecnología puntuaba 0 en las cuatro fases con datos
+   reales de un dato concreto y quedaba fuera de la cartera por completo,
+   pese a ser uno de los dos sectores con mayor rendimiento incondicional
+   de los diez (8,75 % anual, solo por detrás de Energía) — ninguna fase le
+   sienta mal, así que no hay motivo para excluirlo solo porque ninguna le
+   siente notablemente mejor que su ya alto promedio. Pero admitir
+   *cualquier* empate en 0 sin más filtro tiene un coste distinto: cuela
+   también a los empatados flojos (con datos reales, Utilities y Financiero
+   empataban con Tecnología en varias fases) junto al empatado fuerte que
+   de verdad merecía el hueco, diluyendo la cartera con nombres mediocres
+   — ni ventaja de fase ni historial que lo compense — y de hecho
+   empeorando el resultado del backtest en la práctica. Por eso un empate
+   en 0 exige una condición extra: su rendimiento incondicional entre
+   volatilidad (mismo peso por recencia que el resto del cálculo, no la
+   matriz de la sección 6, que pesa todo el histórico por igual —mezclar
+   las dos ponderaciones sería inconsistente) tiene que igualar o superar
+   la mediana de todos los candidatos del bloque, no solo la de los
+   empatados. Entre los empatados que sí pasan ese filtro, y entre los
+   candidatos negativos cuando hace falta completar el suelo, el orden lo
+   da ese mismo rendimiento incondicional — nunca la volatilidad a secas ni
+   el orden en que aparecen las columnas del histórico, que no significa
+   nada y que es lo que decidía antes de este ajuste.
 4. Dentro de cada bloque, el reparto entre los elegidos sigue uno de cuatro
    esquemas —equiponderado, inverso de volatilidad, por puesto, o mitad y
    mitad— calculados en paralelo. El panel abre con el que de verdad ha dado

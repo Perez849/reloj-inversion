@@ -1050,7 +1050,7 @@ function renderLab() {
           si aguanta fuera de su propia muestra.</p>
         <p class="cap" style="margin-top:8px">Tamaño fijo a propósito — evaluar "todas las
           combinaciones" solo es tratable con un número constante. La cartera real de «Qué comprar
-          ahora» no usa este número: elige entre 2 y 7 sectores según cuántos puntúen positivo en la
+          ahora» no usa este número: elige entre 2 y 7 sectores según cuántos no muestren desventaja de
           fase, nunca un tamaño fijo. Esta sección responde una pregunta distinta y más simple: si lo
           que ganaba antes seguía ganando después.</p>
       </div>

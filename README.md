@@ -24,9 +24,9 @@ GitHub Pages sirve la página.
   es el signo de los dos ejes resultantes; la confianza, la probabilidad real
   de ese cuadrante frente al segundo más probable.
 - **La cartera**: 100 % renta variable de sectores (entre 2 y 7 de los 10
-  posibles, según cuántos puntúen positivo *de verdad* en la fase — la misma
-  media condicionada de la matriz de evidencia, no una extrapolación aparte),
-  con oro y mineras de oro como único seguro no bursátil (0-20 %). Cada
+  posibles, según cuántos no muestren desventaja *de verdad* en la fase — la
+  misma media condicionada de la matriz de evidencia, no una extrapolación
+  aparte), con oro y mineras de oro como único seguro no bursátil (0-20 %). Cada
   recomendación lleva el contraste estadístico (t de Newey-West, control de
   FDR) y el backtest walk-forward completo, comparado contra el S&P 500.
 
