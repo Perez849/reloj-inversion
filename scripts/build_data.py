@@ -1450,6 +1450,11 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
 
     eq, bd = X.get(eq_c), X.get(bd_c)
     bench = (0.6 * eq + 0.4 * bd).reindex(dates) if eq is not None and bd is not None else None
+    # Renta variable EE.UU. al 100%, sin nada de bonos: la comparación directa
+    # contra "el mercado" que se pide más a menudo, aunque compare posturas de
+    # riesgo distintas (la cartera del reloj lleva ~30% en renta fija). Se
+    # publica al lado del 60/40, no en su lugar.
+    bench_eq = eq.reindex(dates) if eq is not None else None
     hp = pd.Series(held, index=dates)
     bench_annual = _annual(bench.dropna()) if bench is not None else {}
 
@@ -1528,6 +1533,7 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
         for k in out_schemes))
     return {"schemes": out_schemes, "default": "invvol",
             "bench_6040": perf(bench) if bench is not None else {},
+            "bench_100eq": perf(bench_eq) if bench_eq is not None else {},
             "bench_annual": bench_annual,
             "bands": {k: [round(v[1] * 100), round(v[2] * 100)]
                       for k, v in SLEEVES.items()}}

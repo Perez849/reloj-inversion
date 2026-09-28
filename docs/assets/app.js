@@ -801,9 +801,20 @@ function renderRotation() {
             <td style="text-align:right;font-family:var(--mono)">${fmtNum(b.maxdd, 1)}%</td>
             <td style="text-align:right;font-family:var(--mono)">${fmtNum(b.worst12, 1)}%</td>
             <td style="text-align:right;font-family:var(--mono);color:var(--ink-soft)">—</td></tr>
+          ${r.bench_100eq?.cagr != null ? `<tr><td class="asset" style="color:var(--ink-soft)">Renta variable EE.UU. 100% (referencia S&amp;P/mercado)</td>
+            <td style="text-align:right;font-family:var(--mono)">${fmtNum(r.bench_100eq.cagr, 1)}%</td>
+            <td style="text-align:right;font-family:var(--mono)">${fmtNum(r.bench_100eq.vol, 1)}%</td>
+            <td style="text-align:right;font-family:var(--mono);font-weight:600">${fmtNum(r.bench_100eq.sharpe, 2)}</td>
+            <td style="text-align:right;font-family:var(--mono)">${fmtNum(r.bench_100eq.maxdd, 1)}%</td>
+            <td style="text-align:right;font-family:var(--mono)">${fmtNum(r.bench_100eq.worst12, 1)}%</td>
+            <td style="text-align:right;font-family:var(--mono);color:var(--ink-soft)">—</td></tr>` : ""}
         </tbody>
       </table>
     </div>
+    ${r.bench_100eq?.cagr != null ? `<p class="foot" style="margin-bottom:14px">La fila de renta variable 100% es la referencia más citada («el mercado»), no una
+      comparación a igual riesgo: lleva más volatilidad que cualquier esquema de la tabla, que
+      mantienen siempre un tercio en renta fija. Compárala en Sharpe, no solo en rentabilidad —
+      batir al mercado asumiendo su mismo riesgo o menos es la vara de medir real.</p>` : ""}
     ${S.vol_check ? `<p class="foot" style="margin-bottom:10px">
       Control de riesgo: la cartera terminó con <b>${fmtNum(S.vol_check.cartera, 1)}%</b> de
       volatilidad frente al <b>${fmtNum(S.vol_check.objetivo_6040, 1)}%</b> del 60/40
