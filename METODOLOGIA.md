@@ -348,11 +348,28 @@ explícita, no un hallazgo del backtest. En el mes *t*:
    matriz de la sección 6, que pesa todo el histórico por igual —mezclar
    las dos ponderaciones sería inconsistente) tiene que igualar o superar
    la mediana de todos los candidatos del bloque, no solo la de los
-   empatados. Entre los empatados que sí pasan ese filtro, y entre los
-   candidatos negativos cuando hace falta completar el suelo, el orden lo
-   da ese mismo rendimiento incondicional — nunca la volatilidad a secas ni
-   el orden en que aparecen las columnas del histórico, que no significa
-   nada y que es lo que decidía antes de este ajuste.
+   empatados. Entre los empatados que sí pasan ese filtro el orden lo da
+   ese mismo rendimiento incondicional — nunca la volatilidad a secas ni el
+   orden en que aparecen las columnas del histórico, que no significa nada
+   y que es lo que decidía antes de este ajuste.
+
+   **Y cuando ni siquiera hay empatados en 0 —todo el bloque puntúa
+   negativo, típico de fases hostiles a la renta variable como
+   Estanflación— el orden para completar el suelo no es la ventaja
+   relativa, es el nivel absoluto de la fase.** La diferencia importa y se
+   vio con datos reales: en Estanflación, Tecnología rindió -0,85 % real
+   (de los peores de los diez) frente al +3,58 % real de Utilities, pero
+   Tecnología llegó a llevarse el 53 % de la cartera de renta variable esa
+   fase — más del doble que Utilities. La causa: ordenar por ventaja
+   relativa compara cada activo con su PROPIA media, y Tecnología, con una
+   media incondicional altísima (8,75 % anual), se queda "no tan mal" en
+   relativo en una fase floja aunque en términos absolutos rindiera peor
+   que Utilities, cuya media incondicional es mucho más baja (6,57 %) y
+   para quien un +3,58 % real ya representa una caída relativa mayor sobre
+   su propio promedio. Cuando no hay ninguna ventaja de fase que premiar
+   —ese es precisamente el caso—, lo sensato es preferir quien de verdad
+   rindió mejor esa fase en términos absolutos, no quien se alejó menos de
+   su propio promedio.
 4. Dentro de cada bloque, el reparto entre los elegidos sigue uno de cuatro
    esquemas —equiponderado, inverso de volatilidad, por puesto, o mitad y
    mitad— calculados en paralelo. El panel abre con el que de verdad ha dado

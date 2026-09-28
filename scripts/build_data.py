@@ -1187,6 +1187,14 @@ def _sleeve_pick(mu, vol, grand, avail, classes, cls_map, n_min, n_max):
     compense — y de hecho empeorando el resultado del backtest. El filtro
     de mediana separa las dos cosas: un empatado en cero solo entra si,
     además, no es mediocre en términos absolutos.
+
+    Y cuando hace falta rellenar el suelo con activos que ni siquiera
+    empatan en cero (todo el bloque puntúa negativo: fases como
+    Estanflación, hostiles a la renta variable en conjunto), el orden entre
+    ellos no es el relativo (ir) sino el nivel absoluto de la fase por
+    unidad de volatilidad — ver más abajo por qué: el relativo puede
+    premiar al que mejor aguanta comparado con su propia media espectacular
+    en vez de al que de verdad rindió mejor esa fase.
     La selección es idéntica para los cuatro esquemas: lo único que cambia entre
     ellos es cómo se reparte el dinero entre los ya elegidos."""
     cand = [c for c in avail
@@ -1211,8 +1219,28 @@ def _sleeve_pick(mu, vol, grand, avail, classes, cls_map, n_min, n_max):
     # historial que lo compense.
     gsh_bar = gsh.median()
     ok = (ir > 0) | ((ir >= 0) & (gsh >= gsh_bar))
-    combo = pd.DataFrame({"ir": ir, "g": gsh, "ok": ok}) \
-        .sort_values(["ir", "g"], ascending=[False, False])
+    # Nivel absoluto (no relativo) de esta fase por unidad de volatilidad:
+    # deshace la contracción relativa (grand + mu, en vez de solo mu) para
+    # obtener la rentabilidad esperada de la fase en sí, no la desviación
+    # sobre la propia media. Se usa SOLO para ordenar los que NO pasan el
+    # filtro de aceptable — ahí no hay ninguna ventaja de fase que premiar,
+    # así que lo sensato es preferir el que mejor rinde en ESTA fase en
+    # términos absolutos, no el que se aleja menos de su propio promedio.
+    # Un sector espectacular en general puede verse "no tan mal" en
+    # relativo en una fase floja sin dejar de ser, en absoluto, de los
+    # peores esa fase (Tecnología en Estanflación: -0,85% real, pero solo
+    # "un poco peor de lo habitual" al lado de su propio 8,75% de media); y
+    # uno mediocre en general puede verse "mal" en relativo sin dejar de
+    # rendir, en absoluto, mejor que el anterior (Utilities: +3,58% real en
+    # esa misma fase). Rellenar el suelo por relativo cuando nada tiene
+    # ventaja de fase premiaba al primero sobre el segundo — justo al
+    # revés de lo que de verdad pasó.
+    abs_lvl = (grand.reindex(ir.index) + mu.reindex(ir.index)) / vc.reindex(ir.index)
+    combo = pd.DataFrame({"ir": ir, "g": gsh, "abs": abs_lvl, "ok": ok})
+    combo = pd.concat([
+        combo[combo["ok"]].sort_values(["ir", "g"], ascending=[False, False]),
+        combo[~combo["ok"]].sort_values("abs", ascending=False),
+    ])
     ir = combo["ir"]
     n_positive = int(combo["ok"].sum())
     n_take = min(max(n_positive, n_min), n_max, len(ir))
