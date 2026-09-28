@@ -1496,6 +1496,13 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
         playbook, mix = {}, {}
         for phase in PHASES:
             mu = means(X, ph, phase)
+            if sch == "equal":
+                import sys
+                eq_names = [c for c in mu.index if cls_map.get(c) == "Renta variable"]
+                srt = mu.reindex(eq_names).sort_values(ascending=False)
+                print(f"DEBUG means() {phase}:", file=sys.stderr)
+                for nm, v in srt.items():
+                    print(f"  {nm:28s} mu={v:.4f} vol={vol_all.get(nm):.4f}", file=sys.stderr)
             # Ken French publica con un mes de retraso: exigir dato en el último
             # mes dejaba fuera todos los sectores y el bloque salía vacío.
             avail = list(X.columns[X.tail(4).notna().any()])
