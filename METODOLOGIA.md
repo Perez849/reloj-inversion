@@ -213,7 +213,16 @@ Estrella y Mishkin (1998); el NFCI, de la propia construcción del Chicago Fed.
 
 Para cada activo y cada fase:
 
-1. Se toma el exceso mensual sobre el tipo libre de riesgo.
+1. Se toma el exceso mensual sobre el tipo libre de riesgo (letras del Tesoro a 3
+   meses). **Esto no es un detalle solo de esta sección**: todo el panel trabaja
+   sobre esta serie de excesos — la matriz, el backtest de 7.1, la cartera de
+   rotación de 7.2. Cualquier "CAGR" o "rentabilidad anual" que aparece en la web,
+   incluida la comparación de la cartera contra el S&P 500, es exceso sobre
+   letras del Tesoro, no el retorno total del índice. Es la convención estándar
+   para que el Sharpe (retorno entre riesgo) signifique lo que dice significar, y
+   la comparación entre dos carteras es igual de válida en excesos que en bruto —
+   pero el número absoluto del S&P 500 en bruto es más alto que el que se publica
+   aquí, aproximadamente en el tipo de interés sin riesgo del periodo.
 2. Se calcula la media dentro de la fase y se compara con **la media incondicional
    del propio activo**. La pregunta no es «¿sube la tecnología en recuperación?»
    —casi todo sube— sino «¿sube más de lo que sube normalmente?».
@@ -280,9 +289,15 @@ explícita, no un hallazgo del backtest. En el mes *t*:
    sección 6. Es lo único que el reloj dice saber; ordenar por rentabilidad
    absoluta sin dividir por volatilidad selecciona siempre lo más volátil por
    serlo, no lo que mejor conviene a la fase.
-3. **Renta variable**: los 5 mejores sectores (de 11 posibles) por esa
-   rentabilidad esperada dividida entre volatilidad. **Oro**: hasta 2 exposiciones
-   (oro físico y mineras de oro) con el mismo criterio.
+3. **El número de activos no es fijo.** Dentro de cada bloque se quedan los que
+   puntúan **positivo** en esa rentabilidad esperada dividida entre volatilidad
+   —los que de verdad convienen en esta fase, no un top-N arbitrario—, acotado
+   entre un suelo y un techo: **Renta variable**, entre 3 y 7 de los 11
+   sectores posibles; **Oro**, entre 0 y 2 (oro físico y mineras de oro). Con
+   menos positivos que el suelo, se completa hasta el suelo con los siguientes
+   mejores aunque puntúen flojo — el suelo es diversificación mínima del
+   bloque, no una opinión sobre esos activos. Con más positivos que el techo,
+   se recorta a los mejores. Un mes puede tener 3 sectores; otro, 6.
 4. Dentro de cada bloque, el reparto entre los elegidos sigue uno de cuatro
    esquemas —equiponderado, inverso de volatilidad (el que usa por defecto el
    panel), por puesto, o mitad y mitad— calculados en paralelo; el panel deja
@@ -299,14 +314,14 @@ explícita, no un hallazgo del backtest. En el mes *t*:
 | Regla | Motivo |
 |---|---|
 | Bandas 80-100 % renta variable, 0-20 % oro | Nunca sin renta variable; el oro es un seguro táctico, no puede superar a la renta variable en peso |
-| Cinco sectores, no cuatro ni diez | Cuatro sectores concentrados sobre una cartera 100 % invertida son un riesgo idiosincrático que nadie pidió; diez de once es casi comprar el índice y no queda rotación que evaluar |
+| Entre 3 y 7 sectores, nunca fijo en uno solo | Menos de 3 sobre una cartera 100 % invertida es un riesgo idiosincrático que nadie pidió; 8 o más de 11 es casi comprar el índice entero y no queda rotación que evaluar. Dentro de ese rango, manda la fase: cuantos puntúen positivo |
 | Índices agregados excluidos de la selección | S&P total, EAFE, emergentes y small caps copan la selección si se les deja, y desaparece la rotación sectorial. Siguen en la matriz como referencia |
 | Series no invertibles excluidas | PPI y WTI spot no se pueden mantener en cartera |
-| Un vehículo por subyacente | Oro lingote y oro ETF son literalmente lo mismo, igual que GSCI y DBC. Se colapsan antes de puntuar y gana el de más historia: con datos idénticos, el criterio es la calidad de la serie |
-| Una exposición por grupo solapado | Bancos está dentro de Financiero; Software y Semiconductores están dentro de Tecnología. Comprar las dos patas no es diversificar, es la misma posición escrita dos veces. La restricción se aplica al elegir: se ordena por rentabilidad esperada y se salta cualquier candidato que comparta grupo con algo ya seleccionado |
+| Los 11 sectores son mutuamente excluyentes por construcción | Las 12 industrias de Ken French (11 aquí, sin "Otros sectores") no se solapan entre sí: no hay un "Bancos" aparte de "Financiero" ni un "Semiconductores" aparte de "Tecnología" que pudieran duplicar la misma apuesta. No hace falta ninguna regla de deduplicación dentro del bloque de renta variable |
+| Oro físico y mineras de oro pueden convivir | No son la misma apuesta: el lingote es exposición pura al precio del oro, las mineras añaden apalancamiento operativo y riesgo de renta variable encima. Correlacionados, pero no intercambiables — de ahí que el bloque de oro pueda sostener los dos a la vez, hasta su techo de 2 |
 | Mínimo 60 meses de historia | Un ETF con dos años de datos no gana la selección por ruido |
 | Tolerancia de 4 meses al retraso de publicación | Ken French publica con dos meses de desfase; exigir dato del último mes exacto dejaba fuera todos los sectores |
-| Guardián de plausibilidad | Una serie que no puede ser un retorno mensual no entra: más del 90 % de meses en positivo (es un índice acumulado, no retornos), menos del 15 % (signo invertido), media por encima del 8 % mensual o un mes por encima del 150 %. Nace de un caso real: una fuente devolvió un índice acumulado disfrazado de bono, con media del 25 % mensual y el 99,9 % de meses en verde |
+| Guardián de plausibilidad | Una serie que no puede ser un retorno mensual no entra: más del 90 % de meses en positivo **y** media por encima del 3 % mensual a la vez (las dos condiciones juntas — la liquidez y los bonos cortos son legítimamente positivos el 95 %+ de los meses con media baja, y solo un filtro conjunto no los descarta a ellos), menos del 15 % de meses en positivo (signo invertido), media por encima del 8 % mensual, o un mes por encima del 150 %. Nace de un caso real: una fuente devolvió un índice acumulado disfrazado de bono, con media del 25 % mensual y el 99,9 % de meses en verde |
 | 120 meses de entrenamiento antes de la primera operación | Con 240 el backtest arrancaba en 1990 y se perdía Volcker, que es donde el reloj tiene las cuatro fases pobladas. El coste es que las estimaciones de los primeros años son más ruidosas |
 | Muestra recortada al último mes con benchmark | La estrategia y el S&P 500 tienen que cubrir exactamente los mismos meses |
 
@@ -323,6 +338,37 @@ histórico completo, incluido el futuro que en su momento no se conocía. La dis
 entre las dos curvas es la parte del resultado que depende de saber cosas por
 adelantado. Se publica junto a la cartera real en lugar de esconderse: cuanto más
 pequeña, más se parece el backtest a lo que habrías vivido.
+
+### 7.4 El laboratorio de persistencia (sección «Laboratorio»)
+
+Pregunta distinta a la de 7.1-7.3, y más simple: **lo que ganó en la primera mitad
+de una fase, ¿seguía ganando en la segunda?** No es el algoritmo de selección de la
+cartera real —ese usa regresión sobre los factores, contracción bayesiana y un
+número variable de activos (7.2)—, sino un contraste directo sobre el propio
+histórico crudo de cada bloque.
+
+Para cada fase y cada bloque (renta variable, oro):
+
+1. Se listan todos los activos del bloque con al menos 24 meses en esa fase.
+2. Se evalúan **todas** las combinaciones posibles de `k=5` de esos activos —un
+   tamaño fijo, a propósito: "todas las combinaciones posibles" solo es tratable
+   con k constante, y 5 es el valor típico del rango 3-7 que usa la cartera real
+   de 7.2. Con solo dos candidatos, como el bloque de oro, no hay combinaciones de
+   5 que evaluar y el bloque se salta con una nota.
+3. Cada combinación —y cada activo suelto— se parte por la **mediana de sus
+   propios meses disponibles** en esa fase, no por una fecha común: un ETF que
+   arrancó en 2007 se compara con su propia mitad temprana y tardía, no queda
+   fuera por no tener historia antes de esa fecha.
+4. Se ordenan las combinaciones por rentabilidad en la primera mitad y se mira
+   dónde cae cada una, por percentil, dentro de **todas** las combinaciones en la
+   segunda mitad. El coeficiente de correlación de rangos (Spearman) entre las dos
+   mitades —para las combinaciones y, aparte, para los activos sueltos— es la cifra
+   que resume si "lo que funcionó antes" es información o ruido: por encima de 0,4,
+   hay persistencia real; por debajo de 0,15 en cualquier sentido, elegir por
+   historia pasada equivale a tirar una moneda.
+
+Esta sección no alimenta ninguna recomendación del panel: es una comprobación
+aparte de si el marco tiene memoria, no una fuente de la cartera de 7.2.
 
 ---
 
@@ -355,6 +401,10 @@ reloj gira al revés; solo muy por encima se puede hablar de un ciclo con direcc
 
 ## 9. Lo que no hace
 
+- **Los "CAGR" del panel no son el retorno total del índice.** Son exceso sobre
+  letras del Tesoro a 3 meses (sección 6.1) — la convención estándar para que el
+  Sharpe tenga sentido, pero significa que el número del S&P 500 que se muestra
+  es más bajo que su rentabilidad histórica real en bruto.
 - **No valora.** El reloj dice qué fase es, no si el activo ya está caro. Un sector
   puede ser el correcto y estar en el percentil 95 de PER.
 - **No usa datos en tiempo real de verdad.** Respeta el retraso de publicación pero

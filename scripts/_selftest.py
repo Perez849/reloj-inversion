@@ -44,11 +44,11 @@ def synth(sid: str):
     drive = cycle if block != "inflation" else infl_cycle
     if sid in ("CFNAIMA3", "USSLIND", "MEDCPIM158SFRBCLE", "PCETRIM12M159SFRBDAL",
                "TCU", "UMCSENT", "AWHMAN", "UNRATE", "TB3MS", "FEDFUNDS",
-               "BAA", "AAA", "DFII10"):
+               "BAA", "AAA", "DFII10", "MORTGAGE30US"):
         base = {"CFNAIMA3": 0, "USSLIND": 1.5, "MEDCPIM158SFRBCLE": 2.8,
                 "PCETRIM12M159SFRBDAL": 2.4, "TCU": 78, "UMCSENT": 85,
                 "AWHMAN": 40.5, "UNRATE": 5.5, "TB3MS": 3.0, "FEDFUNDS": 3.2,
-                "BAA": 6.5, "AAA": 5.5, "DFII10": 1.6}[sid]
+                "BAA": 6.5, "AAA": 5.5, "DFII10": 1.6, "MORTGAGE30US": 6.5}[sid]
         return pd.Series(base + 1.2 * drive + rng.normal(0, 0.2, len(IDX_M)),
                          index=IDX_M, name=sid)
     growth = 0.003 + 0.004 * drive + rng.normal(0, 0.004, len(IDX_M))
