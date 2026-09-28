@@ -463,7 +463,11 @@ FRENCH_IND = {
 # duplicaban a Financiero, Tecnología y Energía, y el bloque acababa eligiendo seis
 # nombres que eran tres exposiciones repetidas.
 FRENCH_49 = {
-    "Gold": ("Metales preciosos (mineras)", "Real / alternativos",
+    # Clase propia "Oro", separada de "Real / alternativos": es la única
+    # exposición no bursátil que entra en la cartera de rotación (ver SLEEVES),
+    # así que necesita poder seleccionarse sola sin arrastrar plata, cobre,
+    # materias primas o inmobiliario.
+    "Gold": ("Metales preciosos (mineras)", "Oro",
              "mineras de oro, no lingote: el oro físico ya no está en FRED"),
     "RlEst": ("Inmobiliario", "Real / alternativos",
               "sustituye al índice Wilshire, retirado de FRED"),
@@ -495,7 +499,7 @@ FRED_YIELD = {
 # Fuentes de mercado. Yahoo primero (los runners de GitHub llegan bien), Stooq de
 # respaldo. Cada entrada: etiqueta -> (clase, símbolo Yahoo, ticker Stooq, nota).
 MARKET = {
-    "Oro (lingote)": ("Real / alternativos", "GC=F", "xauusd",
+    "Oro (lingote)": ("Oro", "GC=F", "xauusd",
                       "futuro continuo de oro; el histórico largo lo cubren las mineras"),
 
     "Plata": ("Real / alternativos", "SI=F", "xagusd", ""),
@@ -1026,92 +1030,27 @@ def backtest(X: pd.DataFrame, phases: pd.Series, top_k: int = 5, min_train: int 
             "top_k": top_k, "curve": curve[-460:]}
 
 
-def defensive(X: pd.DataFrame, growth: pd.Series) -> dict:
-    """Superposición defensiva sobre un 60/40.
-
-    Tres reglas fijadas ANTES de mirar el resultado, todas con el mismo disparador:
-    el signo del eje de crecimiento del mes anterior, que es información disponible
-    en tiempo real porque los z-scores ya llevan aplicado el retraso de publicación.
-    No hay ningún umbral ajustado: el umbral es cero, que por construcción significa
-    "crecimiento en tendencia".
-
-    Se prueban tres variantes. Elegir la mejor de tres infla el Sharpe, así que se
-    publican las tres y el número de variantes probadas.
-    """
-    need = ["Renta variable EE.UU. (mercado)", "Treasury 10 años", "Treasury 2 años"]
-    if any(c not in X.columns for c in need):
-        return {}
-    gold = next((c for c in ("Metales preciosos (mineras)", "Oro (lingote)",
-                             "Oro (ETF físico)") if c in X.columns), None)
-    eq, b10, b2 = need
-    idx = X.index.intersection(growth.dropna().index)
-    sig = (growth.reindex(idx).shift(1) < 0)
-    D = X.reindex(idx)
-
-    def run(defensive_w):
-        base = {eq: 0.6, b10: 0.4}
-        out = []
-        for t in idx:
-            w = defensive_w if bool(sig.get(t, False)) else base
-            cols = [c for c in w if c in D.columns and D.loc[t, c] == D.loc[t, c]]
-            if not cols:
-                out.append(np.nan)
-                continue
-            tot = sum(w[c] for c in cols)
-            out.append(sum(w[c] / tot * float(D.loc[t, c]) for c in cols))
-        return pd.Series(out, index=idx).dropna()
-
-    variants = {
-        "base_6040": None,
-        "a_bonos": {eq: 0.30, b10: 0.70},
-        "b_corto": {eq: 0.30, b2: 0.70},
-    }
-    if gold:
-        variants["c_oro"] = {eq: 0.30, b10: 0.50, gold: 0.20}
-
-    res = {}
-    base_series = None
-    for name, w in variants.items():
-        if w is None:
-            cols = [eq, b10]
-            base_series = (0.6 * D[eq] + 0.4 * D[b10]).dropna()
-            res[name] = perf(base_series)
-        else:
-            res[name] = perf(run(w))
-
-    res["n_variants"] = len(variants) - 1
-    res["months_defensive"] = int(sig.sum())
-    res["share_defensive"] = round(float(sig.mean()), 3)
-    res["trigger"] = "eje de crecimiento del mes anterior por debajo de cero"
-    return res
-
-
-
 # ======================================================================================
 # 7b. Rotación por fase, solo largo y sin apalancar
 # ======================================================================================
 
-# Presupuesto fijo, idéntico en todas las fases: 60 % activos de riesgo, 30 % renta
-# fija, 10 % activos reales. Lo que cambia con la fase es QUÉ hay dentro de cada
-# bloque, no cuánto pesa. Así la comparación con el 60/40 es limpia: misma postura
-# de riesgo, distinto contenido. Sin apalancamiento y sin posiciones cortas.
-# Bandas de cada bloque. Los pesos NO son fijos: se mueven con la fase dentro de
-# estas bandas, en proporción a lo bien que el bloque puntúa en esa fase. Siempre
-# queda algo de renta variable y algo de renta fija; el oro y demás activos reales
-# pueden quedarse a cero si no aportan.
+# Cartera 100% renta variable de sectores, sin renta fija: por decisión explícita,
+# no por hallazgo del backtest. El oro y las mineras de oro entran como única
+# excepción no bursátil, con techo bajo — un seguro táctico para Estanflación y
+# Reflación, nunca el núcleo de la cartera. Sin apalancamiento y sin cortos; la
+# comparación que importa aquí es contra la propia renta variable (bench_100eq
+# en rotation()), no contra un 60/40 que esta cartera ni tiene ni pretende imitar.
 SLEEVES = {
-    # Seis sectores, no cuatro: cuatro sectores concentrados son bastante más
-    # volátiles que el mercado entero, así que para igualar el riesgo del 60/40 la
-    # cartera se veía obligada a bajar la renta variable a su suelo del 30 % y
-    # rendía menos por fuerza. Diversificar el bloque permite llevar más peso en
-    # renta variable al mismo nivel de riesgo.
-    "Renta variable": ({"Renta variable"}, 0.30, 0.70, 4),
-    "Renta fija": ({"Renta fija", "Liquidez"}, 0.20, 0.60, 3),
-    # Los activos reales son, con diferencia, lo más rentable del universo (oro, plata,
-    # cobre, materias primas: entre el 10 % y el 16 % anual). El techo del 15 % era
-    # prudencia mía, no un resultado. Al 30 % pueden aportar de verdad, y siguen
-    # pudiendo quedarse a cero cuando no les toca.
-    "Activos reales": ({"Real / alternativos"}, 0.00, 0.30, 3),
+    # Cinco de los once sectores posibles: pocos para que la rotación signifique
+    # algo (elegir 10 de 11 es casi comprar el índice), suficientes para no vivir
+    # y morir por un solo sector — cuatro sectores concentrados sobre una cartera
+    # 100% invertida son un nivel de riesgo idiosincrático que nadie pidió.
+    "Renta variable": ({"Renta variable"}, 0.80, 1.00, 5),
+    # Oro físico y mineras de oro, las dos únicas exposiciones de la clase "Oro"
+    # (ver FRENCH_49 y MARKET): un seguro, no una apuesta. Banda 0-20%: puede
+    # desaparecer del todo si no aporta en la fase, nunca superar a la renta
+    # variable en peso.
+    "Oro": ({"Oro"}, 0.00, 0.20, 2),
 }
 
 # Índices agregados: sirven de referencia, no de posición. Si entran en la selección
@@ -1211,23 +1150,23 @@ def _sleeve_pick(mu, vol, avail, classes, cls_map, n_pick):
     #   - DENTRO del bloque se ordena por rentabilidad entre volatilidad, porque se
     #     comparan activos de riesgo parecido y así no gana el más volátil por serlo.
     #   - ENTRE bloques se compara la rentabilidad esperada A SECAS. Usar el cociente
-    #     también aquí premia sistemáticamente a la renta fija, cuya volatilidad es
-    #     tres veces menor, y deja la cartera con menos bolsa que el propio 60/40:
-    #     rinde menos por invertir menos, no por elegir peor.
+    #     también aquí premiaría sistemáticamente al oro, bastante menos volátil que
+    #     la renta variable, y dejaría la cartera con menos bolsa que su propio suelo
+    #     del 80%: rendiría menos por invertir menos, no por elegir peor.
     score = float((mu.reindex(top) * w.fillna(0)).sum())
     return top, score
 
 
-def _sleeve_weights(scores: dict, cov=None, inner=None, target_vol=None) -> dict:
+def _sleeve_weights(scores: dict) -> dict:
     """Reparte el 100 % entre bloques en proporción a lo que puntúa cada uno en la
     fase, respetando las bandas. Una puntuación negativa se trata como cero: ese
-    bloque baja a su mínimo, y los activos reales pueden quedarse fuera del todo.
+    bloque baja a su mínimo, y el oro puede quedarse fuera del todo.
 
-    NOTA: una versión anterior forzaba la volatilidad de la cartera a igualar la del
-    60/40. Fue un error: el reparto proporcional ya salía con una volatilidad
-    prácticamente idéntica a la del índice por sí solo, y el forzado dejaba la renta
-    variable clavada en su suelo, costando unos tres puntos de rentabilidad al año.
-    Los argumentos cov/inner/target_vol se mantienen por compatibilidad y no se usan.
+    NOTA: una versión anterior forzaba la volatilidad de la cartera a igualar la de
+    un benchmark externo (primero 60/40, antes de eso el propio mercado). Fue un
+    error: el reparto proporcional ya sale con una volatilidad muy parecida a la del
+    bloque dominante por sí solo, y forzarla dejaba la renta variable clavada en su
+    suelo, costando rentabilidad sin comprar nada a cambio.
     """
     names = list(SLEEVES)
     lo = {k: SLEEVES[k][1] for k in names}
@@ -1415,21 +1354,11 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
                 mu, vol, avail, classes, cls_map, n_pick)
         if not any(picks.values()):
             continue
-        # Volatilidad objetivo: la que el propio 60/40 ha tenido en los últimos
-        # 5 años. No es un parámetro libre, es la referencia contra la que se compara.
-        win = hist.tail(60)
-        tgt = None
-        if eq_c in win.columns and bd_c in win.columns:
-            bench_hist = (0.6 * win[eq_c] + 0.4 * win[bd_c]).dropna()
-            if bench_hist.size > 24:
-                tgt = float(bench_hist.std())
-        held_names = [c for top in picks.values() for c in top]
-        cov = win[held_names].dropna(how="all").cov() if held_names else None
 
         for sch in SCHEMES:
             inner = {name: _weights(top, vol, sch).to_dict()
                      for name, top in picks.items() if top}
-            budgets = _sleeve_weights(scores, cov, inner, tgt)
+            budgets = _sleeve_weights(scores)
             w_all = {}
             for name, w in inner.items():
                 for c, wt in w.items():
@@ -1449,12 +1378,11 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
         held.append(sig)
 
     eq, bd = X.get(eq_c), X.get(bd_c)
-    bench = (0.6 * eq + 0.4 * bd).reindex(dates) if eq is not None and bd is not None else None
-    # Renta variable EE.UU. al 100%, sin nada de bonos: la comparación directa
-    # contra "el mercado" que se pide más a menudo, aunque compare posturas de
-    # riesgo distintas (la cartera del reloj lleva ~30% en renta fija). Se
-    # publica al lado del 60/40, no en su lugar.
-    bench_eq = eq.reindex(dates) if eq is not None else None
+    # La cartera es 100% renta variable (+ oro): la referencia primaria es la
+    # propia renta variable EE.UU., no un 60/40 que esta cartera no tiene. El
+    # 60/40 se conserva aparte, solo como contexto para quien lo quiera.
+    bench = eq.reindex(dates) if eq is not None else None
+    bench_6040 = (0.6 * eq + 0.4 * bd).reindex(dates) if eq is not None and bd is not None else None
     hp = pd.Series(held, index=dates)
     bench_annual = _annual(bench.dropna()) if bench is not None else {}
 
@@ -1485,14 +1413,7 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
                     mu, vol_all, avail, classes, cls_map, n_pick)
             inner_pb = {sl: _weights(top, vol_all, sch).to_dict()
                         for sl, top in picks.items() if top}
-            names_pb = [c for top in picks.values() for c in top]
-            cov_pb = X[names_pb].tail(60).cov() if names_pb else None
-            tgt_pb = None
-            if eq_c in X.columns and bd_c in X.columns:
-                bh = (0.6 * X[eq_c] + 0.4 * X[bd_c]).dropna().tail(60)
-                if bh.size > 24:
-                    tgt_pb = float(bh.std())
-            budgets = _sleeve_weights(scores, cov_pb, inner_pb, tgt_pb)
+            budgets = _sleeve_weights(scores)
             rows = []
             for sl, w in inner_pb.items():
                 for c in picks[sl]:
@@ -1508,7 +1429,7 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
         out_schemes[sch] = {
             "vol_check": {
                 "cartera": round(realized, 2),
-                "objetivo_6040": round(bench_v, 2) if bench_v else None,
+                "objetivo_mercado": round(bench_v, 2) if bench_v else None,
                 "desvio": round(realized - bench_v, 2) if bench_v else None,
             },
             "label": label,
@@ -1532,8 +1453,8 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
         f"{SCHEMES[k]}: Sharpe {out_schemes[k]['portfolio'].get('sharpe')}"
         for k in out_schemes))
     return {"schemes": out_schemes, "default": "invvol",
-            "bench_6040": perf(bench) if bench is not None else {},
-            "bench_100eq": perf(bench_eq) if bench_eq is not None else {},
+            "bench_100eq": perf(bench) if bench is not None else {},
+            "bench_6040": perf(bench_6040) if bench_6040 is not None else {},
             "bench_annual": bench_annual,
             "bands": {k: [round(v[1] * 100), round(v[2] * 100)]
                       for k, v in SLEEVES.items()}}
@@ -1580,8 +1501,7 @@ def laboratory(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
     out = {}
     sleeve_defs = {
         "Renta variable": {"Renta variable"},
-        "Renta fija": {"Renta fija"},
-        "Activos reales": {"Real / alternativos"},
+        "Oro": {"Oro"},
     }
 
     def halves(series):
@@ -1748,7 +1668,6 @@ def main() -> None:
     X, ameta = fetch_assets(df)
     assets, astats = conditional_stats(X, phases, ameta)
     bt = backtest(X, phases)
-    prot = defensive(X, F["growth"])
     cls_map = {k: v.get("class", "Otros") for k, v in ameta.items()}
     # Probabilidad de cada fase en cada mes, con la misma fórmula que el panel usa
     # para el mes actual. Se desplaza un mes: en t solo se conoce la de t-1.
@@ -1762,8 +1681,13 @@ def main() -> None:
     rec = recession_model(df, F.index)
 
     p1, p2 = rank[0][0], rank[1][0]
+    # Restringido a la clase invertible de la cartera (renta variable + oro): el
+    # consenso alimenta directamente "qué comprar ahora" y no tiene sentido que
+    # sugiera renta fija u otras clases que la cartera de rotación ya no toca.
     consensus = []
     for a in assets:
+        if a["class"] not in {c for cls in SLEEVES.values() for c in cls[0]}:
+            continue
         d1, d2 = a["phases"].get(p1, {}), a["phases"].get(p2, {})
         if str(d1.get("grade", "0")).startswith("+") and str(d2.get("grade", "0")).startswith("+"):
             consensus.append({"name": a["name"], "class": a["class"],
@@ -1838,7 +1762,7 @@ def main() -> None:
         },
         "pca": pca, "indicators": indicators, "history": history, "nber": nber,
         "assets": assets, "asset_stats": astats, "consensus": consensus[:14],
-        "backtest": bt, "defensive": prot, "rotation": rot, "lab": lab,
+        "backtest": bt, "rotation": rot, "lab": lab,
         "validation": val,
         "phases": PHASES, "phase_long": PHASE_LONG,
     }

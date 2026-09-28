@@ -2,9 +2,10 @@
 
 Panel que clasifica el ciclo económico de EE.UU. en uno de los cuatro cuadrantes del
 *investment clock* (Recuperación, Sobrecalentamiento, Estanflación, Reflación) y
-muestra qué comprar en cada fase — sectores de renta variable y bloques de renta
-fija, con el ETF real más parecido para ejecutarlo — a partir de lo que ha pagado
-*históricamente* cada activo en esa fase, con el contraste estadístico delante.
+muestra qué sectores de renta variable comprar en cada fase —sin renta fija, con el
+oro y las mineras de oro como único seguro no bursátil—, con el ETF real más
+parecido para ejecutarlo, a partir de lo que ha pagado *históricamente* cada sector
+en esa fase, contrastado estadísticamente y comparado contra el propio S&P 500.
 
 Se actualiza solo: una acción programada regenera los datos cada día laborable y
 GitHub Pages sirve la página.

@@ -178,7 +178,6 @@ function render() {
   renderConsensus();
   renderRotation();
   renderLab();
-  renderDefensive();
   renderValidation();
   renderDiagnostics();
   renderMethod();
@@ -285,7 +284,7 @@ function renderOutlook() {
 }
 
 /* ------------------------------ qué comprar ------------------------------ */
-const SLEEVE_ORDER = ["Renta variable", "Renta fija", "Activos reales"];
+const SLEEVE_ORDER = ["Renta variable", "Oro"];
 
 function renderBuy() {
   const host = $("#buyCols"), foot = $("#buyFoot");
@@ -318,10 +317,11 @@ function renderBuy() {
 
   const consensus = D.consensus || [];
   const lowConf = c.confidence < 0.6 && consensus.length;
-  foot.innerHTML = `Reparto <b>${scheme.label.toLowerCase()}</b> dentro de cada bloque; el peso entre
-    bloques se mueve según lo bien que puntúa cada uno en <b>${phase}</b>, dentro de bandas fijadas de
-    antemano (nunca cero en renta variable ni en renta fija). Fuente: rotación walk-forward desde 1970,
-    sección «El backtest» más abajo.
+  foot.innerHTML = `100% renta variable de sectores; el oro y las mineras de oro son el único seguro no
+    bursátil, hasta un 20% y solo cuando la fase lo justifica. Reparto <b>${scheme.label.toLowerCase()}</b>
+    dentro de cada bloque; el peso entre bloques se mueve según lo bien que puntúa cada uno en
+    <b>${phase}</b>, dentro de bandas fijadas de antemano (80–100% renta variable, 0–20% oro).
+    Fuente: rotación walk-forward desde 1970, sección «El backtest» más abajo.
     ${lowConf ? ` Con solo <b>${fmtPct(c.confidence)}</b> de margen sobre ${c.alt_phase}, conviene mirar
       también el bloque de «solapamiento» — lo que ha pagado en las dos fases candidatas a la vez.` : ""}`;
 }
@@ -750,8 +750,10 @@ function renderRotation() {
   scheme = scheme || r.default || Object.keys(r.schemes)[0];
   pbPhase = pbPhase || D.current.phase;
   const S = r.schemes[scheme];
-  const b = r.bench_6040 || {};
+  const mkt = r.bench_100eq || {};
+  const b6040 = r.bench_6040 || {};
   const p = S.portfolio;
+  const beatsMkt = p.cagr != null && mkt.cagr != null && p.cagr > mkt.cagr;
 
   const statRow = (name, s, extra, active) => `
     <tr style="${active ? "background:rgba(169,117,44,.07)" : ""}">
@@ -759,7 +761,7 @@ function renderRotation() {
       <td style="text-align:right;font-family:var(--mono)">${fmtNum(s.cagr, 1)}%</td>
       <td style="text-align:right;font-family:var(--mono)">${fmtNum(s.vol, 1)}%</td>
       <td style="text-align:right;font-family:var(--mono);font-weight:600;color:${
-        s.sharpe > (b.sharpe ?? 0) ? POS : "var(--ink-soft)"}">${fmtNum(s.sharpe, 2)}</td>
+        s.sharpe > (mkt.sharpe ?? 0) ? POS : "var(--ink-soft)"}">${fmtNum(s.sharpe, 2)}</td>
       <td style="text-align:right;font-family:var(--mono)">${fmtNum(s.maxdd, 1)}%</td>
       <td style="text-align:right;font-family:var(--mono)">${fmtNum(s.worst12, 1)}%</td>
       <td style="text-align:right;font-family:var(--mono);color:var(--ink-soft)">${extra}</td>
@@ -768,22 +770,35 @@ function renderRotation() {
   $("#rotationBlock").innerHTML = `
     <div class="section-head">
       <div class="eyebrow">El backtest</div>
-      <h2>¿Bate al 60/40 y al mercado? Fase a fase, desde 1970</h2>
-      <p class="cap">Cartera solo de compras, siempre invertida al 100 %, sin apalancar ni ir corto.
-        La fase decide qué activos ocupan cada bloque y cuánto pesa cada bloque dentro de sus bandas.
-        Los índices agregados quedan fuera de la selección, así que la renta variable son sectores, no
-        el S&amp;P 500 disfrazado.</p>
+      <h2>¿Bate al S&amp;P 500? Fase a fase, desde 1970</h2>
+      <p class="cap">Cartera 100% renta variable de sectores (más oro y mineras de oro como único
+        seguro no bursátil, hasta un 20%), solo de compras y sin apalancar. La fase decide qué
+        sectores ocupan la cartera y cuánto peso lleva el oro dentro de su banda. Los índices
+        agregados quedan fuera de la selección, así que esto es una apuesta por sectores, no el
+        S&amp;P 500 disfrazado — y la pregunta que responde esta sección es si esa apuesta
+        <b>compensó</b> frente a comprar el índice sin más.</p>
+    </div>
+
+    <div class="outlook" style="margin-bottom:24px;border-color:${beatsMkt ? POS : PHASE_COLOR["Sobrecalentamiento"]}">
+      <div class="item"><dt>Cartera de rotación</dt><dd style="color:${beatsMkt ? POS : "var(--ink)"}">${fmtNum(p.cagr, 1)}% anual</dd>
+        <small>Sharpe ${fmtNum(p.sharpe, 2)} · caída máxima ${fmtNum(p.maxdd, 1)}%</small></div>
+      <div class="item"><dt>S&amp;P 500 / mercado</dt><dd>${fmtNum(mkt.cagr, 1)}% anual</dd>
+        <small>Sharpe ${fmtNum(mkt.sharpe, 2)} · caída máxima ${fmtNum(mkt.maxdd, 1)}%</small></div>
+      <div class="item"><dt>Diferencia</dt><dd style="color:${beatsMkt ? POS : NEG}">${signed((p.cagr ?? 0) - (mkt.cagr ?? 0), 1)} pp/año</dd>
+        <small>${beatsMkt ? "la rotación por fase bate al índice en CAGR, no solo en riesgo" : "el índice bate a la rotación en CAGR bruto; mira el Sharpe y la caída máxima antes de descartarla"}</small></div>
+      <div class="item"><dt>Sharpe</dt><dd style="color:${(p.sharpe ?? 0) > (mkt.sharpe ?? 0) ? POS : "var(--ink)"}">${fmtNum(p.sharpe, 2)} vs ${fmtNum(mkt.sharpe, 2)}</dd>
+        <small>rentabilidad por unidad de riesgo asumido</small></div>
     </div>
 
     <h3 style="font-family:var(--serif);font-size:17px;margin-bottom:4px">¿Y si el reparto interno cambia?</h3>
-    <p class="cap" style="margin-bottom:14px">La selección de activos es idéntica en los cuatro esquemas:
-      lo único que cambia es cómo se reparte el dinero entre los ya elegidos.</p>
+    <p class="cap" style="margin-bottom:14px">La selección de sectores y de oro es idéntica en los cuatro
+      esquemas: lo único que cambia es cómo se reparte el dinero entre los ya elegidos.</p>
     <div class="seg" id="schemeSeg" style="margin-bottom:18px">
       ${Object.entries(r.schemes).map(([k, v]) => `<button type="button" data-s="${k}"
         aria-pressed="${k === scheme}">${v.label}</button>`).join("")}
     </div>
 
-    <div class="matrix-holder" style="margin-bottom:20px">
+    <div class="matrix-holder" style="margin-bottom:14px">
       <table class="matrix">
         <thead><tr>
           <th>Esquema de reparto</th><th style="text-align:right">Anual</th>
@@ -794,50 +809,44 @@ function renderRotation() {
         <tbody>
           ${Object.entries(r.schemes).map(([k, v]) =>
             statRow(v.label, v.portfolio, `${v.wins_years}/${v.n_years}`, k === scheme)).join("")}
-          <tr style="border-top:2px solid var(--line-strong)"><td class="asset" style="color:var(--ink-soft)">60/40 estático</td>
-            <td style="text-align:right;font-family:var(--mono)">${fmtNum(b.cagr, 1)}%</td>
-            <td style="text-align:right;font-family:var(--mono)">${fmtNum(b.vol, 1)}%</td>
-            <td style="text-align:right;font-family:var(--mono);font-weight:600">${fmtNum(b.sharpe, 2)}</td>
-            <td style="text-align:right;font-family:var(--mono)">${fmtNum(b.maxdd, 1)}%</td>
-            <td style="text-align:right;font-family:var(--mono)">${fmtNum(b.worst12, 1)}%</td>
+          <tr style="border-top:2px solid var(--line-strong)"><td class="asset" style="font-weight:600">S&amp;P 500 / renta variable EE.UU. 100%</td>
+            <td style="text-align:right;font-family:var(--mono);font-weight:600">${fmtNum(mkt.cagr, 1)}%</td>
+            <td style="text-align:right;font-family:var(--mono)">${fmtNum(mkt.vol, 1)}%</td>
+            <td style="text-align:right;font-family:var(--mono);font-weight:600">${fmtNum(mkt.sharpe, 2)}</td>
+            <td style="text-align:right;font-family:var(--mono)">${fmtNum(mkt.maxdd, 1)}%</td>
+            <td style="text-align:right;font-family:var(--mono)">${fmtNum(mkt.worst12, 1)}%</td>
             <td style="text-align:right;font-family:var(--mono);color:var(--ink-soft)">—</td></tr>
-          ${r.bench_100eq?.cagr != null ? `<tr><td class="asset" style="color:var(--ink-soft)">Renta variable EE.UU. 100% (referencia S&amp;P/mercado)</td>
-            <td style="text-align:right;font-family:var(--mono)">${fmtNum(r.bench_100eq.cagr, 1)}%</td>
-            <td style="text-align:right;font-family:var(--mono)">${fmtNum(r.bench_100eq.vol, 1)}%</td>
-            <td style="text-align:right;font-family:var(--mono);font-weight:600">${fmtNum(r.bench_100eq.sharpe, 2)}</td>
-            <td style="text-align:right;font-family:var(--mono)">${fmtNum(r.bench_100eq.maxdd, 1)}%</td>
-            <td style="text-align:right;font-family:var(--mono)">${fmtNum(r.bench_100eq.worst12, 1)}%</td>
-            <td style="text-align:right;font-family:var(--mono);color:var(--ink-soft)">—</td></tr>` : ""}
+          <tr><td class="asset" style="color:var(--ink-faint);font-size:12px">60/40 (referencia, sin peso en esta cartera)</td>
+            <td style="text-align:right;font-family:var(--mono);color:var(--ink-faint);font-size:12px">${fmtNum(b6040.cagr, 1)}%</td>
+            <td style="text-align:right;font-family:var(--mono);color:var(--ink-faint);font-size:12px">${fmtNum(b6040.vol, 1)}%</td>
+            <td style="text-align:right;font-family:var(--mono);color:var(--ink-faint);font-size:12px">${fmtNum(b6040.sharpe, 2)}</td>
+            <td style="text-align:right;font-family:var(--mono);color:var(--ink-faint);font-size:12px">${fmtNum(b6040.maxdd, 1)}%</td>
+            <td style="text-align:right;font-family:var(--mono);color:var(--ink-faint);font-size:12px">${fmtNum(b6040.worst12, 1)}%</td>
+            <td style="text-align:right;font-family:var(--mono);color:var(--ink-faint)">—</td></tr>
         </tbody>
       </table>
     </div>
-    ${r.bench_100eq?.cagr != null ? `<p class="foot" style="margin-bottom:14px">La fila de renta variable 100% es la referencia más citada («el mercado»), no una
-      comparación a igual riesgo: lleva más volatilidad que cualquier esquema de la tabla, que
-      mantienen siempre un tercio en renta fija. Compárala en Sharpe, no solo en rentabilidad —
-      batir al mercado asumiendo su mismo riesgo o menos es la vara de medir real.</p>` : ""}
+    <p class="foot" style="margin-bottom:14px">Sin trampa: el S&amp;P 500 va apalancado en riesgo frente a
+      cualquier cartera con un seguro en oro, así que si gana en CAGR bruto no significa que la selección
+      de sectores no aporte — mira el Sharpe. Si además gana en CAGR, gana sin más.</p>
     ${S.vol_check ? `<p class="foot" style="margin-bottom:10px">
       Control de riesgo: la cartera terminó con <b>${fmtNum(S.vol_check.cartera, 1)}%</b> de
-      volatilidad frente al <b>${fmtNum(S.vol_check.objetivo_6040, 1)}%</b> del 60/40
-      (${signed(S.vol_check.desvio, 1)} puntos).
-      ${Math.abs(S.vol_check.desvio ?? 0) > 1.5
-        ? `<b style="color:${PHASE_COLOR["Sobrecalentamiento"]}">La comparación no es a igual riesgo:</b> `
-          + (S.vol_check.desvio < 0
-            ? "la cartera lleva menos riesgo, así que rendir menos era inevitable."
-            : "la cartera lleva más riesgo, así que parte de la ventaja es solo eso.")
-        : "Comparación a igual riesgo."}</p>` : ""}
+      volatilidad frente al <b>${fmtNum(S.vol_check.objetivo_mercado, 1)}%</b> de la renta variable pura
+      (${signed(S.vol_check.desvio, 1)} puntos) — el seguro de oro y la diversificación entre cinco
+      sectores, no un objetivo impuesto.</p>` : ""}
     <p class="foot" style="margin-bottom:24px">Rotación media de cartera: <b>${fmtNum(S.turnover, 1)}%</b>
       al mes. Los costes de transacción no están descontados; a 15 puntos básicos por unidad de rotación
       restarían del orden de ${fmtNum(S.turnover * 0.15 * 12 / 100, 2)} puntos al año.</p>
 
     <div class="bt-chart" style="margin-bottom:24px">
-      <svg id="rotChart" viewBox="0 0 900 340" role="img" aria-label="Evolución frente al 60/40"></svg>
+      <svg id="rotChart" viewBox="0 0 900 340" role="img" aria-label="Evolución frente al S&P 500"></svg>
     </div>
 
     <h3 style="font-family:var(--serif);font-size:17px;margin-bottom:10px">Año contra año</h3>
     <div class="bt-chart" style="margin-bottom:8px">
-      <svg id="annChart" viewBox="0 0 900 230" role="img" aria-label="Diferencia anual frente al 60/40"></svg>
+      <svg id="annChart" viewBox="0 0 900 230" role="img" aria-label="Diferencia anual frente al S&P 500"></svg>
     </div>
-    <p class="foot" style="margin-bottom:28px">Barras verdes: años en que la cartera batió al 60/40.
+    <p class="foot" style="margin-bottom:28px">Barras verdes: años en que la cartera batió al S&amp;P 500.
       Ganó <b>${S.wins_years} de ${S.n_years}</b> años.</p>
 
     <h3 style="font-family:var(--serif);font-size:17px;margin-bottom:4px">Dónde gana y dónde no</h3>
@@ -852,7 +861,7 @@ function renderRotation() {
           thin ? .38 : (x === D.current.phase ? 1 : .68)}">
           <div class="l1">${x}</div>
           <div class="l2">${signed(e.edge, 1)} pp</div>
-          <div class="l3">${e.n} meses · ${thin ? "<b>muestra insuficiente</b>" : ((e.edge ?? 0) > 0 ? "por delante del 60/40" : "por detrás del 60/40")}</div>
+          <div class="l3">${e.n} meses · ${thin ? "<b>muestra insuficiente</b>" : ((e.edge ?? 0) > 0 ? "por delante del mercado" : "por detrás del mercado")}</div>
         </div>`;
       }).join("")}
     </div>
@@ -887,7 +896,7 @@ function renderRotation() {
       momentum) quedan fuera: no se compran en una cartera solo larga.
       ${pbPhase === D.current.phase ? "Esta es la fase vigente." : `La fase vigente es ${D.current.phase}.`}</p>`;
 
-  drawCurve("#rotChart", S.curve || [], S.label, "60/40 estático");
+  drawCurve("#rotChart", S.curve || [], S.label, "S&P 500 (mercado)");
   drawAnnual("#annChart", S.annual || {}, r.bench_annual || {});
   $("#schemeSeg").querySelectorAll("button").forEach(btn => {
     btn.onclick = () => { scheme = btn.dataset.s; renderRotation(); };
@@ -965,7 +974,7 @@ function drawAnnual(sel, ann, bench) {
     const r = el("rect", { x: x(i) - bw / 2, y: d >= 0 ? y(d) : y0,
       width: bw, height: Math.max(1, Math.abs(y(d) - y0)),
       fill: d >= 0 ? "#3F6B52" : "#9C4A3C", opacity: 0.9 }, svg);
-    txt("title", {}, `${yr}: cartera ${ann[yr].toFixed(1)}% · 60/40 ${bench[yr].toFixed(1)}% · ${d >= 0 ? "+" : ""}${d.toFixed(1)} pp`, r);
+    txt("title", {}, `${yr}: cartera ${ann[yr].toFixed(1)}% · S&P 500 ${bench[yr].toFixed(1)}% · ${d >= 0 ? "+" : ""}${d.toFixed(1)} pp`, r);
     if (years.length <= 40 || i % Math.ceil(years.length / 30) === 0) {
       txt("text", { x: x(i), y: H - 10, fill: INK_FAINT, "text-anchor": "middle",
         "font-family": "IBM Plex Mono, monospace", "font-size": 8.5,
@@ -974,68 +983,6 @@ function drawAnnual(sel, ann, bench) {
   });
 }
 
-/* --------------------------- superposición defensiva -------------------------- */
-const DEF_LABEL = {
-  base_6040: "60/40 estático (referencia)",
-  a_bonos: "Defensiva a bonos largos",
-  b_corto: "Defensiva a duración corta",
-  c_oro: "Defensiva a bonos y oro",
-};
-
-function renderDefensive() {
-  const p = D.defensive || {};
-  const base = p.base_6040;
-  if (!base) { $("#defensiveBlock").innerHTML = ""; return; }
-  const rows = ["base_6040", "a_bonos", "b_corto", "c_oro"]
-    .filter(k => p[k] && p[k].cagr != null)
-    .map(k => ({ k, ...p[k] }));
-  const best = rows.filter(r => r.k !== "base_6040")
-    .sort((a, b) => (b.sharpe ?? 0) - (a.sharpe ?? 0))[0];
-
-  $("#defensiveBlock").innerHTML = `
-    <div class="wrap">
-      <div class="section-head">
-        <div class="eyebrow">Protección</div>
-        <h2>Reducir riesgo cuando el crecimiento cae bajo tendencia</h2>
-        <p class="cap">Un 60/40 normal, que pasa a defensivo el mes siguiente a que el eje de
-          crecimiento cruce por debajo de cero. Sin umbrales ajustados: el umbral es el cero, que por
-          construcción significa "en tendencia". Estuvo en modo defensivo el
-          <b>${fmtPct(p.share_defensive, 0)}</b> de los meses.</p>
-      </div>
-      <div class="matrix-holder">
-        <table class="matrix">
-          <thead><tr>
-            <th>Regla</th><th style="text-align:right">Anual</th><th style="text-align:right">Vol</th>
-            <th style="text-align:right">Sharpe</th><th style="text-align:right">Caída máx.</th>
-            <th style="text-align:right">Peor año</th><th style="text-align:right">t</th>
-          </tr></thead>
-          <tbody>${rows.map(r => {
-            const isBase = r.k === "base_6040";
-            const better = !isBase && r.sharpe > base.sharpe;
-            return `<tr style="${isBase ? "background:var(--paper-deep)" : ""}">
-              <td class="asset" style="color:${better ? POS : ""}">${DEF_LABEL[r.k]}</td>
-              <td style="text-align:right;font-family:var(--mono)">${fmtNum(r.cagr, 1)}%</td>
-              <td style="text-align:right;font-family:var(--mono)">${fmtNum(r.vol, 1)}%</td>
-              <td style="text-align:right;font-family:var(--mono);font-weight:600;color:${
-                better ? POS : isBase ? "var(--ink)" : "var(--ink-soft)"}">${fmtNum(r.sharpe, 2)}</td>
-              <td style="text-align:right;font-family:var(--mono)">${fmtNum(r.maxdd, 1)}%</td>
-              <td style="text-align:right;font-family:var(--mono)">${fmtNum(r.worst12, 1)}%</td>
-              <td style="text-align:right;font-family:var(--mono);color:var(--ink-soft)">${fmtNum(r.t, 1)}</td>
-            </tr>`;
-          }).join("")}</tbody>
-        </table>
-      </div>
-      <p class="gap-note" style="border-left-color:${best && best.sharpe > base.sharpe ? POS : PHASE_COLOR["Sobrecalentamiento"]}">
-        ${best && best.sharpe > base.sharpe
-          ? `La mejor regla (<b>${DEF_LABEL[best.k]}</b>) mejora el Sharpe del 60/40 en
-             ${fmtNum(best.sharpe - base.sharpe, 2)} y recorta la caída máxima de
-             ${fmtNum(base.maxdd, 0)}% a ${fmtNum(best.maxdd, 0)}%.`
-          : `Ninguna regla mejora al 60/40. Desapalancar por ciclo no protegió más de lo que costó.`}
-        Se probaron <b>${p.n_variants}</b> variantes: quedarse con la mejor de varias infla el resultado,
-        así que están las ${p.n_variants} publicadas y no solo la ganadora. El disparador es ${p.trigger},
-        sin ningún parámetro ajustado a los datos.</p>
-    </div>`;
-}
 
 /* ------------------------------ laboratorio ----------------------------- */
 let labPhase = null, labSleeve = "Renta variable";
