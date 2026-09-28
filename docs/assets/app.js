@@ -3,17 +3,41 @@
 "use strict";
 
 const NS = "http://www.w3.org/2000/svg";
+
+/* Colores literales (duplican las variables CSS): los presentation-attributes
+   SVG no resuelven var() de forma fiable en todos los motores. */
 const PHASE_COLOR = {
-  "Recuperación": "#35D0A5",
-  "Sobrecalentamiento": "#F2A33C",
-  "Estanflación": "#EE5D6C",
-  "Reflación": "#5B8CFF",
+  "Recuperación": "#3F6B52",
+  "Sobrecalentamiento": "#B8863B",
+  "Estanflación": "#9C4A3C",
+  "Reflación": "#3E4E7A",
 };
+const INK = "#1B1810", INK_SOFT = "#5B5340", INK_FAINT = "#8C8268";
+const LINE = "rgba(27,24,16,.14)", LINE_SOFT = "rgba(27,24,16,.08)", LINE_STRONG = "rgba(27,24,16,.30)";
+const POS = "#3F6B52", NEG = "#9C4A3C";
+
 const PHASE_HINT = {
   "Recuperación": "crecimiento sobre tendencia, inflación bajo tendencia",
   "Sobrecalentamiento": "crecimiento e inflación por encima de tendencia",
   "Estanflación": "crecimiento bajo tendencia, inflación por encima",
   "Reflación": "crecimiento e inflación por debajo de tendencia",
+};
+const PHASE_DEF = {
+  "Recuperación": "el crecimiento repunta por encima de su tendencia reciente mientras la inflación " +
+    "todavía cede. Es la salida clásica de una desaceleración: la política monetaria sigue laxa y los " +
+    "beneficios empresariales aceleran antes de que lo hagan los precios. En el <i>investment clock</i> " +
+    "clásico (Merrill Lynch, 2004) es la fase que históricamente mejor ha tratado a la renta variable cíclica.",
+  "Sobrecalentamiento": "el crecimiento sigue por encima de tendencia, pero la inflación ya se ha unido " +
+    "a la subida. La economía va cerca de plena capacidad y las presiones de precios empiezan a exigir " +
+    "una política monetaria más dura. Los activos reales y los sectores con poder de fijación de precios " +
+    "suelen tratarse mejor aquí que la renta fija.",
+  "Estanflación": "el crecimiento ha caído por debajo de tendencia mientras la inflación se mantiene por " +
+    "encima. Es la fase más hostil para los activos financieros en conjunto: ni el crecimiento sostiene los " +
+    "beneficios ni la inflación permite bajar tipos con rapidez. Los sectores defensivos con demanda " +
+    "inelástica suelen sufrir menos que el mercado en su conjunto.",
+  "Reflación": "el crecimiento y la inflación están los dos por debajo de tendencia. Suele coincidir con " +
+    "el tramo final de una recesión o los meses posteriores, cuando el banco central ya baja tipos con " +
+    "fuerza. Es, históricamente, la mejor fase para la duración en renta fija.",
 };
 const BLOCK_TITLE = {
   growth: "Crecimiento (coincidente)",
@@ -22,6 +46,57 @@ const BLOCK_TITLE = {
   standalone: "Aparte del PCA",
 };
 const MONTHS = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+
+/* ------------------------- ETFs reales por activo ------------------------ */
+/* Instrumento más parecido para ejecutar cada exposición hoy. Preferencia por
+   iShares (familia IY-- de sectores US, más el resto de su gama); se añade el
+   SPDR sectorial (XL-) como alternativa más líquida y con historia algo más
+   larga. Donde no existe un ETF exacto para la definición académica del
+   activo, se marca "aprox." y se explica la diferencia. */
+const ETF_MAP = {
+  "Tecnología": [["IYW","iShares US Technology"], ["XLK","Technology Select Sector SPDR"]],
+  "Salud": [["IYH","iShares US Healthcare"], ["XLV","Health Care Select Sector SPDR"], ["IBB","iShares Biotechnology"]],
+  "Energía": [["IYE","iShares US Energy"], ["XLE","Energy Select Sector SPDR"]],
+  "Comunicaciones": [["IYZ","iShares US Telecommunications"], ["XLC","Communication Services SPDR"]],
+  "Financiero": [["IYF","iShares US Financials"], ["XLF","Financial Select Sector SPDR"]],
+  "Industria": [["IYJ","iShares US Industrials"], ["XLI","Industrial Select Sector SPDR"]],
+  "Materiales / Químicas": [["IYM","iShares US Basic Materials"], ["XLB","Materials Select Sector SPDR"]],
+  "Utilities": [["IDU","iShares US Utilities"], ["XLU","Utilities Select Sector SPDR"]],
+  "Consumo discrecional": [["IYC","iShares US Consumer Discretionary"], ["XLY","Consumer Discretionary SPDR"]],
+  "Consumo básico": [["IYK","iShares US Consumer Goods"], ["XLP","Consumer Staples Select Sector SPDR"]],
+  "Consumo duradero": [["IYC","iShares US Consumer Discretionary (aprox.)"]],
+  "Inmobiliario": [["IYR","iShares US Real Estate"], ["XLRE","Real Estate Select Sector SPDR"]],
+  "Metales preciosos (mineras)": [["RING","iShares MSCI Global Gold Miners"], ["GDX","VanEck Gold Miners"]],
+  "Oro (lingote)": [["IAU","iShares Gold Trust"]],
+  "Plata": [["SLV","iShares Silver Trust"]],
+  "Cobre": [["CPER","US Copper Index Fund (aprox.)"]],
+  "Materias primas (índice)": [["GSG","iShares S&P GSCI Commodity-Indexed Trust"]],
+  "Treasury 2 años": [["SHY","iShares 1-3 Year Treasury Bond"]],
+  "Treasury 10 años": [["IEF","iShares 7-10 Year Treasury Bond"]],
+  "Treasury 30 años": [["TLT","iShares 20+ Year Treasury Bond"]],
+  "Hipotecario 30 años (aprox.)": [["MBB","iShares MBS ETF"]],
+  "Crédito Baa (aprox.)": [["LQD","iShares iBoxx $ IG Corporate Bond"]],
+  "Crédito Aaa (aprox.)": [["LQD","iShares iBoxx $ IG Corporate Bond (aprox.)"]],
+  "Crédito Investment Grade (LQD)": [["LQD","iShares iBoxx $ IG Corporate Bond"]],
+  "Crédito High Yield (HYG)": [["HYG","iShares iBoxx $ High Yield Corporate Bond"]],
+  "Deuda emergente (EMB)": [["EMB","iShares J.P. Morgan USD Emerging Markets Bond"]],
+  "TIPS (TIP)": [["TIP","iShares TIPS Bond"]],
+  "TIPS 10 años (aprox.)": [["TIP","iShares TIPS Bond (aprox.)"]],
+  "Municipales (MUB)": [["MUB","iShares National Muni Bond"]],
+  "Titulizaciones hipotecarias (MBB)": [["MBB","iShares MBS ETF"]],
+  "Liquidez (letras 3m)": [["SHV","iShares Short Treasury Bond"]],
+  "Renta variable EE.UU. (mercado)": [["ITOT","iShares Core S&P Total US Stock Market"]],
+  "Desarrollados ex EE.UU. (French)": [["IEFA","iShares Core MSCI EAFE"]],
+  "Renta variable internacional": [["EFA","iShares MSCI EAFE"]],
+  "Emergentes (French)": [["IEMG","iShares Core MSCI Emerging Markets"]],
+  "Renta variable emergente": [["EEM","iShares MSCI Emerging Markets"]],
+  "Small caps": [["IWM","iShares Russell 2000"]],
+};
+function tickerChips(name) {
+  const list = ETF_MAP[name];
+  if (!list) return "";
+  return list.map(([t, n]) => `<span class="tick" title="${n}">${t}</span>`).join("");
+}
 
 let D = null;              // payload
 let trail = 36;
@@ -37,6 +112,11 @@ const el = (tag, attrs = {}, parent = null) => {
   if (parent) parent.appendChild(n);
   return n;
 };
+const txt = (tag, attrs, content, parent) => {
+  const n = el(tag, attrs, parent);
+  n.textContent = content;
+  return n;
+};
 const fmtPct = (v, d = 0) => v === null || v === undefined || Number.isNaN(v)
   ? "—" : `${(v * 100).toFixed(d)}%`;
 const fmtNum = (v, d = 2) => v === null || v === undefined || Number.isNaN(v)
@@ -49,10 +129,9 @@ const label = (ym) => {
 };
 
 function diverging(v, scale) {
-  // rojo -> neutro -> verde, con opacidad proporcional a la magnitud
   const t = Math.max(-1, Math.min(1, v / scale));
   const a = 0.10 + 0.55 * Math.abs(t);
-  return t >= 0 ? `rgba(53,208,165,${a.toFixed(3)})` : `rgba(238,93,108,${a.toFixed(3)})`;
+  return t >= 0 ? `rgba(63,107,82,${a.toFixed(3)})` : `rgba(156,74,60,${a.toFixed(3)})`;
 }
 
 /* --------------------------------- carga -------------------------------- */
@@ -72,11 +151,13 @@ function showError(err) {
   $("#loading").remove();
   const app = $("#app");
   app.innerHTML = `
-    <div class="errbox">
-      <h2>Todavía no hay datos que mostrar</h2>
-      <p>El panel lee <code>docs/data/data.json</code>, que genera la acción programada del repositorio.
-      Lanza el flujo <b>Actualizar datos</b> en la pestaña Actions y recarga esta página.</p>
-      <p style="margin-top:10px"><code>${String(err)}</code></p>
+    <div class="wrap">
+      <div class="errbox">
+        <h2>Todavía no hay datos que mostrar</h2>
+        <p>El panel lee <code>docs/data/data.json</code>, que genera la acción programada del repositorio.
+        Lanza el flujo <b>Actualizar datos</b> en la pestaña Actions y recarga esta página.</p>
+        <p><code>${String(err)}</code></p>
+      </div>
     </div>`;
 }
 
@@ -85,18 +166,19 @@ function render() {
   $("#loading").remove();
   $("#app").appendChild(tpl);
 
-  renderVitals();
-  renderVerdict();
+  renderTopBar();
+  renderHero();
   renderOutlook();
   renderPlane();
+  renderBuy();
   renderIndicators();
   renderTimeline();
   renderMatrix();
   renderRobustness();
+  renderConsensus();
   renderRotation();
   renderLab();
   renderDefensive();
-  renderConsensus();
   renderValidation();
   renderDiagnostics();
   renderMethod();
@@ -105,21 +187,11 @@ function render() {
 }
 
 /* -------------------------------- cabecera ------------------------------ */
-function renderVitals() {
-  const c = D.current, m = D.meta;
-  const stale = !(D.rotation && D.rotation.schemes);
-  const items = [
-    ["Dato más reciente", label(c.date)],
-    ["Crecimiento", signed(c.growth, 2) + " σ"],
-    ["Inflación", signed(c.inflation, 2) + " σ"],
-    ["Series activas", `${m.series_ok}/${m.series_total}`],
-    ...(stale ? [["Datos", `<span style="color:var(--sobrecalentamiento)">versión antigua</span>`]] : []),
-  ];
-  $("#vitals").innerHTML = items
-    .map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("");
+function renderTopBar() {
+  $("#topUpdated").textContent = `Actualizado ${D.meta.generated_utc}`;
 }
 
-/* ------------------------------- veredicto ------------------------------ */
+/* --------------------------------- hero ---------------------------------- */
 function monthsInPhase() {
   const h = D.history, p = D.current.phase;
   let n = 0;
@@ -127,73 +199,58 @@ function monthsInPhase() {
   return n;
 }
 
-function renderVerdict() {
+function phaseWhyText(c) {
+  const gDir = c.growth >= 0 ? "por encima" : "por debajo";
+  const iDir = c.inflation >= 0 ? "por encima" : "por debajo";
+  const mg = c.momentum?.growth_3m, mi = c.momentum?.inflation_3m;
+  const mgTxt = mg == null ? "" : (mg >= 0.10 ? ", acelerando" : mg <= -0.10 ? ", perdiendo fuerza" : ", estable");
+  const miTxt = mi == null ? "" : (mi >= 0.10 ? ", subiendo" : mi <= -0.10 ? ", cediendo" : ", estable");
+  return `El crecimiento está <b>${fmtNum(Math.abs(c.growth), 2)}σ ${gDir}</b> de su tendencia de los
+    últimos diez años${mgTxt}; la inflación, <b>${fmtNum(Math.abs(c.inflation), 2)}σ ${iDir}</b> de la
+    suya${miTxt}. Bajo esa combinación, ${PHASE_DEF[c.phase]}`;
+}
+
+function confidenceText(c) {
+  const q = c.confidence;
+  if (q >= 0.6) {
+    return `Las dos dimensiones están lo bastante lejos de cero como para que el cuadrante aguante el
+      ruido de medición: tiene sentido posicionarse por la fase principal.`;
+  }
+  if (q >= 0.3) {
+    return `El margen sobre <b>${c.alt_phase}</b> es estrecho. Conviene inclinar la cartera hacia lo que
+      funciona en las dos fases antes que apostar todo a una sola — ver «solapamiento» más abajo.`;
+  }
+  return `La economía está prácticamente encima de un eje: la clasificación es frágil. Prioriza los
+    activos de consenso y evita apuestas que dependan del cuadrante exacto.`;
+}
+
+function renderHero() {
   const c = D.current;
   const color = PHASE_COLOR[c.phase];
   const probs = D.phases.map(p => [p, c.probs[p] ?? 0]).sort((a, b) => b[1] - a[1]);
   const n = monthsInPhase();
   const rec = c.recession || {};
 
-  $("#verdict").innerHTML = `
-    <div>
-      <span class="eyebrow">Fase vigente</span>
-      <div class="phase-name" style="color:${color}">${c.phase_long}</div>
-      <p class="phase-since">${n} ${n === 1 ? "mes" : "meses"} seguidos · ${PHASE_HINT[c.phase]}</p>
-      <div class="conf-row">
-        <span class="conf-num" style="color:${color}">${fmtPct(c.confidence)}</span>
-        <span class="conf-lbl">de margen sobre la alternativa (${c.alt_phase})</span>
-      </div>
-    </div>
-    <div class="probs">
-      ${probs.map(([p, v], i) => `
-        <div class="prob ${i === 0 ? "lead" : ""}">
-          <span style="color:${i === 0 ? PHASE_COLOR[p] : "var(--muted)"}">${p}</span>
-          <span class="bar"><i style="width:${(v * 100).toFixed(1)}%;background:${PHASE_COLOR[p]}"></i></span>
-          <span class="val">${fmtPct(v, 1)}</span>
-        </div>`).join("")}
-    </div>
-    <dl class="mini">
-      <div><dt>Impulso crecimiento 3m</dt><dd style="color:${c.momentum.growth_3m >= 0 ? "var(--pos)" : "var(--neg)"}">${signed(c.momentum.growth_3m, 2)} σ</dd></div>
-      <div><dt>Impulso inflación 3m</dt><dd style="color:${c.momentum.inflation_3m >= 0 ? "var(--neg)" : "var(--pos)"}">${signed(c.momentum.inflation_3m, 2)} σ</dd></div>
-      <div><dt>Recesión a 12 meses</dt><dd>${rec.prob_12m != null ? fmtPct(rec.prob_12m, 0) : "—"}</dd></div>
-      <div><dt>Deriva típica a ${c.horizon_m || 3} meses</dt><dd>±${fmtNum(c.sigma_g, 2)} / ±${fmtNum(c.sigma_i, 2)} σ</dd></div>
-    </dl>
-    <p class="note">${confidenceText(c)}</p>`;
-}
+  $("#phaseName").textContent = c.phase_long;
+  $("#phaseName").style.color = color;
+  $("#phaseWindow").textContent =
+    `${n} ${n === 1 ? "mes" : "meses"} seguidos en esta fase · ${PHASE_HINT[c.phase]} · dato de ${label(c.date)}`;
+  $("#phaseWhy").innerHTML = phaseWhyText(c);
 
-function confidenceText(c) {
-  const q = c.confidence;
-  if (q >= 0.6) {
-    return `Las dos dimensiones están lo bastante lejos de cero como para que el cuadrante
-      aguante el ruido de medición. Se puede posicionar por la fase principal.`;
-  }
-  if (q >= 0.3) {
-    return `El margen sobre <b>${c.alt_phase}</b> es estrecho. Tiene sentido inclinar la cartera
-      hacia lo que funciona en ambas fases antes que apostar por una sola.`;
-  }
-  return `La economía está prácticamente encima de un eje: la clasificación es frágil.
-    Prioriza los activos de consenso y evita apuestas que dependan del cuadrante exacto.`;
-}
+  $("#confBlock").innerHTML = probs.map(([p, v], i) => `
+    <div class="conf-row ${i === 0 ? "lead" : ""}">
+      <span class="nm">${p}</span>
+      <span class="conf-bar"><i style="width:${(v * 100).toFixed(1)}%;background:${PHASE_COLOR[p]}"></i></span>
+      <span class="conf-val">${fmtPct(v, 1)}</span>
+    </div>`).join("");
+  $("#confNote").innerHTML = `<b>${fmtPct(c.confidence)}</b> de margen sobre ${c.alt_phase}. ${confidenceText(c)}`;
 
-function renderOutlook() {
-  const c = D.current, rec = c.recession || {};
-  const lead = c.leading, lead6 = c.leading_6m;
-  const dir = lead != null && lead6 != null ? lead - lead6 : null;
-  const next = mostLikelyNext();
-  $("#outlookBand").innerHTML = `
-    <div class="item"><dt>Bloque adelantado</dt>
-      <dd style="color:${lead >= 0 ? "var(--pos)" : "var(--neg)"}">${signed(lead, 2)} σ</dd>
-      <small>Curva, condiciones financieras, permisos, horas y diferenciales. ${
-        dir == null ? "" : dir >= 0 ? "Mejorando frente a hace 6 meses." : "Deteriorándose frente a hace 6 meses."}</small></div>
-    <div class="item"><dt>Transición más probable</dt>
-      <dd style="color:${PHASE_COLOR[next.phase]}">${next.phase}</dd>
-      <small>${fmtPct(next.p, 0)} de los meses que siguieron a esta fase en 60 años terminaron aquí.</small></div>
-    <div class="item"><dt>Persistencia media</dt>
-      <dd>${fmtNum(D.validation.duration_months?.[c.phase], 1)} meses</dd>
-      <small>Duración media histórica de un tramo en ${c.phase}.</small></div>
-    <div class="item"><dt>Modelo de recesión</dt>
-      <dd>${rec.prob_12m != null ? fmtPct(rec.prob_12m, 0) : "—"}</dd>
-      <small>${rec.auc ? `Logit sobre curva y condiciones financieras, AUC ${fmtNum(rec.auc, 2)} en ${rec.n_obs} meses.` : "No disponible."}</small></div>`;
+  $("#heroStats").innerHTML = [
+    ["Impulso crecimiento 3m", signed(c.momentum?.growth_3m, 2) + " σ"],
+    ["Impulso inflación 3m", signed(c.momentum?.inflation_3m, 2) + " σ"],
+    ["Recesión a 12 meses", rec.prob_12m != null ? fmtPct(rec.prob_12m, 0) : "—"],
+    ["Series activas", `${D.meta.series_ok}/${D.meta.series_total}`],
+  ].map(([k, v]) => `<div class="hero-stat"><dt>${k}</dt><dd>${v}</dd></div>`).join("");
 }
 
 function mostLikelyNext() {
@@ -206,17 +263,80 @@ function mostLikelyNext() {
   return best;
 }
 
+function renderOutlook() {
+  const c = D.current, rec = c.recession || {};
+  const lead = c.leading, lead6 = c.leading_6m;
+  const dir = lead != null && lead6 != null ? lead - lead6 : null;
+  const next = mostLikelyNext();
+  $("#outlookBand").innerHTML = `
+    <div class="item"><dt>Bloque adelantado</dt>
+      <dd style="color:${lead >= 0 ? POS : NEG}">${signed(lead, 2)} σ</dd>
+      <small>Curva, condiciones financieras, permisos, horas y diferenciales. ${
+        dir == null ? "" : dir >= 0 ? "Mejorando frente a hace 6 meses." : "Deteriorándose frente a hace 6 meses."}</small></div>
+    <div class="item"><dt>Transición más probable</dt>
+      <dd style="color:${PHASE_COLOR[next.phase]}">${next.phase}</dd>
+      <small>${fmtPct(next.p, 0)} de los meses que siguieron a esta fase en el histórico terminaron aquí.</small></div>
+    <div class="item"><dt>Persistencia media</dt>
+      <dd>${fmtNum(D.validation.duration_months?.[c.phase], 1)} meses</dd>
+      <small>Duración media histórica de un tramo en ${c.phase}.</small></div>
+    <div class="item"><dt>Modelo de recesión</dt>
+      <dd>${rec.prob_12m != null ? fmtPct(rec.prob_12m, 0) : "—"}</dd>
+      <small>${rec.auc ? `Logit sobre curva y condiciones financieras, AUC ${fmtNum(rec.auc, 2)} en ${rec.n_obs} meses.` : "No disponible."}</small></div>`;
+}
+
+/* ------------------------------ qué comprar ------------------------------ */
+const SLEEVE_ORDER = ["Renta variable", "Renta fija", "Activos reales"];
+
+function renderBuy() {
+  const host = $("#buyCols"), foot = $("#buyFoot");
+  const r = D.rotation || {};
+  if (!r.schemes) {
+    host.innerHTML = `<div class="buy-col"><p class="buy-empty">
+      Los datos publicados no traen la sección de asignación. Ejecuta <code>scripts/build_data.py</code>
+      de nuevo.</p></div>`;
+    foot.innerHTML = "";
+    return;
+  }
+  const scheme = r.schemes[r.default] || Object.values(r.schemes)[0];
+  const c = D.current;
+  const phase = c.phase;
+  const rows = scheme.playbook[phase] || [];
+  const mix = scheme.sleeve_mix?.[phase] || {};
+
+  host.innerHTML = SLEEVE_ORDER.map(sl => {
+    const items = rows.filter(x => x.sleeve === sl);
+    const wt = mix[sl];
+    return `<div class="buy-col">
+      <h4><span>${sl}</span><span>${wt != null ? fmtNum(wt, 0) + "%" : ""}</span></h4>
+      ${items.length ? items.map(x => `
+        <div class="buy-item">
+          <div><span class="nm">${x.name}</span><span class="tickers">${tickerChips(x.name) || `<span class="small-cap mono">${x.class}</span>`}</span></div>
+          <span class="wt">${fmtNum(x.weight, 1)}%</span>
+        </div>`).join("") : `<p class="buy-empty">Sin exposición en esta fase (banda ${(r.bands?.[sl] || []).join("–")}%).</p>`}
+    </div>`;
+  }).join("");
+
+  const consensus = D.consensus || [];
+  const lowConf = c.confidence < 0.6 && consensus.length;
+  foot.innerHTML = `Reparto <b>${scheme.label.toLowerCase()}</b> dentro de cada bloque; el peso entre
+    bloques se mueve según lo bien que puntúa cada uno en <b>${phase}</b>, dentro de bandas fijadas de
+    antemano (nunca cero en renta variable ni en renta fija). Fuente: rotación walk-forward desde 1970,
+    sección «El backtest» más abajo.
+    ${lowConf ? ` Con solo <b>${fmtPct(c.confidence)}</b> de margen sobre ${c.alt_phase}, conviene mirar
+      también el bloque de «solapamiento» — lo que ha pagado en las dos fases candidatas a la vez.` : ""}`;
+}
+
 /* ------------------------- plano de fase (firma) ------------------------ */
-const PLANE = { w: 720, h: 620, pad: 58 };
+const PLANE = { w: 560, h: 500, padL: 46, padR: 24, padT: 20, padB: 46 };
 
 function planeScales() {
   const pts = D.history;
   const gmax = Math.max(2.2, ...pts.map(p => Math.abs(p.g))) * 1.06;
   const imax = Math.max(2.2, ...pts.map(p => Math.abs(p.i))) * 1.06;
-  const { w, h, pad } = PLANE;
+  const { w, h, padL, padR, padT, padB } = PLANE;
   return {
-    x: g => pad + ((g + gmax) / (2 * gmax)) * (w - 2 * pad),
-    y: i => (h - pad) - ((i + imax) / (2 * imax)) * (h - 2 * pad),
+    x: g => padL + ((g + gmax) / (2 * gmax)) * (w - padL - padR),
+    y: i => (h - padB) - ((i + imax) / (2 * imax)) * (h - padT - padB),
     gmax, imax,
   };
 }
@@ -224,98 +344,86 @@ function planeScales() {
 function renderPlane(cursor = null) {
   const svg = $("#plane");
   svg.innerHTML = "";
-  const { w, h, pad } = PLANE;
+  const { w, h, padL, padR, padT, padB } = PLANE;
   const S = planeScales();
   const cx = S.x(0), cy = S.y(0);
 
-  // ojo: eje X = crecimiento, eje Y = inflación (arriba = más inflación)
   const quadDefs = [
-    { name: "Sobrecalentamiento", x0: cx, x1: w - pad, y0: pad, y1: cy },
-    { name: "Recuperación", x0: cx, x1: w - pad, y0: cy, y1: h - pad },
-    { name: "Estanflación", x0: pad, x1: cx, y0: pad, y1: cy },
-    { name: "Reflación", x0: pad, x1: cx, y0: cy, y1: h - pad },
+    { name: "Sobrecalentamiento", x0: cx, x1: w - padR, y0: padT, y1: cy, ax: "end", ay: "top" },
+    { name: "Recuperación", x0: cx, x1: w - padR, y0: cy, y1: h - padB, ax: "end", ay: "bottom" },
+    { name: "Estanflación", x0: padL, x1: cx, y0: padT, y1: cy, ax: "start", ay: "top" },
+    { name: "Reflación", x0: padL, x1: cx, y0: cy, y1: h - padB, ax: "start", ay: "bottom" },
   ];
   quadDefs.forEach(q => {
     el("rect", {
       x: q.x0, y: q.y0, width: q.x1 - q.x0, height: q.y1 - q.y0,
-      fill: PHASE_COLOR[q.name], opacity: q.name === D.current.phase ? 0.10 : 0.035,
+      fill: PHASE_COLOR[q.name], opacity: q.name === D.current.phase ? 0.11 : 0.04,
     }, svg);
   });
 
-  // rejilla
   for (let v = -3; v <= 3; v++) {
     if (v === 0) continue;
-    if (Math.abs(v) < S.gmax) {
-      el("line", { x1: S.x(v), y1: pad, x2: S.x(v), y2: h - pad, stroke: "#1D2740", "stroke-width": 1 }, svg);
-    }
-    if (Math.abs(v) < S.imax) {
-      el("line", { x1: pad, y1: S.y(v), x2: w - pad, y2: S.y(v), stroke: "#1D2740", "stroke-width": 1 }, svg);
-    }
+    if (Math.abs(v) < S.gmax) el("line", { x1: S.x(v), y1: padT, x2: S.x(v), y2: h - padB, stroke: LINE_SOFT, "stroke-width": 1 }, svg);
+    if (Math.abs(v) < S.imax) el("line", { x1: padL, y1: S.y(v), x2: w - padR, y2: S.y(v), stroke: LINE_SOFT, "stroke-width": 1 }, svg);
   }
-  // ejes
-  el("line", { x1: pad, y1: cy, x2: w - pad, y2: cy, stroke: "#3A486E", "stroke-width": 1.4 }, svg);
-  el("line", { x1: cx, y1: pad, x2: cx, y2: h - pad, stroke: "#3A486E", "stroke-width": 1.4 }, svg);
+  el("line", { x1: padL, y1: cy, x2: w - padR, y2: cy, stroke: LINE_STRONG, "stroke-width": 1.2 }, svg);
+  el("line", { x1: cx, y1: padT, x2: cx, y2: h - padB, stroke: LINE_STRONG, "stroke-width": 1.2 }, svg);
 
-  // etiquetas de cuadrante
+  /* Etiquetas de cuadrante: pegadas a su propia esquina exterior, nunca cerca
+     del cruce de ejes donde vive el rastro — así no colisionan con nada. */
   quadDefs.forEach(q => {
-    const t = el("text", {
-      x: (q.x0 + q.x1) / 2, y: q.y0 + 26, fill: PHASE_COLOR[q.name],
-      "text-anchor": "middle", "font-family": "Space Grotesk, sans-serif",
-      "font-size": 15, "font-weight": 700, opacity: q.name === D.current.phase ? 0.95 : 0.5,
-    }, svg);
-    t.textContent = q.name;
+    const tx = q.ax === "end" ? q.x1 - 10 : q.x0 + 10;
+    const ty = q.ay === "top" ? q.y0 + 20 : q.y1 - 12;
+    txt("text", {
+      x: tx, y: ty, fill: PHASE_COLOR[q.name], "text-anchor": q.ax,
+      "font-family": "IBM Plex Mono, monospace", "font-size": 11, "font-weight": 600,
+      "letter-spacing": "0.02em", opacity: q.name === D.current.phase ? 0.95 : 0.55,
+    }, q.name.toUpperCase(), svg);
   });
 
-  // títulos de eje
-  const ax = el("text", { x: w - pad, y: cy - 12, fill: "#66748F", "text-anchor": "end",
-    "font-family": "IBM Plex Mono, monospace", "font-size": 11.5 }, svg);
-  ax.textContent = "crecimiento sobre tendencia →";
-  const ax2 = el("text", { x: pad, y: cy + 20, fill: "#66748F",
-    "font-family": "IBM Plex Mono, monospace", "font-size": 11.5 }, svg);
-  ax2.textContent = "← por debajo de tendencia";
-  const ayY = PLANE.h - pad - 4;
-  const ay = el("text", { x: cx + 9, y: ayY, fill: "#66748F",
-    "font-family": "IBM Plex Mono, monospace", "font-size": 11.5,
-    transform: `rotate(-90 ${cx + 9} ${ayY})` }, svg);
-  ay.textContent = "inflación sobre tendencia →";
+  /* Títulos de eje: exclusivamente en el margen, fuera del área de trazado. */
+  txt("text", { x: w - padR, y: h - padB + 24, fill: INK_FAINT, "text-anchor": "end",
+    "font-family": "IBM Plex Mono, monospace", "font-size": 10.5 }, "crecimiento →", svg);
+  txt("text", { x: padL, y: h - padB + 24, fill: INK_FAINT, "text-anchor": "start",
+    "font-family": "IBM Plex Mono, monospace", "font-size": 10.5 }, "← contracción", svg);
+  const ayTop = padT + 4, ayBot = h - padB - 4;
+  txt("text", { x: padL - 32, y: ayTop, fill: INK_FAINT, "text-anchor": "start",
+    "font-family": "IBM Plex Mono, monospace", "font-size": 10.5,
+    transform: `rotate(-90 ${padL - 32} ${ayTop})` }, "inflación →", svg);
+  txt("text", { x: padL - 32, y: ayBot, fill: INK_FAINT, "text-anchor": "end",
+    "font-family": "IBM Plex Mono, monospace", "font-size": 10.5,
+    transform: `rotate(-90 ${padL - 32} ${ayBot})` }, "← desinflación", svg);
 
-  // rastro
   const hist = D.history;
   const end = cursor == null ? hist.length : cursor + 1;
   const pts = hist.slice(Math.max(0, end - trail), end);
   if (pts.length > 1) {
     const dstr = pts.map((p, k) => `${k ? "L" : "M"}${S.x(p.g).toFixed(1)},${S.y(p.i).toFixed(1)}`).join("");
-    el("path", { d: dstr, fill: "none", stroke: "#8FA6D8", "stroke-width": 1.6,
-      opacity: 0.35, "stroke-linejoin": "round" }, svg);
+    el("path", { d: dstr, fill: "none", stroke: "#8C8268", "stroke-width": 1.4, opacity: 0.4, "stroke-linejoin": "round" }, svg);
   }
   pts.forEach((p, k) => {
     const rel = (k + 1) / pts.length;
-    const c = el("circle", {
-      cx: S.x(p.g), cy: S.y(p.i), r: 2.4 + 2.6 * rel,
-      fill: PHASE_COLOR[p.p], opacity: (0.10 + 0.75 * rel).toFixed(3),
-    }, svg);
+    const c = el("circle", { cx: S.x(p.g), cy: S.y(p.i), r: 2.2 + 2.4 * rel,
+      fill: PHASE_COLOR[p.p], opacity: (0.12 + 0.72 * rel).toFixed(3) }, svg);
     c.dataset.i = hist.indexOf(p);
   });
 
-  // punto actual + elipse de incertidumbre
   const cur = pts[pts.length - 1] || hist[hist.length - 1];
   const rx = Math.abs(S.x(D.current.sigma_g) - S.x(0));
   const ry = Math.abs(S.y(D.current.sigma_i) - S.y(0));
-  el("ellipse", {
-    cx: S.x(cur.g), cy: S.y(cur.i), rx: rx * 1.96, ry: ry * 1.96,
-    fill: PHASE_COLOR[cur.p], opacity: 0.12,
-    stroke: PHASE_COLOR[cur.p], "stroke-width": 1, "stroke-dasharray": "3 3", "stroke-opacity": 0.5,
-  }, svg);
-  el("circle", { cx: S.x(cur.g), cy: S.y(cur.i), r: 9, fill: "none",
-    stroke: PHASE_COLOR[cur.p], "stroke-width": 1.5, opacity: 0.55 }, svg);
-  el("circle", { cx: S.x(cur.g), cy: S.y(cur.i), r: 4.6, fill: PHASE_COLOR[cur.p] }, svg);
-  const lab = el("text", {
-    x: S.x(cur.g) + 14, y: S.y(cur.i) - 10, fill: "#E9EDF8",
-    "font-family": "IBM Plex Mono, monospace", "font-size": 12, "font-weight": 500,
-  }, svg);
-  lab.textContent = label(cur.d);
+  el("ellipse", { cx: S.x(cur.g), cy: S.y(cur.i), rx: rx * 1.96, ry: ry * 1.96,
+    fill: PHASE_COLOR[cur.p], opacity: 0.10, stroke: PHASE_COLOR[cur.p], "stroke-width": 1,
+    "stroke-dasharray": "3 3", "stroke-opacity": 0.55 }, svg);
+  el("circle", { cx: S.x(cur.g), cy: S.y(cur.i), r: 8, fill: "none",
+    stroke: PHASE_COLOR[cur.p], "stroke-width": 1.4, opacity: 0.6 }, svg);
+  el("circle", { cx: S.x(cur.g), cy: S.y(cur.i), r: 4.2, fill: PHASE_COLOR[cur.p] }, svg);
 
-  // interacción
+  /* La etiqueta de fecha se ancla al lado que deje más margen dentro del lienzo. */
+  const nearRight = S.x(cur.g) > w - 130;
+  txt("text", { x: S.x(cur.g) + (nearRight ? -12 : 12), y: S.y(cur.i) - 11, fill: INK,
+    "text-anchor": nearRight ? "end" : "start",
+    "font-family": "IBM Plex Mono, monospace", "font-size": 11.5, "font-weight": 600 }, label(cur.d), svg);
+
   svg.onmousemove = (ev) => planeHover(ev, S);
   svg.onmouseleave = () => { $("#planeTip").hidden = true; };
 }
@@ -334,14 +442,13 @@ function planeHover(ev, S) {
     if (d < bd) { bd = d; best = hist[k]; }
   }
   const tip = $("#planeTip");
-  if (!best || bd > 900) { tip.hidden = true; return; }
+  if (!best || bd > 700) { tip.hidden = true; return; }
   tip.hidden = false;
-  tip.innerHTML = `<b>${label(best.d)}</b><br>${best.p}<br>
-    crecimiento ${signed(best.g, 2)}σ · inflación ${signed(best.i, 2)}σ`;
+  tip.innerHTML = `<b>${label(best.d)}</b><br>${best.p}<br>crecimiento ${signed(best.g, 2)}σ · inflación ${signed(best.i, 2)}σ`;
   const px = (S.x(best.g) / PLANE.w) * r.width;
   const py = (S.y(best.i) / PLANE.h) * r.height;
-  tip.style.left = `${Math.min(r.width - 170, px + 14)}px`;
-  tip.style.top = `${Math.max(0, py - 60)}px`;
+  tip.style.left = `${Math.min(r.width - 160, Math.max(0, px + 12))}px`;
+  tip.style.top = `${Math.max(0, py - 56)}px`;
 }
 
 /* ------------------------------ indicadores ----------------------------- */
@@ -370,14 +477,11 @@ function indRow(i) {
   const pctW = Math.min(50, Math.abs(i.z) / scale * 50);
   const pos = i.z >= 0;
   const col = i.block === "inflation"
-    ? (pos ? "var(--sobrecalentamiento)" : "var(--reflacion)")
-    : (pos ? "var(--pos)" : "var(--neg)");
-  const style = pos
-    ? `left:50%;width:${pctW}%;background:${col}`
-    : `right:50%;width:${pctW}%;background:${col}`;
+    ? (pos ? PHASE_COLOR["Sobrecalentamiento"] : PHASE_COLOR["Reflación"])
+    : (pos ? POS : NEG);
+  const style = pos ? `left:50%;width:${pctW}%;background:${col}` : `right:50%;width:${pctW}%;background:${col}`;
   const delta = i.z_prev != null ? i.z - i.z_prev : null;
-  const arrow = delta == null ? "" :
-    (delta > 0.15 ? "▲" : delta < -0.15 ? "▼" : "▬");
+  const arrow = delta == null ? "" : (delta > 0.15 ? "▲" : delta < -0.15 ? "▼" : "▬");
   return `
     <div class="ind-row" title="${i.note || ""}">
       <div class="nm">${i.name}
@@ -385,7 +489,7 @@ function indRow(i) {
           i.loading != null ? ` · peso ${fmtNum(i.loading, 2)}` : ""}</small>
       </div>
       <div class="zbar"><span class="axis"></span><i style="${style}"></i></div>
-      <div class="zval" style="color:${col}">${signed(i.z, 2)} <span style="color:var(--muted-2);font-size:10px">${arrow}</span></div>
+      <div class="zval" style="color:${col}">${signed(i.z, 2)} <span style="color:${INK_FAINT};font-size:9.5px">${arrow}</span></div>
     </div>`;
 }
 
@@ -395,7 +499,7 @@ function renderTimeline() {
   svg.innerHTML = "";
   const W = 1200, H = 300, padL = 42, padR = 12, padT = 10;
   const hist = D.history;
-  const stripH = 26;
+  const stripH = 24;
   const chartTop = padT + stripH + 16;
   const chartH = H - chartTop - 34;
   const x = k => padL + (k / (hist.length - 1)) * (W - padL - padR);
@@ -404,62 +508,54 @@ function renderTimeline() {
 
   $("#histFrom").textContent = label(hist[0].d);
 
-  // recesiones NBER
   const idxOf = {};
   hist.forEach((p, k) => { idxOf[p.d] = k; });
   (D.nber || []).forEach(([a, b]) => {
     const ia = idxOf[a], ib = idxOf[b];
     if (ia == null || ib == null) return;
     el("rect", { x: x(ia), y: padT, width: Math.max(1, x(ib) - x(ia)), height: H - padT - 30,
-      fill: "#9AA8C4", opacity: 0.10 }, svg);
+      fill: INK, opacity: 0.07 }, svg);
   });
 
-  // franja de fases
   let runStart = 0;
   for (let k = 1; k <= hist.length; k++) {
     if (k === hist.length || hist[k].p !== hist[runStart].p) {
       el("rect", { x: x(runStart), y: padT, width: Math.max(1, x(k - 1) - x(runStart) + 1),
-        height: stripH, fill: PHASE_COLOR[hist[runStart].p], opacity: 0.85 }, svg);
+        height: stripH, fill: PHASE_COLOR[hist[runStart].p], opacity: 0.9 }, svg);
       runStart = k;
     }
   }
 
-  // rejilla y ejes
   [-2, -1, 0, 1, 2].forEach(v => {
     if (Math.abs(v) > vmax) return;
     el("line", { x1: padL, y1: y(v), x2: W - padR, y2: y(v),
-      stroke: v === 0 ? "#3A486E" : "#1D2740", "stroke-width": 1 }, svg);
-    const t = el("text", { x: padL - 8, y: y(v) + 4, fill: "#66748F", "text-anchor": "end",
-      "font-family": "IBM Plex Mono, monospace", "font-size": 10 }, svg);
-    t.textContent = `${v > 0 ? "+" : ""}${v}σ`;
+      stroke: v === 0 ? LINE_STRONG : LINE_SOFT, "stroke-width": 1 }, svg);
+    txt("text", { x: padL - 8, y: y(v) + 4, fill: INK_FAINT, "text-anchor": "end",
+      "font-family": "IBM Plex Mono, monospace", "font-size": 10 }, `${v > 0 ? "+" : ""}${v}σ`, svg);
   });
 
   const line = (key, color) => {
     const d = hist.map((p, k) => `${k ? "L" : "M"}${x(k).toFixed(1)},${y(p[key]).toFixed(1)}`).join("");
-    el("path", { d, fill: "none", stroke: color, "stroke-width": 1.5, opacity: 0.9 }, svg);
+    el("path", { d, fill: "none", stroke: color, "stroke-width": 1.4, opacity: 0.95 }, svg);
   };
-  line("i", "#F2A33C");
-  line("g", "#5B8CFF");
+  line("i", PHASE_COLOR["Sobrecalentamiento"]);
+  line("g", PHASE_COLOR["Reflación"]);
 
-  // años
   const years = {};
   hist.forEach((p, k) => { const yy = p.d.slice(0, 4); if (!(yy in years)) years[yy] = k; });
   const keys = Object.keys(years);
   const step = Math.ceil(keys.length / 14);
   keys.forEach((yy, n) => {
     if (n % step) return;
-    const t = el("text", { x: x(years[yy]), y: H - 12, fill: "#66748F", "text-anchor": "middle",
-      "font-family": "IBM Plex Mono, monospace", "font-size": 10 }, svg);
-    t.textContent = yy;
+    txt("text", { x: x(years[yy]), y: H - 12, fill: INK_FAINT, "text-anchor": "middle",
+      "font-family": "IBM Plex Mono, monospace", "font-size": 10 }, yy, svg);
   });
 
-  // leyenda
-  const lg = [["Crecimiento", "#5B8CFF"], ["Inflación", "#F2A33C"], ["Recesión NBER", "#9AA8C4"]];
-  lg.forEach(([txt, col], n) => {
+  const lg = [["Crecimiento", PHASE_COLOR["Reflación"]], ["Inflación", PHASE_COLOR["Sobrecalentamiento"]], ["Recesión NBER", INK]];
+  lg.forEach(([t, col], n) => {
     el("rect", { x: padL + n * 150, y: H - 26, width: 10, height: 3, fill: col, opacity: .9 }, svg);
-    const t = el("text", { x: padL + n * 150 + 16, y: H - 22, fill: "#8E9CBB",
-      "font-family": "IBM Plex Mono, monospace", "font-size": 10 }, svg);
-    t.textContent = txt;
+    txt("text", { x: padL + n * 150 + 16, y: H - 22, fill: INK_SOFT,
+      "font-family": "IBM Plex Mono, monospace", "font-size": 10 }, t, svg);
   });
 
   svg.onmousemove = (ev) => {
@@ -505,7 +601,7 @@ function drawMatrix() {
   const head = `<thead><tr>
       <th>Activo</th>
       ${D.phases.map(p => `<th class="ph ${p === cur ? "active" : ""}" style="color:${p === cur ? PHASE_COLOR[p] : ""}">
-        ${p}<span>${p === cur ? "fase vigente" : "&nbsp;"}</span></th>`).join("")}
+        ${p}<span>${p === cur ? "fase vigente" : " "}</span></th>`).join("")}
       <th style="text-align:right">Media</th>
     </tr></thead>`;
 
@@ -516,7 +612,8 @@ function drawMatrix() {
   for (const [cls, items] of Object.entries(groups)) {
     body += `<tr class="grp"><td colspan="${D.phases.length + 2}">${cls}</td></tr>`;
     for (const a of items) {
-      body += `<tr><td class="asset">${a.name}<small>${a.source} · desde ${a.from.slice(0, 7)} · ${a.n} meses</small></td>`;
+      const chips = tickerChips(a.name);
+      body += `<tr><td class="asset">${a.name}${chips ? `<span class="tickers">${chips}</span>` : ""}<small>${a.source} · desde ${a.from.slice(0, 7)} · ${a.n} meses</small></td>`;
       for (const p of D.phases) {
         const d = a.phases[p] || {};
         if (d.grade == null || d.grade === "s/d") {
@@ -525,14 +622,14 @@ function drawMatrix() {
         }
         const sig = d.grade !== "0";
         const col = sig ? diverging(d.rel, 12) : "transparent";
-        const txtCol = d.rel >= 0 ? "var(--pos)" : "var(--neg)";
+        const txtCol = d.rel >= 0 ? POS : NEG;
         body += `<td class="cell ${p === cur ? "active" : ""} ${sig ? "" : "dim"}"
             style="background:${col}"
             title="anualizado ${fmtNum(d.ann, 1)}% · exceso ${signed(d.rel, 1)} pp${d.rel_shrunk != null ? ` (contraído ${signed(d.rel_shrunk, 1)})` : ""} · t=${fmtNum(d.t, 2)}${d.q != null ? ` · q=${fmtNum(d.q, 3)}` : ""} · ${d.n} meses · aciertos ${fmtPct(d.hit, 0)}">
-            <span class="g" style="color:${sig ? txtCol : "var(--muted-2)"}">${d.grade}</span>
+            <span class="g" style="color:${sig ? txtCol : INK_FAINT}">${d.grade}</span>
             <span class="r">${signed(d.rel, 1)}</span></td>`;
       }
-      body += `<td style="text-align:right;font-family:var(--mono);color:var(--muted)">${fmtNum(a.uncond_ann, 1)}%</td></tr>`;
+      body += `<td style="text-align:right;font-family:var(--mono);color:${INK_SOFT}">${fmtNum(a.uncond_ann, 1)}%</td></tr>`;
     }
   }
 
@@ -550,35 +647,38 @@ function renderConsensus() {
   const list = D.consensus || [];
   if (c.confidence >= 0.6 || !list.length) {
     host.innerHTML = `
-      <div class="block-head">
-        <span class="eyebrow">Solapamiento</span>
-        <h2>Cartera de consenso</h2>
-        <p class="cap">${c.confidence >= 0.6
-          ? `La clasificación tiene ${fmtPct(c.confidence)} de margen: no hace falta cubrirse contra la fase alternativa. La columna de ${c.phase} de la matriz es suficiente.`
-          : "No hay activos con nota positiva simultánea en las dos fases candidatas. Liquidez y duración corta son la posición por defecto."}</p>
+      <div class="wrap">
+        <div class="section-head">
+          <div class="eyebrow">Solapamiento</div>
+          <h2>Cartera de consenso</h2>
+          <p class="cap">${c.confidence >= 0.6
+            ? `La clasificación tiene ${fmtPct(c.confidence)} de margen: no hace falta cubrirse contra la fase alternativa. La columna de ${c.phase} de la matriz es suficiente.`
+            : "No hay activos con nota positiva simultánea en las dos fases candidatas. Liquidez y duración corta son la posición por defecto."}</p>
+        </div>
       </div>`;
     return;
   }
   host.innerHTML = `
-    <div class="block-head">
-      <span class="eyebrow">Solapamiento</span>
-      <h2>Lo que funciona en las dos fases candidatas</h2>
-      <p class="cap">Con ${fmtPct(c.confidence)} de margen entre <b>${c.phase}</b> y <b>${c.alt_phase}</b>,
-      estos activos tienen exceso positivo y contrastado en ambas: sobreviven a equivocarse de cuadrante.</p>
-    </div>
-    <div class="cons-grid">
-      ${list.map(r => `
-        <div class="cons-card">
-          <span class="cls">${r.class}</span>
-          <h4>${r.name}</h4>
-          <div class="pair">
-            <div><span>${c.phase.slice(0, 12)}</span><br>${r.g1} · ${signed(r.r1, 1)} pp</div>
-            <div><span>${c.alt_phase.slice(0, 12)}</span><br>${r.g2} · ${signed(r.r2, 1)} pp</div>
-          </div>
-        </div>`).join("")}
+    <div class="wrap">
+      <div class="section-head">
+        <div class="eyebrow">Solapamiento</div>
+        <h2>Lo que funciona en las dos fases candidatas</h2>
+        <p class="cap">Con ${fmtPct(c.confidence)} de margen entre <b>${c.phase}</b> y <b>${c.alt_phase}</b>,
+        estos activos tienen exceso positivo y contrastado en ambas: sobreviven a equivocarse de cuadrante.</p>
+      </div>
+      <div class="cons-grid">
+        ${list.map(r => `
+          <div class="cons-card">
+            <span class="cls">${r.class}</span>
+            <h4>${r.name}${tickerChips(r.name) ? `<span class="tickers">${tickerChips(r.name)}</span>` : ""}</h4>
+            <div class="pair">
+              <div><span>${c.phase.slice(0, 12)}</span>${r.g1} · ${signed(r.r1, 1)} pp</div>
+              <div><span>${c.alt_phase.slice(0, 12)}</span>${r.g2} · ${signed(r.r2, 1)} pp</div>
+            </div>
+          </div>`).join("")}
+      </div>
     </div>`;
 }
-
 
 /* ------------------------ robustez de las notas ------------------------- */
 function renderRobustness() {
@@ -592,77 +692,42 @@ function renderRobustness() {
   const ok = share >= 0.08 && strong.length > 0;
 
   $("#robustBlock").innerHTML = `
-    <div class="block-head">
-      <span class="eyebrow">Lo que aguanta</span>
-      <h2>Qué comprar, según lo que resiste el contraste</h2>
-      <p class="cap">De ${st.cells ?? "—"} casillas contrastadas, <b>${st.graded ?? "—"}</b> tienen nota
-        y <b>${st.fdr_survivors ?? "—"}</b> sobreviven al control de falsos descubrimientos.
-        Con cientos de pruebas simultáneas, unas cuantas "señales" salen por azar: solo estas últimas
-        son defendibles.</p>
-    </div>
-    ${ok ? `
-      <div class="cons-grid">
-        ${strong.slice(0, 8).map(x => `
-          <div class="cons-card" style="border-color:${x.d.rel >= 0 ? "var(--recuperacion)" : "var(--estanflacion)"}">
-            <span class="cls">${x.a.class}</span>
-            <h4>${x.a.name}</h4>
-            <div class="pair">
-              <div><span>exceso</span><br>${signed(x.d.rel, 1)} pp${
-                x.d.rel_shrunk != null ? ` <span style="color:var(--muted-2)">(${signed(x.d.rel_shrunk, 1)} tras contraer)</span>` : ""}</div>
-              <div><span>t · q</span><br>${fmtNum(x.d.t, 1)} · ${fmtNum(x.d.q, 3)}</div>
-            </div>
-          </div>`).join("")}
+    <div class="wrap">
+      <div class="section-head">
+        <div class="eyebrow">Lo que aguanta</div>
+        <h2>El filtro más estricto: control de falsos descubrimientos</h2>
+        <p class="cap">De ${st.cells ?? "—"} casillas contrastadas, <b>${st.graded ?? "—"}</b> tienen nota
+          y solo <b>${st.fdr_survivors ?? "—"}</b> sobreviven al control de falsos descubrimientos.
+          Con cientos de pruebas simultáneas, unas cuantas "señales" salen por azar puro: solo estas
+          últimas son defendibles con ese rigor.</p>
       </div>
-      <p class="foot">Estas son las posiciones con base empírica en ${cur}. El resto de la matriz
-        es informativo, no accionable.</p>`
-      : `<div class="errbox" style="border-color:var(--sobrecalentamiento);background:rgba(242,163,60,.06)">
-          <h2>Ninguna recomendación aguanta el contraste</h2>
-          <p>En ${cur}, ningún activo del universo tiene un exceso sobre su propia media que sobreviva
-          al control de falsos descubrimientos. Eso no es un fallo del panel: es el resultado.</p>
-          <p style="margin-top:10px">Lo honesto entonces es no rotar por fase. La cartera estratégica,
-          la diversificación y el coste mandan más que el cuadrante. El reloj sigue sirviendo para
-          saber dónde estás y para el modelo de recesión, no para decidir la cartera.</p>
-        </div>`}`;
+      ${ok ? `
+        <div class="cons-grid">
+          ${strong.slice(0, 8).map(x => `
+            <div class="cons-card" style="border-top:2px solid ${x.d.rel >= 0 ? POS : NEG}">
+              <span class="cls">${x.a.class}</span>
+              <h4>${x.a.name}${tickerChips(x.a.name) ? `<span class="tickers">${tickerChips(x.a.name)}</span>` : ""}</h4>
+              <div class="pair">
+                <div><span>exceso</span>${signed(x.d.rel, 1)} pp${
+                  x.d.rel_shrunk != null ? ` <span style="color:${INK_FAINT}">(${signed(x.d.rel_shrunk, 1)} contraído)</span>` : ""}</div>
+                <div><span>t · q</span>${fmtNum(x.d.t, 1)} · ${fmtNum(x.d.q, 3)}</div>
+              </div>
+            </div>`).join("")}
+        </div>
+        <p class="foot">Estas son las posiciones con base empírica más sólida en ${cur}. El resto de la
+          matriz de arriba es informativo, no accionable con este nivel de exigencia.</p>`
+        : `<div class="errbox" style="border-color:${PHASE_COLOR["Sobrecalentamiento"]};background:rgba(184,134,59,.07)">
+            <h2>Ninguna posición aguanta este nivel de exigencia</h2>
+            <p>En ${cur}, ningún activo del universo tiene un exceso sobre su propia media que sobreviva
+            al control de falsos descubrimientos. Eso no es un fallo del panel: es el resultado honesto.</p>
+            <p style="margin-top:10px">Lo prudente entonces es no rotar de forma agresiva por fase. La
+            cartera estratégica, la diversificación y el coste pesan más que el cuadrante aquí. El reloj
+            sigue sirviendo para saber dónde está el ciclo y para el modelo de recesión.</p>
+          </div>`}
+    </div>`;
 }
 
-/* ----------------------------- diagnóstico ------------------------------ */
-function renderDiagnostics() {
-  const m = D.meta;
-  const log = m.asset_log || [];
-  const bad = log.filter(a => a.status !== "ok");
-  const w = m.warnings || [];
-  $("#diagBlock").innerHTML = `
-    <div class="block-head">
-      <span class="eyebrow">Diagnóstico</span>
-      <h2>Qué entró y qué se quedó fuera</h2>
-      <p class="cap">Ninguna fuente puede fallar en silencio: cada intento de descarga deja rastro.
-        Si un activo no aparece en la matriz, aquí está el motivo.</p>
-    </div>
-    <div class="val-grid">
-      <div class="val-card">
-        <h3>Cobertura</h3>
-        <table>
-          <tr><td>Series macro</td><td>${m.series_ok}/${m.series_total}</td></tr>
-          <tr><td>Activos cargados</td><td>${m.assets_ok}/${m.assets_tried}</td></tr>
-          <tr><td>Tiempo de construcción</td><td>${fmtNum(m.build_seconds, 0)} s</td></tr>
-          <tr><td>Avisos</td><td style="color:${w.length ? "var(--sobrecalentamiento)" : "var(--muted)"}">${w.length}</td></tr>
-        </table>
-      </div>
-      <div class="val-card" style="grid-column:span 2">
-        <h3>Activos no incorporados (${bad.length})</h3>
-        ${bad.length ? `<table>${bad.map(a => `
-          <tr><td>${a.name}<div style="color:var(--muted-2);font-family:var(--mono);font-size:10.5px">${a.source}</div></td>
-          <td style="color:${a.status === "fallo" ? "var(--estanflacion)" : "var(--muted)"}">${a.status}<div style="color:var(--muted-2);font-size:10.5px">${a.detail}</div></td></tr>`).join("")}</table>`
-          : `<p class="cap">Todos los activos del universo se han cargado.</p>`}
-      </div>
-    </div>
-    ${w.length ? `<details class="limits" style="margin-top:16px"><summary>Avisos de la última construcción (${w.length})</summary>
-      <div><ul>${w.map(x => `<li>${x}</li>`).join("")}</ul></div></details>` : ""}`;
-}
-
-
-
-/* ------------------------- cartera por fase (solo largo) ----------------------- */
+/* ------------------------------ backtest --------------------------------- */
 let pbPhase = null;
 let scheme = null;
 
@@ -670,17 +735,15 @@ function renderRotation() {
   const r = D.rotation || {};
   if (!r.schemes) {
     $("#rotationBlock").innerHTML = `
-      <div class="block-head">
-        <span class="eyebrow">Asignación</span>
+      <div class="section-head">
+        <div class="eyebrow">El backtest</div>
         <h2>La cartera, fase a fase</h2>
       </div>
-      <div class="errbox" style="border-color:var(--sobrecalentamiento);background:rgba(242,163,60,.07)">
+      <div class="errbox" style="border-color:${PHASE_COLOR["Sobrecalentamiento"]};background:rgba(184,134,59,.07)">
         <h2>Los datos son de una versión anterior</h2>
-        <p>Este panel espera los cuatro esquemas de reparto, y el
-        <code>data.json</code> publicado ${r.portfolio ? "trae solo uno" : "no trae la sección de asignación"}.
-        Sube el <code>scripts/build_data.py</code> actual y vuelve a lanzar el flujo
-        <b>Actualizar datos</b> en la pestaña Actions.</p>
-        <p style="margin-top:10px"><code>data.json generado el ${D.meta.generated_utc} · versión ${D.meta.version ?? "1"}</code></p>
+        <p>Este panel espera los cuatro esquemas de reparto y el <code>data.json</code> publicado
+        ${r.portfolio ? "trae solo uno" : "no trae la sección de asignación"}. Sube el
+        <code>scripts/build_data.py</code> actual y vuelve a lanzar <b>Actualizar datos</b> en Actions.</p>
       </div>`;
     return;
   }
@@ -689,35 +752,33 @@ function renderRotation() {
   const S = r.schemes[scheme];
   const b = r.bench_6040 || {};
   const p = S.portfolio;
-  const wins = p.sharpe != null && b.sharpe != null && p.sharpe > b.sharpe;
-  const rows = S.playbook[pbPhase] || [];
-  const sleeves = [...new Set(rows.map(x => x.sleeve))];
 
   const statRow = (name, s, extra, active) => `
-    <tr style="${active ? "background:rgba(91,140,255,.10)" : ""}">
-      <td class="asset" style="${active ? "color:var(--text);font-weight:600" : ""}">${name}</td>
+    <tr style="${active ? "background:rgba(169,117,44,.07)" : ""}">
+      <td class="asset" style="${active ? "color:var(--ink);font-weight:600" : ""}">${name}</td>
       <td style="text-align:right;font-family:var(--mono)">${fmtNum(s.cagr, 1)}%</td>
       <td style="text-align:right;font-family:var(--mono)">${fmtNum(s.vol, 1)}%</td>
       <td style="text-align:right;font-family:var(--mono);font-weight:600;color:${
-        s.sharpe > (b.sharpe ?? 0) ? "var(--recuperacion)" : "var(--muted)"}">${fmtNum(s.sharpe, 2)}</td>
+        s.sharpe > (b.sharpe ?? 0) ? POS : "var(--ink-soft)"}">${fmtNum(s.sharpe, 2)}</td>
       <td style="text-align:right;font-family:var(--mono)">${fmtNum(s.maxdd, 1)}%</td>
       <td style="text-align:right;font-family:var(--mono)">${fmtNum(s.worst12, 1)}%</td>
-      <td style="text-align:right;font-family:var(--mono);color:var(--muted)">${extra}</td>
+      <td style="text-align:right;font-family:var(--mono);color:var(--ink-soft)">${extra}</td>
     </tr>`;
 
   $("#rotationBlock").innerHTML = `
-    <div class="block-head">
-      <span class="eyebrow">Asignación</span>
-      <h2>La cartera, fase a fase</h2>
-      <p class="cap">Solo compras, invertida al 100 %, sin apalancar ni cortos. La fase decide
-        qué activos ocupan cada bloque y cuánto pesa cada bloque dentro de sus bandas.
-        Los índices agregados quedan fuera de la selección, así que la renta variable son sectores.</p>
+    <div class="section-head">
+      <div class="eyebrow">El backtest</div>
+      <h2>¿Bate al 60/40 y al mercado? Fase a fase, desde 1970</h2>
+      <p class="cap">Cartera solo de compras, siempre invertida al 100 %, sin apalancar ni ir corto.
+        La fase decide qué activos ocupan cada bloque y cuánto pesa cada bloque dentro de sus bandas.
+        Los índices agregados quedan fuera de la selección, así que la renta variable son sectores, no
+        el S&amp;P 500 disfrazado.</p>
     </div>
 
-    <h3 style="font-family:var(--display);font-size:17px;margin-bottom:4px">¿Y si los pesos no son iguales?</h3>
-    <p class="cap" style="margin-bottom:12px">La selección de activos es idéntica en los cuatro:
+    <h3 style="font-family:var(--serif);font-size:17px;margin-bottom:4px">¿Y si el reparto interno cambia?</h3>
+    <p class="cap" style="margin-bottom:14px">La selección de activos es idéntica en los cuatro esquemas:
       lo único que cambia es cómo se reparte el dinero entre los ya elegidos.</p>
-    <div class="seg" id="schemeSeg" style="margin-bottom:16px">
+    <div class="seg" id="schemeSeg" style="margin-bottom:18px">
       ${Object.entries(r.schemes).map(([k, v]) => `<button type="button" data-s="${k}"
         aria-pressed="${k === scheme}">${v.label}</button>`).join("")}
     </div>
@@ -733,13 +794,13 @@ function renderRotation() {
         <tbody>
           ${Object.entries(r.schemes).map(([k, v]) =>
             statRow(v.label, v.portfolio, `${v.wins_years}/${v.n_years}`, k === scheme)).join("")}
-          <tr style="border-top:2px solid var(--line)"><td class="asset" style="color:var(--muted)">60/40 estático</td>
+          <tr style="border-top:2px solid var(--line-strong)"><td class="asset" style="color:var(--ink-soft)">60/40 estático</td>
             <td style="text-align:right;font-family:var(--mono)">${fmtNum(b.cagr, 1)}%</td>
             <td style="text-align:right;font-family:var(--mono)">${fmtNum(b.vol, 1)}%</td>
             <td style="text-align:right;font-family:var(--mono);font-weight:600">${fmtNum(b.sharpe, 2)}</td>
             <td style="text-align:right;font-family:var(--mono)">${fmtNum(b.maxdd, 1)}%</td>
             <td style="text-align:right;font-family:var(--mono)">${fmtNum(b.worst12, 1)}%</td>
-            <td style="text-align:right;font-family:var(--mono);color:var(--muted)">—</td></tr>
+            <td style="text-align:right;font-family:var(--mono);color:var(--ink-soft)">—</td></tr>
         </tbody>
       </table>
     </div>
@@ -748,65 +809,68 @@ function renderRotation() {
       volatilidad frente al <b>${fmtNum(S.vol_check.objetivo_6040, 1)}%</b> del 60/40
       (${signed(S.vol_check.desvio, 1)} puntos).
       ${Math.abs(S.vol_check.desvio ?? 0) > 1.5
-        ? "<b style='color:var(--sobrecalentamiento)'>La comparación no es a igual riesgo:</b> "
+        ? `<b style="color:${PHASE_COLOR["Sobrecalentamiento"]}">La comparación no es a igual riesgo:</b> `
           + (S.vol_check.desvio < 0
             ? "la cartera lleva menos riesgo, así que rendir menos era inevitable."
             : "la cartera lleva más riesgo, así que parte de la ventaja es solo eso.")
         : "Comparación a igual riesgo."}</p>` : ""}
-    <p class="foot" style="margin-bottom:22px">Rotación media de cartera:
-      <b>${fmtNum(S.turnover, 1)}%</b> al mes. Los costes de transacción no están descontados;
-      a 15 puntos básicos por unidad de rotación restarían del orden de
-      ${fmtNum(S.turnover * 0.15 * 12 / 100, 2)} puntos al año.</p>
+    <p class="foot" style="margin-bottom:24px">Rotación media de cartera: <b>${fmtNum(S.turnover, 1)}%</b>
+      al mes. Los costes de transacción no están descontados; a 15 puntos básicos por unidad de rotación
+      restarían del orden de ${fmtNum(S.turnover * 0.15 * 12 / 100, 2)} puntos al año.</p>
 
-    <div class="bt-chart" style="margin-bottom:22px">
+    <div class="bt-chart" style="margin-bottom:24px">
       <svg id="rotChart" viewBox="0 0 900 340" role="img" aria-label="Evolución frente al 60/40"></svg>
     </div>
 
-    <h3 style="font-family:var(--display);font-size:17px;margin-bottom:10px">Año contra año</h3>
+    <h3 style="font-family:var(--serif);font-size:17px;margin-bottom:10px">Año contra año</h3>
     <div class="bt-chart" style="margin-bottom:8px">
       <svg id="annChart" viewBox="0 0 900 230" role="img" aria-label="Diferencia anual frente al 60/40"></svg>
     </div>
-    <p class="foot" style="margin-bottom:26px">Barras verdes: años en que la cartera batió al 60/40.
+    <p class="foot" style="margin-bottom:28px">Barras verdes: años en que la cartera batió al 60/40.
       Ganó <b>${S.wins_years} de ${S.n_years}</b> años.</p>
 
-    <h3 style="font-family:var(--display);font-size:17px;margin-bottom:4px">Dónde gana y dónde no</h3>
-    <p class="cap" style="margin-bottom:10px">Las fases con menos de 60 meses salen atenuadas:
-      con año y medio o dos años de datos, la diferencia es ruido y no debe leerse como
-      que el sistema funcione mejor o peor ahí.</p>
-    <div class="scores-grid" style="margin-bottom:26px">
+    <h3 style="font-family:var(--serif);font-size:17px;margin-bottom:4px">Dónde gana y dónde no</h3>
+    <p class="cap" style="margin-bottom:12px">Las fases con menos de 60 meses salen atenuadas: con año y
+      medio o dos de datos, la diferencia es ruido y no debe leerse como que el sistema funcione mejor o
+      peor ahí.</p>
+    <div class="scores-grid" style="margin-bottom:28px">
       ${D.phases.filter(x => S.by_phase[x]).map(x => {
         const e = S.by_phase[x];
         const thin = e.n < 60;
         return `<div class="score-card" style="background:${PHASE_COLOR[x]};opacity:${
-          thin ? .35 : (x === D.current.phase ? 1 : .62)}">
-          <div style="font-size:.85em">${x}</div>
-          <div style="font-size:1.5em">${signed(e.edge, 1)} pp</div>
-          <div style="font-size:.78em;opacity:.9">${e.n} meses · ${
-            thin ? "<b>muestra insuficiente</b>" : ((e.edge ?? 0) > 0 ? "por delante" : "por detrás")}</div>
+          thin ? .38 : (x === D.current.phase ? 1 : .68)}">
+          <div class="l1">${x}</div>
+          <div class="l2">${signed(e.edge, 1)} pp</div>
+          <div class="l3">${e.n} meses · ${thin ? "<b>muestra insuficiente</b>" : ((e.edge ?? 0) > 0 ? "por delante del 60/40" : "por detrás del 60/40")}</div>
         </div>`;
       }).join("")}
     </div>
 
-    <h3 style="font-family:var(--display);font-size:17px;margin-bottom:10px">Qué comprar en cada fase</h3>
-    <div class="seg" id="phaseSeg" style="margin-bottom:12px">
+    <h3 style="font-family:var(--serif);font-size:17px;margin-bottom:10px">Manual completo: qué comprar en cada fase</h3>
+    <div class="seg" id="phaseSeg" style="margin-bottom:14px">
       ${D.phases.map(x => `<button type="button" data-p="${x}" aria-pressed="${x === pbPhase}"
         style="${x === pbPhase ? `border-color:${PHASE_COLOR[x]};color:${PHASE_COLOR[x]}` : ""}">${x}</button>`).join("")}
     </div>
-    ${S.sleeve_mix?.[pbPhase] ? `<div class="band" style="margin:0 0 14px">
+    ${S.sleeve_mix?.[pbPhase] ? `<div class="outlook" style="margin:0 0 16px;padding:16px 20px">
       ${Object.entries(S.sleeve_mix[pbPhase]).map(([k, v]) => `
         <div class="item"><dt>${k}</dt><dd>${fmtNum(v, 0)}%</dd>
         <small>banda ${(r.bands?.[k] || []).join("–")}%</small></div>`).join("")}
     </div>` : ""}
     <div class="cons-grid">
-      ${sleeves.map(sl => {
-        const items = rows.filter(x => x.sleeve === sl);
-        const tot = items.reduce((a, x) => a + x.weight, 0);
-        return `<div class="cons-card">
-          <span class="cls">${sl} · ${fmtNum(tot, 0)}%</span>
-          ${items.map(x => `<div style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid rgba(38,49,79,.4);font-size:12.8px">
-            <span>${x.name}</span><b style="font-family:var(--mono)">${fmtNum(x.weight, 1)}%</b></div>`).join("")}
-        </div>`;
-      }).join("")}
+      ${(() => {
+        const rows = S.playbook[pbPhase] || [];
+        const sleeves = [...new Set(rows.map(x => x.sleeve))];
+        return sleeves.map(sl => {
+          const items = rows.filter(x => x.sleeve === sl);
+          const tot = items.reduce((a, x) => a + x.weight, 0);
+          return `<div class="cons-card">
+            <span class="cls">${sl} · ${fmtNum(tot, 0)}%</span>
+            ${items.map(x => `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:7px 0;border-bottom:1px solid var(--line-soft);font-size:13px">
+              <span>${x.name}${tickerChips(x.name) ? `<span class="tickers">${tickerChips(x.name)}</span>` : ""}</span>
+              <b style="font-family:var(--mono);white-space:nowrap">${fmtNum(x.weight, 1)}%</b></div>`).join("")}
+          </div>`;
+        }).join("");
+      })()}
     </div>
     <p class="foot">Reparto <b>${S.label.toLowerCase()}</b>. Las primas largo-corto (value, tamaño,
       momentum) quedan fuera: no se compran en una cartera solo larga.
@@ -819,6 +883,49 @@ function renderRotation() {
   });
   $("#phaseSeg").querySelectorAll("button").forEach(btn => {
     btn.onclick = () => { pbPhase = btn.dataset.p; renderRotation(); };
+  });
+}
+
+function drawCurve(sel, c, labelA, labelB) {
+  const svg = $(sel);
+  if (!svg) return;
+  svg.innerHTML = "";
+  const W = 900, H = 340, padL = 52, padR = 14, padT = 14, padB = 28;
+  if (c.length < 10) return;
+  let s = 100, b = 100;
+  const S = [], B = [];
+  c.forEach(p => {
+    s *= 1 + p.s / 100; S.push(s);
+    if (p.b != null) { b *= 1 + p.b / 100; }
+    B.push(b);
+  });
+  const lo = Math.min(...S, ...B) * 0.95, hi = Math.max(...S, ...B) * 1.05;
+  const x = k => padL + (k / (c.length - 1)) * (W - padL - padR);
+  const y = v => H - padB - ((Math.log(v) - Math.log(lo)) / (Math.log(hi) - Math.log(lo))) * (H - padT - padB);
+
+  [1, 2, 5, 10, 20, 50].map(m => 100 * m).filter(v => v > lo && v < hi).forEach(v => {
+    el("line", { x1: padL, y1: y(v), x2: W - padR, y2: y(v), stroke: LINE_SOFT }, svg);
+    txt("text", { x: padL - 8, y: y(v) + 4, fill: INK_FAINT, "text-anchor": "end",
+      "font-family": "IBM Plex Mono, monospace", "font-size": 10 }, `${v / 100}×`, svg);
+  });
+
+  const path = (arr, col, wdt, op) => {
+    const d = arr.map((v, k) => `${k ? "L" : "M"}${x(k).toFixed(1)},${y(v).toFixed(1)}`).join("");
+    el("path", { d, fill: "none", stroke: col, "stroke-width": wdt, opacity: op }, svg);
+  };
+  path(B, INK_FAINT, 1.3, 0.85);
+  path(S, "#3F6B52", 1.9, 1);
+
+  const step = Math.ceil(c.length / 10);
+  c.forEach((p, k) => {
+    if (k % step) return;
+    txt("text", { x: x(k), y: H - 8, fill: INK_FAINT, "text-anchor": "middle",
+      "font-family": "IBM Plex Mono, monospace", "font-size": 10 }, p.d.slice(0, 4), svg);
+  });
+  [[labelA, "#3F6B52"], [labelB, INK_FAINT]].forEach(([t, col], n) => {
+    el("rect", { x: padL + n * 200, y: padT, width: 10, height: 3, fill: col }, svg);
+    txt("text", { x: padL + n * 200 + 16, y: padT + 4, fill: INK_SOFT,
+      "font-family": "IBM Plex Mono, monospace", "font-size": 10.5 }, t, svg);
   });
 }
 
@@ -838,143 +945,21 @@ function drawAnnual(sel, ann, bench) {
 
   [-m, -m / 2, 0, m / 2, m].forEach(v => {
     el("line", { x1: padL, y1: y(v), x2: W - padR, y2: y(v),
-      stroke: v === 0 ? "#3A486E" : "#1D2740" }, svg);
-    const t = el("text", { x: padL - 7, y: y(v) + 4, fill: "#66748F", "text-anchor": "end",
-      "font-family": "IBM Plex Mono, monospace", "font-size": 9.5 }, svg);
-    t.textContent = `${v > 0 ? "+" : ""}${v.toFixed(0)}`;
+      stroke: v === 0 ? LINE_STRONG : LINE_SOFT }, svg);
+    txt("text", { x: padL - 7, y: y(v) + 4, fill: INK_FAINT, "text-anchor": "end",
+      "font-family": "IBM Plex Mono, monospace", "font-size": 9.5 }, `${v > 0 ? "+" : ""}${v.toFixed(0)}`, svg);
   });
   years.forEach((yr, i) => {
     const d = diffs[i];
-    el("rect", { x: x(i) - bw / 2, y: d >= 0 ? y(d) : y0,
+    const r = el("rect", { x: x(i) - bw / 2, y: d >= 0 ? y(d) : y0,
       width: bw, height: Math.max(1, Math.abs(y(d) - y0)),
-      fill: d >= 0 ? "#35D0A5" : "#EE5D6C", opacity: 0.85 }, svg)
-      .appendChild(Object.assign(document.createElementNS(NS, "title"),
-        { textContent: `${yr}: cartera ${ann[yr].toFixed(1)}% · 60/40 ${bench[yr].toFixed(1)}% · ${d >= 0 ? "+" : ""}${d.toFixed(1)} pp` }));
+      fill: d >= 0 ? "#3F6B52" : "#9C4A3C", opacity: 0.9 }, svg);
+    txt("title", {}, `${yr}: cartera ${ann[yr].toFixed(1)}% · 60/40 ${bench[yr].toFixed(1)}% · ${d >= 0 ? "+" : ""}${d.toFixed(1)} pp`, r);
     if (years.length <= 40 || i % Math.ceil(years.length / 30) === 0) {
-      const t = el("text", { x: x(i), y: H - 10, fill: "#66748F", "text-anchor": "middle",
+      txt("text", { x: x(i), y: H - 10, fill: INK_FAINT, "text-anchor": "middle",
         "font-family": "IBM Plex Mono, monospace", "font-size": 8.5,
-        transform: `rotate(-60 ${x(i)} ${H - 10})` }, svg);
-      t.textContent = String(yr).slice(2);
+        transform: `rotate(-60 ${x(i)} ${H - 10})` }, String(yr).slice(2), svg);
     }
-  });
-}
-
-
-/* ------------------------------ laboratorio ----------------------------- */
-let labPhase = null, labSleeve = "Renta variable";
-
-function icVerdict(ic) {
-  if (ic == null || Number.isNaN(ic)) return ["—", "var(--muted)", "sin datos"];
-  if (ic >= 0.4) return [fmtNum(ic, 2), "var(--recuperacion)",
-    "lo que funcionó antes siguió funcionando: seleccionar por historia tiene sentido aquí"];
-  if (ic >= 0.15) return [fmtNum(ic, 2), "var(--sobrecalentamiento)",
-    "persistencia débil: algo hay, pero poco donde agarrarse"];
-  if (ic > -0.15) return [fmtNum(ic, 2), "var(--muted)",
-    "sin persistencia: elegir por lo que funcionó antes equivale a elegir al azar"];
-  return [fmtNum(ic, 2), "var(--estanflacion)",
-    "persistencia negativa: lo que mejor funcionó antes tendió a funcionar peor después"];
-}
-
-function renderLab() {
-  const L = D.lab || {};
-  const phases = D.phases.filter(p => L[p] && !L[p].skipped);
-  if (!phases.length) { $("#labBlock").innerHTML = ""; return; }
-  labPhase = phases.includes(labPhase) ? labPhase : (phases.includes(D.current.phase) ? D.current.phase : phases[0]);
-  const P = L[labPhase];
-  const sleeves = Object.keys(P.sleeves || {});
-  labSleeve = sleeves.includes(labSleeve) ? labSleeve : sleeves[0];
-  const S = P.sleeves[labSleeve] || {};
-  const noCombos = !S.n_combos;
-  const [icTxt, icCol, icMsg] = icVerdict(S.rank_ic);
-  const [aTxt, aCol, aMsg] = icVerdict(S.asset_ic);
-
-  $("#labBlock").innerHTML = `
-    <div class="block-head">
-      <span class="eyebrow">Laboratorio</span>
-      <h2>Qué combinaciones funcionaron, y si siguieron funcionando</h2>
-      <p class="cap">Para cada fase se evalúan <b>todas</b> las combinaciones posibles de
-        ${S.k ?? 4} activos dentro del bloque, partiendo los meses de esa fase en dos mitades.
-        Las combinaciones se ordenan con la primera mitad y se miran en la segunda, que no se
-        usó para elegirlas. La mejor de ${S.n_combos ?? "cientos"} siempre parece brillante;
-        lo que importa es si aguanta fuera de su propia muestra.</p>
-      <p class="cap" style="margin-top:8px">Ningún activo queda fuera por tener menos historia:
-        cada uno se parte por la mediana de <b>su propia</b> muestra, así que un ETF de 2009 se
-        compara consigo mismo. A cambio, las mitades no cubren las mismas fechas entre unos y
-        otros — junto a cada fila van los meses usados y el tramo, y las muestras cortas salen
-        atenuadas.</p>
-    </div>
-
-    <div class="seg" id="labPhaseSeg" style="margin-bottom:10px">
-      ${phases.map(p => `<button type="button" data-p="${p}" aria-pressed="${p === labPhase}"
-        style="${p === labPhase ? `border-color:${PHASE_COLOR[p]};color:${PHASE_COLOR[p]}` : ""}">${p}</button>`).join("")}
-    </div>
-    <div class="seg" id="labSleeveSeg" style="margin-bottom:16px">
-      ${sleeves.map(x => `<button type="button" data-s="${x}" aria-pressed="${x === labSleeve}">${x}</button>`).join("")}
-    </div>
-
-    <div class="band" style="margin-bottom:18px">
-      <div class="item"><dt>Persistencia de combinaciones</dt>
-        <dd style="color:${icCol}">${icTxt}</dd><small>${icMsg}</small></div>
-      <div class="item"><dt>Persistencia por activo suelto</dt>
-        <dd style="color:${aCol}">${aTxt}</dd><small>${aMsg}</small></div>
-      <div class="item"><dt>Muestra</dt>
-        <dd>${P.n} meses</dd><small>${P.n_h1} antes y ${P.n_h2} después de ${P.split?.slice(0, 7)}</small></div>
-      <div class="item"><dt>Media de todas las combinaciones</dt>
-        <dd>${fmtNum(S.all_h2_mean, 1)}%</dd><small>en la segunda mitad · dispersión ±${fmtNum(S.all_h2_sd, 1)} pp</small></div>
-    </div>
-
-    ${noCombos ? `<div class="errbox" style="border-color:var(--sobrecalentamiento);background:rgba(242,163,60,.07);margin-bottom:18px">
-      <h2>Sin combinaciones evaluables en este bloque</h2>
-      <p>${S.note || "No hay muestra suficiente."} Los activos sueltos sí aparecen abajo con los meses de que dispone cada uno.</p>
-    </div>` : `
-    <div class="matrix-holder" style="margin-bottom:12px">
-      <table class="matrix">
-        <thead><tr>
-          <th>Mejores combinaciones según la primera mitad</th>
-          <th style="text-align:right">1ª mitad</th>
-          <th style="text-align:right">2ª mitad</th>
-          <th style="text-align:right">Percentil en la 2ª</th>
-        </tr></thead>
-        <tbody>${(S.top || []).map(t => `
-          <tr><td class="asset">${t.assets.join(" · ")}
-            <small>${t.n} meses · ${t.span}</small></td>
-            <td style="text-align:right;font-family:var(--mono)">${fmtNum(t.h1, 1)}%</td>
-            <td style="text-align:right;font-family:var(--mono);color:${
-              t.h2 > (S.all_h2_mean ?? 0) ? "var(--recuperacion)" : "var(--estanflacion)"}">${fmtNum(t.h2, 1)}%</td>
-            <td style="text-align:right;font-family:var(--mono);color:${
-              t.pct_h2 > 0.5 ? "var(--recuperacion)" : "var(--estanflacion)"}">${fmtPct(t.pct_h2, 0)}</td></tr>`).join("")}
-        </tbody>
-      </table>
-    </div>
-    <p class="foot" style="margin-bottom:24px">Percentil 50 % significa que esa combinación
-      quedó justo en la media de las ${S.n_combos} posibles en la segunda mitad, o sea que
-      elegirla no aportó nada. La mejor de la primera mitad acabó en el percentil
-      <b style="color:${(S.best_h1_pct_in_h2 ?? 0) > 0.5 ? "var(--recuperacion)" : "var(--estanflacion)"}">${fmtPct(S.best_h1_pct_in_h2, 0)}</b>.</p>`}
-
-    <h3 style="font-family:var(--display);font-size:16px;margin-bottom:10px">Activo por activo</h3>
-    <div class="matrix-holder">
-      <table class="matrix">
-        <thead><tr><th>Activo</th>
-          <th style="text-align:right">1ª mitad</th>
-          <th style="text-align:right">2ª mitad</th>
-          <th style="text-align:right">Diferencia</th></tr></thead>
-        <tbody>${(S.assets_h1_h2 || []).slice()
-          .sort((a, b) => (b.h1 ?? -999) - (a.h1 ?? -999)).map(a => `
-          <tr style="${a.thin ? "opacity:.6" : ""}"><td class="asset">${a.name}
-            <small>${a.n} meses${a.span ? ` · ${a.span}` : ""}${a.thin ? " · muestra corta" : ""}</small></td>
-            <td style="text-align:right;font-family:var(--mono)">${fmtNum(a.h1, 1)}%</td>
-            <td style="text-align:right;font-family:var(--mono)">${fmtNum(a.h2, 1)}%</td>
-            <td style="text-align:right;font-family:var(--mono);color:${
-              a.h2 - a.h1 >= 0 ? "var(--recuperacion)" : "var(--estanflacion)"}">${signed(a.h2 - a.h1, 1)}</td></tr>`).join("")}
-        </tbody>
-      </table>
-    </div>`;
-
-  $("#labPhaseSeg").querySelectorAll("button").forEach(b => {
-    b.onclick = () => { labPhase = b.dataset.p; renderLab(); };
-  });
-  $("#labSleeveSeg").querySelectorAll("button").forEach(b => {
-    b.onclick = () => { labSleeve = b.dataset.s; renderLab(); };
   });
 }
 
@@ -997,93 +982,144 @@ function renderDefensive() {
     .sort((a, b) => (b.sharpe ?? 0) - (a.sharpe ?? 0))[0];
 
   $("#defensiveBlock").innerHTML = `
-    <div class="block-head">
-      <span class="eyebrow">Protección</span>
-      <h2>Reducir riesgo cuando el crecimiento cae bajo tendencia</h2>
-      <p class="cap">Un 60/40 normal, que pasa a defensivo el mes siguiente a que el eje de
-        crecimiento cruce por debajo de cero. Sin umbrales ajustados: el umbral es el cero,
-        que por construcción significa "en tendencia". Estuvo en modo defensivo el
-        <b>${fmtPct(p.share_defensive, 0)}</b> de los meses.</p>
-    </div>
-    <div class="matrix-holder">
-      <table class="matrix">
-        <thead><tr>
-          <th>Regla</th><th style="text-align:right">Anual</th><th style="text-align:right">Vol</th>
-          <th style="text-align:right">Sharpe</th><th style="text-align:right">Caída máx.</th>
-          <th style="text-align:right">Peor año</th><th style="text-align:right">t</th>
-        </tr></thead>
-        <tbody>${rows.map(r => {
-          const isBase = r.k === "base_6040";
-          const better = !isBase && r.sharpe > base.sharpe;
-          return `<tr style="${isBase ? "background:rgba(255,255,255,.03)" : ""}">
-            <td class="asset" style="color:${better ? "var(--recuperacion)" : ""}">${DEF_LABEL[r.k]}</td>
-            <td style="text-align:right;font-family:var(--mono)">${fmtNum(r.cagr, 1)}%</td>
-            <td style="text-align:right;font-family:var(--mono)">${fmtNum(r.vol, 1)}%</td>
-            <td style="text-align:right;font-family:var(--mono);font-weight:600;color:${
-              better ? "var(--recuperacion)" : isBase ? "var(--text)" : "var(--muted)"}">${fmtNum(r.sharpe, 2)}</td>
-            <td style="text-align:right;font-family:var(--mono)">${fmtNum(r.maxdd, 1)}%</td>
-            <td style="text-align:right;font-family:var(--mono)">${fmtNum(r.worst12, 1)}%</td>
-            <td style="text-align:right;font-family:var(--mono);color:var(--muted)">${fmtNum(r.t, 1)}</td>
-          </tr>`;
-        }).join("")}</tbody>
-      </table>
-    </div>
-    <p class="gap-note" style="border-left-color:${
-      best && best.sharpe > base.sharpe ? "var(--recuperacion)" : "var(--sobrecalentamiento)"}">
-      ${best && best.sharpe > base.sharpe
-        ? `La mejor regla (<b>${DEF_LABEL[best.k]}</b>) mejora el Sharpe del 60/40 en
-           ${fmtNum(best.sharpe - base.sharpe, 2)} y recorta la caída máxima de
-           ${fmtNum(base.maxdd, 0)}% a ${fmtNum(best.maxdd, 0)}%.`
-        : `Ninguna regla mejora al 60/40. Desapalancar por ciclo no protegió más de lo que costó.`}
-      Se probaron <b>${p.n_variants}</b> variantes: quedarse con la mejor de varias infla el
-      resultado, así que están las ${p.n_variants} publicadas y no solo la ganadora.
-      El disparador es ${p.trigger}, sin ningún parámetro ajustado a los datos.</p>`;
+    <div class="wrap">
+      <div class="section-head">
+        <div class="eyebrow">Protección</div>
+        <h2>Reducir riesgo cuando el crecimiento cae bajo tendencia</h2>
+        <p class="cap">Un 60/40 normal, que pasa a defensivo el mes siguiente a que el eje de
+          crecimiento cruce por debajo de cero. Sin umbrales ajustados: el umbral es el cero, que por
+          construcción significa "en tendencia". Estuvo en modo defensivo el
+          <b>${fmtPct(p.share_defensive, 0)}</b> de los meses.</p>
+      </div>
+      <div class="matrix-holder">
+        <table class="matrix">
+          <thead><tr>
+            <th>Regla</th><th style="text-align:right">Anual</th><th style="text-align:right">Vol</th>
+            <th style="text-align:right">Sharpe</th><th style="text-align:right">Caída máx.</th>
+            <th style="text-align:right">Peor año</th><th style="text-align:right">t</th>
+          </tr></thead>
+          <tbody>${rows.map(r => {
+            const isBase = r.k === "base_6040";
+            const better = !isBase && r.sharpe > base.sharpe;
+            return `<tr style="${isBase ? "background:var(--paper-deep)" : ""}">
+              <td class="asset" style="color:${better ? POS : ""}">${DEF_LABEL[r.k]}</td>
+              <td style="text-align:right;font-family:var(--mono)">${fmtNum(r.cagr, 1)}%</td>
+              <td style="text-align:right;font-family:var(--mono)">${fmtNum(r.vol, 1)}%</td>
+              <td style="text-align:right;font-family:var(--mono);font-weight:600;color:${
+                better ? POS : isBase ? "var(--ink)" : "var(--ink-soft)"}">${fmtNum(r.sharpe, 2)}</td>
+              <td style="text-align:right;font-family:var(--mono)">${fmtNum(r.maxdd, 1)}%</td>
+              <td style="text-align:right;font-family:var(--mono)">${fmtNum(r.worst12, 1)}%</td>
+              <td style="text-align:right;font-family:var(--mono);color:var(--ink-soft)">${fmtNum(r.t, 1)}</td>
+            </tr>`;
+          }).join("")}</tbody>
+        </table>
+      </div>
+      <p class="gap-note" style="border-left-color:${best && best.sharpe > base.sharpe ? POS : PHASE_COLOR["Sobrecalentamiento"]}">
+        ${best && best.sharpe > base.sharpe
+          ? `La mejor regla (<b>${DEF_LABEL[best.k]}</b>) mejora el Sharpe del 60/40 en
+             ${fmtNum(best.sharpe - base.sharpe, 2)} y recorta la caída máxima de
+             ${fmtNum(base.maxdd, 0)}% a ${fmtNum(best.maxdd, 0)}%.`
+          : `Ninguna regla mejora al 60/40. Desapalancar por ciclo no protegió más de lo que costó.`}
+        Se probaron <b>${p.n_variants}</b> variantes: quedarse con la mejor de varias infla el resultado,
+        así que están las ${p.n_variants} publicadas y no solo la ganadora. El disparador es ${p.trigger},
+        sin ningún parámetro ajustado a los datos.</p>
+    </div>`;
 }
 
-function drawCurve(sel, c, labelA, labelB) {
-  const svg = $(sel);
-  if (!svg) return;
-  svg.innerHTML = "";
-  const W = 900, H = 340, padL = 52, padR = 14, padT = 14, padB = 28;
-  if (c.length < 10) return;
-  let s = 100, b = 100;
-  const S = [], B = [];
-  c.forEach(p => {
-    s *= 1 + p.s / 100; S.push(s);
-    if (p.b != null) { b *= 1 + p.b / 100; }
-    B.push(b);
-  });
-  const lo = Math.min(...S, ...B) * 0.95, hi = Math.max(...S, ...B) * 1.05;
-  const x = k => padL + (k / (c.length - 1)) * (W - padL - padR);
-  const y = v => H - padB - ((Math.log(v) - Math.log(lo)) / (Math.log(hi) - Math.log(lo))) * (H - padT - padB);
+/* ------------------------------ laboratorio ----------------------------- */
+let labPhase = null, labSleeve = "Renta variable";
 
-  [1, 2, 5, 10, 20, 50].map(m => 100 * m).filter(v => v > lo && v < hi).forEach(v => {
-    el("line", { x1: padL, y1: y(v), x2: W - padR, y2: y(v), stroke: "#1D2740" }, svg);
-    const t = el("text", { x: padL - 8, y: y(v) + 4, fill: "#66748F", "text-anchor": "end",
-      "font-family": "IBM Plex Mono, monospace", "font-size": 10 }, svg);
-    t.textContent = `${v / 100}×`;
-  });
+function icVerdict(ic) {
+  if (ic == null || Number.isNaN(ic)) return ["—", "var(--ink-soft)", "sin datos"];
+  if (ic >= 0.4) return [fmtNum(ic, 2), POS, "lo que funcionó antes siguió funcionando: seleccionar por historia tiene sentido aquí"];
+  if (ic >= 0.15) return [fmtNum(ic, 2), PHASE_COLOR["Sobrecalentamiento"], "persistencia débil: algo hay, pero poco donde agarrarse"];
+  if (ic > -0.15) return [fmtNum(ic, 2), "var(--ink-soft)", "sin persistencia: elegir por lo que funcionó antes equivale a elegir al azar"];
+  return [fmtNum(ic, 2), NEG, "persistencia negativa: lo que mejor funcionó antes tendió a funcionar peor después"];
+}
 
-  const path = (arr, col, wdt, op) => {
-    const d = arr.map((v, k) => `${k ? "L" : "M"}${x(k).toFixed(1)},${y(v).toFixed(1)}`).join("");
-    el("path", { d, fill: "none", stroke: col, "stroke-width": wdt, opacity: op }, svg);
-  };
-  path(B, "#66748F", 1.4, 0.8);
-  path(S, "#35D0A5", 1.9, 1);
+function renderLab() {
+  const L = D.lab || {};
+  const phases = D.phases.filter(p => L[p] && !L[p].skipped);
+  if (!phases.length) { $("#labBlock").innerHTML = ""; return; }
+  labPhase = phases.includes(labPhase) ? labPhase : (phases.includes(D.current.phase) ? D.current.phase : phases[0]);
+  const P = L[labPhase];
+  const sleeves = Object.keys(P.sleeves || {});
+  labSleeve = sleeves.includes(labSleeve) ? labSleeve : sleeves[0];
+  const S = P.sleeves[labSleeve] || {};
+  const noCombos = !S.n_combos;
+  const [icTxt, icCol, icMsg] = icVerdict(S.rank_ic);
+  const [aTxt, aCol, aMsg] = icVerdict(S.asset_ic);
 
-  const step = Math.ceil(c.length / 10);
-  c.forEach((p, k) => {
-    if (k % step) return;
-    const t = el("text", { x: x(k), y: H - 8, fill: "#66748F", "text-anchor": "middle",
-      "font-family": "IBM Plex Mono, monospace", "font-size": 10 }, svg);
-    t.textContent = p.d.slice(0, 4);
-  });
-  [[labelA, "#35D0A5"], [labelB, "#66748F"]].forEach(([txt, col], n) => {
-    el("rect", { x: padL + n * 200, y: padT, width: 10, height: 3, fill: col }, svg);
-    const t = el("text", { x: padL + n * 200 + 16, y: padT + 4, fill: "#8E9CBB",
-      "font-family": "IBM Plex Mono, monospace", "font-size": 10.5 }, svg);
-    t.textContent = txt;
-  });
+  $("#labBlock").innerHTML = `
+    <div class="wrap">
+      <div class="section-head">
+        <div class="eyebrow">Laboratorio</div>
+        <h2>Qué combinaciones funcionaron, y si siguieron funcionando</h2>
+        <p class="cap">Para cada fase se evalúan <b>todas</b> las combinaciones posibles de
+          ${S.k ?? 4} activos dentro del bloque, partiendo los meses de esa fase en dos mitades. Las
+          combinaciones se ordenan con la primera mitad y se miran en la segunda, que no se usó para
+          elegirlas. La mejor de ${S.n_combos ?? "cientos"} siempre parece brillante; lo que importa es
+          si aguanta fuera de su propia muestra.</p>
+      </div>
+
+      <div class="seg" id="labPhaseSeg" style="margin-bottom:10px">
+        ${phases.map(p => `<button type="button" data-p="${p}" aria-pressed="${p === labPhase}"
+          style="${p === labPhase ? `border-color:${PHASE_COLOR[p]};color:${PHASE_COLOR[p]}` : ""}">${p}</button>`).join("")}
+      </div>
+      <div class="seg" id="labSleeveSeg" style="margin-bottom:18px">
+        ${sleeves.map(x => `<button type="button" data-s="${x}" aria-pressed="${x === labSleeve}">${x}</button>`).join("")}
+      </div>
+
+      <div class="outlook" style="margin-bottom:20px">
+        <div class="item"><dt>Persistencia de combinaciones</dt><dd style="color:${icCol}">${icTxt}</dd><small>${icMsg}</small></div>
+        <div class="item"><dt>Persistencia por activo suelto</dt><dd style="color:${aCol}">${aTxt}</dd><small>${aMsg}</small></div>
+        <div class="item"><dt>Muestra</dt><dd>${P.n} meses</dd><small>fase completa, partida por la mediana de cada activo</small></div>
+        <div class="item"><dt>Media de todas las combinaciones</dt><dd>${fmtNum(S.all_h2_mean, 1)}%</dd><small>en la segunda mitad · dispersión ±${fmtNum(S.all_h2_sd, 1)} pp</small></div>
+      </div>
+
+      ${noCombos ? `<div class="errbox" style="border-color:${PHASE_COLOR["Sobrecalentamiento"]};background:rgba(184,134,59,.07);margin-bottom:20px">
+        <h2>Sin combinaciones evaluables en este bloque</h2>
+        <p>${S.note || "No hay muestra suficiente."} Los activos sueltos sí aparecen abajo con los meses de que dispone cada uno.</p>
+      </div>` : `
+      <div class="matrix-holder" style="margin-bottom:14px">
+        <table class="matrix">
+          <thead><tr>
+            <th>Mejores combinaciones según la primera mitad</th>
+            <th style="text-align:right">1ª mitad</th>
+            <th style="text-align:right">2ª mitad</th>
+            <th style="text-align:right">Percentil en la 2ª</th>
+          </tr></thead>
+          <tbody>${(S.top || []).map(t => `
+            <tr><td class="asset">${t.assets.join(" · ")}<small>${t.n} meses · ${t.span}</small></td>
+              <td style="text-align:right;font-family:var(--mono)">${fmtNum(t.h1, 1)}%</td>
+              <td style="text-align:right;font-family:var(--mono);color:${t.h2 > (S.all_h2_mean ?? 0) ? POS : NEG}">${fmtNum(t.h2, 1)}%</td>
+              <td style="text-align:right;font-family:var(--mono);color:${t.pct_h2 > 0.5 ? POS : NEG}">${fmtPct(t.pct_h2, 0)}</td></tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+      <p class="foot" style="margin-bottom:26px">Percentil 50 % significa que esa combinación quedó justo
+        en la media de las ${S.n_combos} posibles en la segunda mitad, o sea que elegirla no aportó nada.
+        La mejor de la primera mitad acabó en el percentil
+        <b style="color:${(S.best_h1_pct_in_h2 ?? 0) > 0.5 ? POS : NEG}">${fmtPct(S.best_h1_pct_in_h2, 0)}</b>.</p>`}
+
+      <h3 style="font-family:var(--serif);font-size:16px;margin-bottom:10px">Activo por activo</h3>
+      <div class="matrix-holder">
+        <table class="matrix">
+          <thead><tr><th>Activo</th><th style="text-align:right">1ª mitad</th>
+            <th style="text-align:right">2ª mitad</th><th style="text-align:right">Diferencia</th></tr></thead>
+          <tbody>${(S.assets_h1_h2 || []).slice()
+            .sort((a, b) => (b.h1 ?? -999) - (a.h1 ?? -999)).map(a => `
+            <tr style="${a.thin ? "opacity:.6" : ""}"><td class="asset">${a.name}<small>${a.n} meses${a.span ? ` · ${a.span}` : ""}${a.thin ? " · muestra corta" : ""}</small></td>
+              <td style="text-align:right;font-family:var(--mono)">${fmtNum(a.h1, 1)}%</td>
+              <td style="text-align:right;font-family:var(--mono)">${fmtNum(a.h2, 1)}%</td>
+              <td style="text-align:right;font-family:var(--mono);color:${a.h2 - a.h1 >= 0 ? POS : NEG}">${signed(a.h2 - a.h1, 1)}</td></tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+
+  $("#labPhaseSeg").querySelectorAll("button").forEach(b => { b.onclick = () => { labPhase = b.dataset.p; renderLab(); }; });
+  $("#labSleeveSeg").querySelectorAll("button").forEach(b => { b.onclick = () => { labSleeve = b.dataset.s; renderLab(); }; });
 }
 
 /* ------------------------------- validación ----------------------------- */
@@ -1111,7 +1147,7 @@ function renderValidation() {
           <td>${fmtPct(v.share?.[p], 0)} · ${fmtNum(v.duration_months?.[p], 1)} m</td></tr>`).join("")}
         <tr><td>Correlación entre los dos ejes</td><td>${fmtNum(v.factor_corr, 2)}</td></tr>
         ${v.rotation ? `<tr><td>Transiciones en el sentido del reloj</td>
-          <td style="color:${v.rotation.clockwise_share < 0.4 ? "var(--estanflacion)" : "var(--text)"}">${fmtPct(v.rotation.clockwise_share, 0)} de ${v.rotation.n_transitions}</td></tr>` : ""}
+          <td style="color:${v.rotation.clockwise_share < 0.4 ? NEG : "var(--ink)"}">${fmtPct(v.rotation.clockwise_share, 0)} de ${v.rotation.n_transitions}</td></tr>` : ""}
       </table>
     </div>
     <div class="val-card">
@@ -1121,11 +1157,48 @@ function renderValidation() {
         ${D.phases.map(a => `<tr><th class="rowh" style="color:${PHASE_COLOR[a]}">${a.slice(0, 12)}</th>
           ${D.phases.map(b => {
             const val = T[a]?.[b] ?? 0;
-            return `<td style="background:rgba(91,140,255,${(val * 0.5).toFixed(3)})">${fmtPct(val, 0)}</td>`;
+            return `<td style="background:rgba(169,117,44,${(val * 0.5).toFixed(3)})">${fmtPct(val, 0)}</td>`;
           }).join("")}</tr>`).join("")}
       </table>
-      <p class="cap" style="margin-top:10px;font-size:12px">Probabilidad de estar en cada fase el mes siguiente.
-      La diagonal alta indica que las fases persisten y el clasificador no salta con el ruido.</p>
+      <p class="cap" style="margin-top:10px;font-size:12px">Probabilidad de estar en cada fase el mes
+        siguiente. La diagonal alta indica que las fases persisten y el clasificador no salta con el ruido.</p>
+    </div>`;
+}
+
+/* ----------------------------- diagnóstico ------------------------------ */
+function renderDiagnostics() {
+  const m = D.meta;
+  const log = m.asset_log || [];
+  const bad = log.filter(a => a.status !== "ok");
+  const w = m.warnings || [];
+  $("#diagBlock").innerHTML = `
+    <div class="wrap">
+      <div class="section-head">
+        <div class="eyebrow">Diagnóstico</div>
+        <h2>Qué entró y qué se quedó fuera</h2>
+        <p class="cap">Ninguna fuente puede fallar en silencio: cada intento de descarga deja rastro.
+          Si un activo no aparece en la matriz, aquí está el motivo.</p>
+      </div>
+      <div class="val-grid">
+        <div class="val-card">
+          <h3>Cobertura</h3>
+          <table>
+            <tr><td>Series macro</td><td>${m.series_ok}/${m.series_total}</td></tr>
+            <tr><td>Activos cargados</td><td>${m.assets_ok}/${m.assets_tried}</td></tr>
+            <tr><td>Tiempo de construcción</td><td>${fmtNum(m.build_seconds, 0)} s</td></tr>
+            <tr><td>Avisos</td><td style="color:${w.length ? PHASE_COLOR["Sobrecalentamiento"] : "var(--ink-soft)"}">${w.length}</td></tr>
+          </table>
+        </div>
+        <div class="val-card" style="grid-column:span 2">
+          <h3>Activos no incorporados (${bad.length})</h3>
+          ${bad.length ? `<table>${bad.map(a => `
+            <tr><td>${a.name}<div style="color:var(--ink-faint);font-family:var(--mono);font-size:10.5px">${a.source}</div></td>
+            <td style="color:${a.status === "fallo" ? NEG : "var(--ink-soft)"}">${a.status}<div style="color:var(--ink-faint);font-size:10.5px">${a.detail}</div></td></tr>`).join("")}</table>`
+            : `<p class="cap">Todos los activos del universo se han cargado.</p>`}
+        </div>
+      </div>
+      ${w.length ? `<details class="details" style="margin-top:18px"><summary>Avisos de la última construcción (${w.length})</summary>
+        <div class="body"><ul>${w.map(x => `<li>${x}</li>`).join("")}</ul></div></details>` : ""}
     </div>`;
 }
 
@@ -1133,27 +1206,30 @@ function renderValidation() {
 function renderMethod() {
   const rules = [
     ["Un eje, muchas series", `Crecimiento e inflación se miden con ${D.indicators.filter(i => i.block !== "leading").length}
-      series de FRED, no con una. Cada una entra como z-score calculado con media y desviación
-      <b>expansivas</b>: en cada fecha solo se usa el pasado.`],
+      series de FRED, no con una. Cada una entra como z-score robusto (mediana / MAD) calculado con una
+      <b>ventana móvil de diez años</b>: en cada fecha solo se usa el pasado, y solo el pasado reciente.`],
     ["Los pesos los pone la matriz de correlaciones", `Cada bloque se resume en su primer componente principal.
       Ningún peso está escrito a mano, y la varianza explicada aparece en el panel de indicadores.`],
-    ["Cada dato entra cuando de verdad se publicó", `Cada serie lleva su retraso de publicación.
+    ["Cada dato entra cuando de verdad se publicó", `Cada serie lleva su retraso de publicación real.
       El PCE subyacente del mes t no influye en la clasificación hasta t+2, igual que en la vida real.`],
     ["El cuadrante es el signo de los dos ejes", `Cero significa "en tendencia" por construcción, no un umbral elegido.
       Recuperación y Sobrecalentamiento están a la derecha del cero de crecimiento; arriba es más inflación.`],
     ["La confianza sale de la geometría", `Un punto pegado a un eje es ambiguo. La probabilidad de cada cuadrante sale de integrar
       una normal centrada en la medición actual, con la dispersión que el propio factor ha tenido a
       ${D.current.horizon_m || 3} meses vista (±${fmtNum(D.current.sigma_g, 2)}σ en crecimiento,
-      ±${fmtNum(D.current.sigma_i, 2)}σ en inflación). Traduce "¿aguanta este cuadrante lo que dura la posición?".`],
+      ±${fmtNum(D.current.sigma_i, 2)}σ en inflación).`],
     ["Las notas de activos son contrastes, no opiniones", `Para cada activo y fase se calcula el exceso sobre su propia
       media con error estándar Newey-West. La nota es el nivel de significación, y se aplica Benjamini-Hochberg
       porque se testan cientos de casillas a la vez.`],
     ["El histórico es largo a propósito", `Los sectores usan las carteras de Ken French, que llegan a 1926.
-      Con solo ETFs desde 1999 apenas hay dos ciclos completos y cualquier resultado sería anecdótico.`],
+      Con solo ETFs desde 1999 apenas hay dos ciclos completos y cualquier resultado sería anecdótico.
+      Los tickers junto a cada activo son la forma real de ejecutarlo hoy.`],
     ["El backtest no se mira a sí mismo", `Cada mes selecciona activos con datos hasta el mes anterior.
       La versión in-sample se publica al lado precisamente para que se vea cuánto se infla el resultado al hacer trampa.`],
     ["La comprobación externa es el NBER", `El fechado oficial de recesiones no entra en ninguna estimación:
       sirve solo para verificar que el eje de crecimiento se hunde cuando debe.`],
+    ["Cuando nada aguanta, se dice", `Si ninguna casilla sobrevive al control de falsos descubrimientos en la
+      fase vigente, el panel lo dice explícitamente en vez de mostrar una recomendación con aspecto de certeza.`],
   ];
   $("#rules").innerHTML = rules.map(([t, d]) => `<li><b>${t}</b>${d}</li>`).join("");
 
@@ -1164,30 +1240,34 @@ function renderMethod() {
     de cada dato. El backtest es optimista en ese margen.</li>
     <li><b>Los treasuries son una aproximación.</b> Su retorno se deriva de la TIR con duración y convexidad,
     no de un índice de retorno total real.</li>
+    <li><b>Los ETFs de la lista son el instrumento más parecido, no idéntico.</b> Un ETF sectorial pesa por
+    capitalización bursátil actual; las carteras de Ken French son académicas. Composición, comisión y
+    tracking error difieren.</li>
     <li><b>Régimen cambiante.</b> Curva de Phillips más plana, objetivos de inflación creíbles y QE alteran
     relaciones que el histórico largo da por estables.</li>
     <li><b>Cuatro cuadrantes son una simplificación.</b> Shocks de oferta, guerras o pandemias no caben
-    en dos ejes.</li>
+    en dos ejes, y son precisamente los momentos en que más cara sale una clasificación equivocada.</li>
+    <li><b>No hay costes.</b> Ni comisiones, ni horquilla, ni impuestos, en ningún backtest de este panel.</li>
   </ul>`;
 }
 
 function renderFooter() {
   const m = D.meta;
   const w = m.warnings?.length
-    ? ` · <span style="color:var(--sobrecalentamiento)">${m.warnings.length} avisos en la última descarga</span>`
+    ? ` · <span style="color:${PHASE_COLOR["Sobrecalentamiento"]}">${m.warnings.length} avisos en la última descarga</span>`
     : "";
-  $("#footMeta").innerHTML = `Datos: FRED (Reserva Federal de St. Louis), ICE BofA, biblioteca de Kenneth French, Stooq.
-    Actualizado ${m.generated_utc} · ${m.series_ok}/${m.series_total} series · histórico desde ${label(m.history_from)}${w}`;
+  $("#footMeta").innerHTML = `Una acción programada regenera el panel en días laborables. Última vez:
+    ${m.generated_utc} · ${m.series_ok}/${m.series_total} series · histórico desde ${label(m.history_from)}${w}.`;
 }
 
 /* -------------------------------- controles ----------------------------- */
 function wireControls() {
   const range = $("#trailRange");
   range.value = trail;
-  $("#trailLen").textContent = trail;
+  $("#trailLenLbl").textContent = `${trail} meses de rastro`;
   range.oninput = () => {
     trail = Number(range.value);
-    $("#trailLen").textContent = trail;
+    $("#trailLenLbl").textContent = `${trail} meses de rastro`;
     renderPlane();
   };
   const btn = $("#playBtn");
@@ -1206,7 +1286,7 @@ function wireControls() {
     clearInterval(playTimer);
     playTimer = null;
     btn.setAttribute("aria-pressed", "false");
-    btn.textContent = "Recorrer el histórico";
+    btn.textContent = "Recorrer histórico";
   }
   window.addEventListener("resize", () => { renderPlane(); }, { passive: true });
 }

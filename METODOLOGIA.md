@@ -96,31 +96,40 @@ Esto no reconstruye las **revisiones** posteriores de cada dato —para eso har�
 falta una base de datos de vintages tipo ALFRED—, así que el backtest sigue siendo
 algo optimista. Está señalado en las limitaciones del panel.
 
-### 2.4 Estandarización con ventana móvil
+### 2.4 Estandarización con ventana móvil robusta
 
-`z_t = (x_t − media(x_{t−119}..x_t)) / desv(x_{t−119}..x_t)`, diez años, y ventana
-expansiva mientras no hay historia suficiente. Se recorta a ±4σ para que un dato
-como marzo de 2020 no domine la extracción del componente principal.
+`z_t = (x_t − mediana(x_{t−119}..x_t)) / (1,4826 · MAD(x_{t−119}..x_t))`, diez años
+(120 meses), con arranque adaptativo mientras no hay historia suficiente (suelo de
+48 meses). Se recorta a ±4σ para que un dato extremo aislado no domine la extracción
+del componente principal.
 
-Dos requisitos, y el segundo costó descubrirlo.
+Tres requisitos, y los dos últimos costó descubrirlos con datos reales del propio
+panel, no en la pizarra.
 
 **Causalidad.** Estandarizar con la muestra completa mete información del futuro en
 cada punto del pasado: en 1975 nadie conocía la media 1959-2026. La ventana solo
 mira hacia atrás.
 
-**Posición cíclica, no nivel.** La versión anterior usaba ventana expansiva, es
-decir la media desde 1959 en adelante. Con eso, el pico inflacionista de los setenta
-se queda dentro de la referencia para siempre, y el resultado era que de 1990 a 2020
-la inflación aparecía permanentemente por debajo de lo normal: en los años noventa y
-en la década de 2010 no había **ni un solo mes** de Sobrecalentamiento ni de
-Estanflación. El reloj se pasó veinte años usando dos de sus cuatro cuadrantes, y
-cualquier cartera medida sobre ese tramo estaba alternando dos etiquetas del mismo
-régimen macro.
+**Posición cíclica, no nivel.** Una ventana *expansiva* (toda la historia desde el
+arranque de la serie) no resuelve esto: el pico inflacionista de los setenta se
+queda dentro de la referencia para siempre, y el resultado es que de 1990 a 2020 la
+inflación aparece permanentemente por debajo de lo normal. Comprobado sobre el
+histórico real de este panel: con ventana expansiva, los años noventa y toda la
+década de 2010 no registraban **ni un solo mes** de Sobrecalentamiento ni de
+Estanflación — dos de las cuatro fases, ausentes durante veinte años. Con la ventana
+móvil de diez años las cuatro fases aparecen en todas las décadas desde 1970.
 
 Un reloj mide dónde estás en el ciclo, no el nivel absoluto frente a medio siglo de
 historia. La pregunta correcta es «¿alto o bajo respecto a lo que ha sido normal
-últimamente?». Diez meses de ventana cubren un ciclo económico completo sin arrastrar
-un cambio de régimen de cuarenta años.
+últimamente?». Diez *años* de ventana cubren un ciclo económico completo sin
+arrastrar un cambio de régimen de cuarenta años.
+
+**Robustez frente a valores extremos.** Marzo y abril de 2020 son lecturas de hasta
+±10 desviaciones. Con media y desviación típica, esos meses dominan la ventana de
+diez años durante todo el tiempo que permanecen dentro de ella. La mediana y la
+desviación absoluta mediana (MAD, escalada por 1,4826 para equivaler a la
+desviación típica bajo normalidad) apenas se mueven por un puñado de valores
+extremos.
 
 El precio de este cambio es real y conviene tenerlo presente: una ventana móvil
 tiende a poblar los cuatro cuadrantes por construcción, así que parte de los cambios
