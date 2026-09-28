@@ -1120,8 +1120,6 @@ HALF_LIFE_M = 120
 # -8 % y -27 % en la fase en la que se las compraba.
 MIN_PHASE_OBS = 36
 
-DEBUG_SLEEVE = True
-
 
 SCHEMES = {
     "equal": "Equiponderado",
@@ -1549,24 +1547,6 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
             for sl, (classes, lo, hi, n_min, n_max) in SLEEVES.items():
                 picks[sl], scores[sl] = _sleeve_pick(
                     mu, vol_all, raw_phase, avail, classes, cls_map, n_min, n_max)
-            if sch == "equal" and DEBUG_SLEEVE:
-                for sl, (classes, lo, hi, n_min, n_max) in SLEEVES.items():
-                    cand = [c for c in avail if cls_map.get(c) in classes and c not in NOT_SELECTABLE]
-                    if not cand:
-                        continue
-                    vc = vol_all.reindex(cand).replace(0, np.nan)
-                    floor = vc.quantile(VOL_FLOOR_Q) if vc.notna().sum() > 2 else None
-                    if floor and floor > 0:
-                        vc = vc.clip(lower=floor)
-                    ir_d = (mu.reindex(cand) / vc).replace([np.inf, -np.inf], np.nan).dropna()
-                    raw_d = (raw_phase.reindex(ir_d.index) / vc.reindex(ir_d.index)).replace([np.inf, -np.inf], np.nan)
-                    raw_bar_d = raw_d.median()
-                    ok_d = (ir_d > 0) | ((ir_d >= 0) & (raw_d >= raw_bar_d))
-                    print(f"DEBUG {phase} / {sl} (raw_bar={raw_bar_d:.4f}) picked={picks[sl]}")
-                    for c in ir_d.sort_values(ascending=False).index:
-                        print(f"  {c:28s} mu={mu.get(c, float('nan')):+.4f} vol={vc.get(c, float('nan')):.4f} "
-                              f"ir={ir_d[c]:+.4f} raw_phase={raw_phase.get(c, float('nan')):+.4f} "
-                              f"raw={raw_d[c]:+.4f} ok={bool(ok_d[c])}")
             inner_pb = {sl: _weights(top, vol_all, sch).to_dict()
                         for sl, top in picks.items() if top}
             budgets = _sleeve_weights(scores)
