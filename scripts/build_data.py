@@ -1160,13 +1160,14 @@ def _weights(names, vol, scheme: str) -> pd.Series:
     return (0.5 * eq + 0.5 * (iv / iv.sum()))
 
 
-def _sleeve_pick(mu, vol, grand, avail, classes, cls_map, n_min, n_max):
+def _sleeve_pick(mu, vol, raw_phase, avail, classes, cls_map, n_min, n_max):
     """Selecciona los del bloque que de verdad convienen en esta fase y
     devuelve su orden y su puntuación. El número elegido no es fijo: se
     queda con los que puntúan **positivo** (ventaja de fase > 0) más los
     empatados en **cero** —contracción total, tau2 = 0: la fase no le
-    sienta ni mejor ni peor que su propia media— cuyo rendimiento
-    incondicional entre volatilidad iguala o supera al típico del bloque
+    sienta ni mejor ni peor que su propia media, según la ventaja
+    CONTRAÍDA— cuyo rendimiento REAL en esta fase (sin contraer) entre
+    volatilidad iguala o supera al típico del bloque esa misma fase
     (mediana de todos los candidatos, no solo los empatados). Acotado entre
     un suelo y un techo. Con menos aceptables que el suelo, se completa
     hasta el suelo con los siguientes mejores aunque puntúen negativo — el
@@ -1180,13 +1181,25 @@ def _sleeve_pick(mu, vol, grand, avail, classes, cls_map, n_min, n_max):
     cuatro fases pese a ser, de largo, uno de los dos sectores de mayor
     rendimiento incondicional de los diez — ninguna fase le sienta mal, así
     que no había motivo para excluirlo solo porque ninguna le sienta MEJOR
-    que su ya alto promedio. Pero admitir CUALQUIER empate en cero sin más
-    filtro colaba también a los empatados flojos (Utilities, Financiero)
-    junto al empatado fuerte que de verdad merecía el hueco, diluyendo la
-    cartera con nombres mediocres — ni ventaja de fase ni historial que lo
-    compense — y de hecho empeorando el resultado del backtest. El filtro
-    de mediana separa las dos cosas: un empatado en cero solo entra si,
-    además, no es mediocre en términos absolutos.
+    que su ya alto promedio.
+
+    Pero el desempate no puede ser el rendimiento INCONDICIONAL del activo
+    (una versión anterior lo hacía así, con `grand`): cuando la contracción
+    es total, `grand + mu` es literalmente `grand` —no aporta nada nuevo—,
+    así que ese desempate acababa siendo "cuál es mejor en general",
+    exactamente el mismo problema que el nivel absoluto original (el del
+    oro) solo que un paso más allá. Con datos reales: en Estanflación,
+    Tecnología rindió -0,85 % real (de los peores) frente al +3,58 % real
+    de Utilities, pero el desempate por incondicional seguía prefiriendo a
+    Tecnología (8,75 % de media general, frente al 6,57 % de Utilities) —
+    exactamente al revés de lo que de verdad pasó esa fase. El desempate
+    correcto es el rendimiento REAL de ESA fase sin contraer (`raw_phase`,
+    la misma media por fase que se contrae para calcular `mu`, pero antes
+    de contraerla): no se usa como criterio PRINCIPAL de selección porque
+    con poca muestra es ruidoso —para eso está la contracción—, pero es
+    estrictamente mejor que la única alternativa disponible cuando la
+    ventaja contraída no diferencia nada, sea para decidir si un empate en
+    cero es aceptable o para ordenar al rellenar el suelo con negativos.
     La selección es idéntica para los cuatro esquemas: lo único que cambia entre
     ellos es cómo se reparte el dinero entre los ya elegidos."""
     cand = [c for c in avail
@@ -1200,19 +1213,14 @@ def _sleeve_pick(mu, vol, grand, avail, classes, cls_map, n_min, n_max):
     ir = (mu.reindex(cand) / vc).replace([np.inf, -np.inf], np.nan).dropna()
     if ir.empty:
         return [], 0.0
-    gsh = (grand.reindex(ir.index) / vc.reindex(ir.index)).replace([np.inf, -np.inf], np.nan)
-    # Empatado en 0 no es automáticamente aceptable: solo lo es si además
-    # rinde, en general, al menos tanto como un candidato típico del bloque
-    # (mediana de gsh entre TODOS los candidatos, no solo los empatados).
-    # Sin este filtro, admitir cualquier empate a 0 colaba también a los
-    # empatados flojos (Utilities, Financiero) junto al empatado fuerte que
-    # de verdad importaba rescatar (Tecnología), diluyendo la cartera con
-    # nombres mediocres que no aportan nada — ni ventaja de fase ni un
-    # historial que lo compense.
-    gsh_bar = gsh.median()
-    ok = (ir > 0) | ((ir >= 0) & (gsh >= gsh_bar))
-    combo = pd.DataFrame({"ir": ir, "g": gsh, "ok": ok}) \
-        .sort_values(["ir", "g"], ascending=[False, False])
+    raw = (raw_phase.reindex(ir.index) / vc.reindex(ir.index)).replace([np.inf, -np.inf], np.nan)
+    raw_bar = raw.median()
+    ok = (ir > 0) | ((ir >= 0) & (raw >= raw_bar))
+    combo = pd.DataFrame({"ir": ir, "raw": raw, "ok": ok})
+    combo = pd.concat([
+        combo[combo["ok"]].sort_values(["ir", "raw"], ascending=[False, False]),
+        combo[~combo["ok"]].sort_values("raw", ascending=False),
+    ])
     ir = combo["ir"]
     n_positive = int(combo["ok"].sum())
     n_take = min(max(n_positive, n_min), n_max, len(ir))
@@ -1452,7 +1460,9 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
         sig = ph.iloc[k - 1]
         hist, hph = X.iloc[:k], ph.iloc[:k]
         vol = ew_vol(hist)
-        grand = _wmean(hist, _ew(hist, hist.index[-1]))
+        sub_sig = hist[hph == sig]
+        raw_phase = (_wmean(sub_sig, _ew(sub_sig, hist.index[-1])) if not sub_sig.empty
+                     else _wmean(hist, _ew(hist, hist.index[-1])))
         if probs is not None and t in probs.index:
             # Mezcla por probabilidad: cuando la clasificación es dudosa —y ahora
             # mismo lo es, con dos fases al 38 % y al 37 %— apostar el 100 % a la
@@ -1474,7 +1484,7 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
         picks, scores = {}, {}
         for name, (classes, lo, hi, n_min, n_max) in SLEEVES.items():
             picks[name], scores[name] = _sleeve_pick(
-                mu, vol, grand, avail, classes, cls_map, n_min, n_max)
+                mu, vol, raw_phase, avail, classes, cls_map, n_min, n_max)
         if not any(picks.values()):
             continue
 
@@ -1510,7 +1520,6 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
     bench_annual = _annual(bench.dropna()) if bench is not None else {}
 
     vol_all = ew_vol(X)
-    grand_all = _wmean(X, _ew(X, X.index[-1]))
     out_schemes = {}
     for sch, label in SCHEMES.items():
         R = pd.Series(rets[sch], index=dates).dropna()
@@ -1528,13 +1537,16 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
         playbook, mix = {}, {}
         for phase in PHASES:
             mu = means(X, ph, phase)
+            sub_p = X[ph == phase]
+            raw_phase = (_wmean(sub_p, _ew(sub_p, X.index[-1])) if not sub_p.empty
+                         else _wmean(X, _ew(X, X.index[-1])))
             # Ken French publica con un mes de retraso: exigir dato en el último
             # mes dejaba fuera todos los sectores y el bloque salía vacío.
             avail = list(X.columns[X.tail(4).notna().any()])
             picks, scores = {}, {}
             for sl, (classes, lo, hi, n_min, n_max) in SLEEVES.items():
                 picks[sl], scores[sl] = _sleeve_pick(
-                    mu, vol_all, grand_all, avail, classes, cls_map, n_min, n_max)
+                    mu, vol_all, raw_phase, avail, classes, cls_map, n_min, n_max)
             inner_pb = {sl: _weights(top, vol_all, sch).to_dict()
                         for sl, top in picks.items() if top}
             budgets = _sleeve_weights(scores)

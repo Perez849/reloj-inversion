@@ -326,33 +326,47 @@ explícita, no un hallazgo del backtest. En el mes *t*:
    otro, 7 — y el oro puede no aparecer en absoluto si la fase no lo
    sostiene, que es exactamente lo que ocurre fuera de Reflación.
 
-   **Un empate en 0 solo es aceptable si, además, no es mediocre.** Con
-   contracción total (tau2 = 0: la fase no explica nada de la dispersión de
-   un activo que el propio ruido de estimación no explique ya), un activo
-   puntúa exacto 0 — ninguna ventaja de fase distinguible, pero tampoco
-   ninguna desventaja. Descartarlo sin más (como si 0 fuera negativo) tiene
-   un coste real: Tecnología puntuaba 0 en las cuatro fases con datos
-   reales de un dato concreto y quedaba fuera de la cartera por completo,
-   pese a ser uno de los dos sectores con mayor rendimiento incondicional
-   de los diez (8,75 % anual, solo por detrás de Energía) — ninguna fase le
-   sienta mal, así que no hay motivo para excluirlo solo porque ninguna le
-   siente notablemente mejor que su ya alto promedio. Pero admitir
-   *cualquier* empate en 0 sin más filtro tiene un coste distinto: cuela
-   también a los empatados flojos (con datos reales, Utilities y Financiero
-   empataban con Tecnología en varias fases) junto al empatado fuerte que
-   de verdad merecía el hueco, diluyendo la cartera con nombres mediocres
-   — ni ventaja de fase ni historial que lo compense — y de hecho
-   empeorando el resultado del backtest en la práctica. Por eso un empate
-   en 0 exige una condición extra: su rendimiento incondicional entre
-   volatilidad (mismo peso por recencia que el resto del cálculo, no la
-   matriz de la sección 6, que pesa todo el histórico por igual —mezclar
-   las dos ponderaciones sería inconsistente) tiene que igualar o superar
-   la mediana de todos los candidatos del bloque, no solo la de los
-   empatados. Entre los empatados que sí pasan ese filtro, y entre los
-   candidatos negativos cuando hace falta completar el suelo, el orden lo
-   da ese mismo rendimiento incondicional — nunca la volatilidad a secas ni
-   el orden en que aparecen las columnas del histórico, que no significa
-   nada y que es lo que decidía antes de este ajuste.
+   **Un empate en 0 solo es aceptable si, además, no es mediocre EN ESA
+   FASE — y el desempate es lo que de verdad pasó esa fase, no el
+   promedio general del activo.** Con contracción total (tau2 = 0: la fase
+   no explica nada de la dispersión de un activo que el propio ruido de
+   estimación no explique ya), un activo puntúa exacto 0 en la ventaja
+   contraída — ninguna ventaja de fase distinguible, pero tampoco ninguna
+   desventaja. Descartarlo sin más (como si 0 fuera negativo) tiene un
+   coste real: Tecnología puntuaba 0 en las cuatro fases con datos reales
+   de un dato concreto y quedaba fuera de la cartera por completo, pese a
+   ser uno de los dos sectores con mayor rendimiento incondicional de los
+   diez (8,75 % anual, solo por detrás de Energía).
+
+   El primer intento de arreglar esto comparaba, para decidir si un empate
+   en 0 es aceptable y para ordenar al completar el suelo con negativos, el
+   rendimiento **incondicional** de cada activo (su media general, sin
+   condicionar por fase). Parecía razonable —sin ventaja de fase que
+   premiar, ¿qué otra cosa se puede mirar?— pero es la misma lógica que
+   causó el problema original del oro, solo que un paso más allá: cuando la
+   contracción es total, "el nivel de la fase contraído" es literalmente
+   el nivel incondicional (no le suma nada la fase), así que comparar por
+   incondicional es, en la práctica, ignorar la fase por completo.
+   Comprobado con datos reales: en Estanflación, Tecnología rindió -0,85 %
+   real (de los peores de los diez sectores) frente al +3,58 % real de
+   Utilities, pero el desempate por incondicional seguía prefiriendo a
+   Tecnología —8,75 % de media general, frente al 6,57 % de Utilities—,
+   dándole el 53 % de la cartera de renta variable esa fase frente al 27 %
+   de Utilities. Exactamente al revés de lo que de verdad pasó.
+
+   El desempate correcto es el rendimiento **real de esa fase concreta,
+   sin contraer** (la misma media por fase que se contrae para calcular la
+   ventaja, pero tal cual, antes de contraerla): no sirve como criterio
+   PRINCIPAL de selección porque con pocos meses de esa fase es ruidoso
+   —para eso existe la contracción—, pero es estrictamente mejor que la
+   única alternativa disponible cuando la ventaja contraída no diferencia
+   nada, tanto para decidir si un empate en 0 es aceptable (¿rindió esta
+   fase, sin contraer, al menos tanto como un candidato típico del bloque
+   esa misma fase?) como para ordenar al completar el suelo con negativos
+   (¿cuál rindió menos mal esta fase en concreto?). Con datos reales, este
+   criterio deja entrar a Tecnología cuando de verdad conviene y prefiere a
+   Utilities sobre Tecnología en Estanflación, que es lo que en efecto pasó
+   esa fase.
 4. Dentro de cada bloque, el reparto entre los elegidos sigue uno de cuatro
    esquemas —equiponderado, inverso de volatilidad, por puesto, o mitad y
    mitad— calculados en paralelo. El panel abre con el que de verdad ha dado
