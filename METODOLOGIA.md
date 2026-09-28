@@ -280,19 +280,39 @@ las mineras de oro como único seguro no bursátil. Sin renta fija — decisión
 explícita, no un hallazgo del backtest. En el mes *t*:
 
 1. Se lee la fase vigente en *t−1*, ya publicada y con sus retrasos aplicados.
-2. Con datos hasta *t−1* se calcula, para cada activo, su **rentabilidad
-   esperada en esta fase**: la misma media condicionada con contracción
+2. Con datos hasta *t−1* se calcula, para cada activo, su **ventaja esperada
+   en esta fase frente a su propia media**: la misma fórmula de contracción
    empírica de Bayes de la sección 6 —los meses reales en que el activo
-   estuvo en esa fase, contra su propia media—, no una construcción aparte.
-   Es a propósito: si un activo no muestra diferencia real entre fases en la
-   matriz de evidencia, tampoco debe mostrarla aquí. Una versión anterior
-   usaba en su lugar la pendiente de una regresión sobre los dos factores
-   (crecimiento, inflación) evaluada en el centro de la fase, y esa regresión
-   extrapolaba oro como atractivo en las cuatro fases —incluidas las tres en
-   las que la propia matriz de evidencia dice que no aporta nada—, así que la
-   cartera recomendaba una posición que los datos no respaldaban. La
-   regresión se conserva solo como respaldo, para cuando la muestra directa
-   de la fase es demasiado corta para casi todo el universo.
+   estuvo en esa fase, contra su propia media—, activo por activo, no una
+   construcción aparte. Es a propósito: si un activo no muestra diferencia
+   real entre fases en la matriz de evidencia, tampoco debe mostrarla aquí.
+   Una versión anterior devolvía el nivel absoluto (media general + la
+   desviación contraída) en vez de la desviación sola, y ese nivel absoluto
+   es casi siempre positivo tanto para el oro como para cualquier sector a
+   largo plazo: "puntúa positivo" no discriminaba nada y el oro competía por
+   presupuesto con el nivel de una racha alcista de 25 años que no depende
+   de la fase, no con una ventaja de fase real. Otra versión anterior a esa
+   usaba la pendiente de una regresión sobre los dos factores (crecimiento,
+   inflación) evaluada en el centro de la fase, y esa regresión extrapolaba
+   oro como atractivo en las cuatro fases —incluidas las tres en las que la
+   propia matriz de evidencia dice que no aporta nada—, así que la cartera
+   recomendaba una posición que los datos no respaldaban. La regresión se
+   conserva solo como respaldo, para cuando la muestra directa de la fase es
+   demasiado corta para casi todo el universo.
+
+   **Una diferencia real con la sección 6, y a propósito**: ahí la media de
+   cada fase pesa igual el dato de 1935 que el de 2025; aquí pesa con una
+   vida media de diez años (la misma que usa el backtest de asignación, ver
+   más abajo), porque es la decisión que se ejecuta hoy y da igual lo que
+   hiciera una tecnológica en 1935. Con esto, el signo de una casilla casi
+   plana en la sección 6 —próxima a cero, sin marca de significancia— puede
+   salir con el signo contrario aquí si el comportamiento de la última
+   década pesa distinto que el conjunto de la serie: no es un error, es la
+   misma contracción con otra ponderación temporal. Cuanto más fuerte sea la
+   marca de significancia en la sección 6 (`++`, `+++` y sus negativos), más
+   improbable es que la última década por sí sola la contradiga, pero no hay
+   una garantía matemática de que no pueda ocurrir en una serie con muy poca
+   historia reciente en esa fase.
 3. **El número de activos no es fijo.** Dentro de cada bloque se quedan los que
    puntúan **positivo** en esa rentabilidad esperada dividida entre volatilidad
    —los que de verdad convienen en esta fase, no un top-N arbitrario—, acotado
