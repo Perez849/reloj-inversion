@@ -1183,7 +1183,16 @@ def _sleeve_pick(mu, vol, avail, classes, cls_map, n_min, n_max):
     ir = (mu.reindex(cand) / vc).replace([np.inf, -np.inf], np.nan).dropna()
     if ir.empty:
         return [], 0.0
-    ir = ir.sort_values(ascending=False)
+    # Desempate por volatilidad, no por orden de columna: con contracción total
+    # (tau2 = 0) varios activos empatan EXACTOS en 0 — sin ninguna ventaja de
+    # fase distinguible del ruido, no hay motivo para preferir uno sobre otro
+    # salvo cuál añade menos riesgo. Sin este desempate explícito, el orden de
+    # pandas.sort_values entre empates depende del orden de columnas de X, que
+    # no significa nada: así se coló Tecnología en Estanflación (empatada a 0
+    # con Financiero y Utilities, pero la peor con diferencia de las tres según
+    # la propia matriz de evidencia) solo por el azar de esa ordenación.
+    ir = pd.DataFrame({"ir": ir, "vol": vc.reindex(ir.index)}) \
+        .sort_values(["ir", "vol"], ascending=[False, True])["ir"]
     n_positive = int((ir > 0).sum())
     n_take = min(max(n_positive, n_min), n_max, len(ir))
     top = list(ir.head(n_take).index)

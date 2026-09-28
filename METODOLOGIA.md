@@ -324,6 +324,20 @@ explícita, no un hallazgo del backtest. En el mes *t*:
    más positivos que el techo, se recorta a los mejores. Un mes puede tener 2
    sectores; otro, 6 — y el oro puede no aparecer en absoluto si la fase no lo
    sostiene, que es exactamente lo que ocurre fuera de Reflación.
+
+   **Empate a cero, desempatado por volatilidad.** Cuando la contracción es
+   total (tau2 = 0: la fase no explica nada de la dispersión de un activo que
+   el propio ruido de estimación no explique ya), varios activos empatan
+   EXACTOS en cero —ninguna ventaja de fase distinguible, ni a favor ni en
+   contra— y aun así puede hacer falta completar el suelo con alguno de
+   ellos. Entre empatados, se prefiere el de menor volatilidad: sin ninguna
+   señal que los diferencie, añadir menos riesgo es el único criterio que
+   queda. Sin este desempate explícito, ganaba el que primero apareciera en
+   las columnas del histórico —una casualidad de tabla, no una decisión—, y
+   así se coló Tecnología en Estanflación en un dato real: empatada a cero
+   con Financiero y Utilities, pero la peor con diferencia de las tres según
+   la propia matriz de evidencia de la sección 6 (rel_shrunk -5,19, nota
+   "-", frente a rel_shrunk 0,0 de Utilities y -2,62 de Financiero).
 4. Dentro de cada bloque, el reparto entre los elegidos sigue uno de cuatro
    esquemas —equiponderado, inverso de volatilidad, por puesto, o mitad y
    mitad— calculados en paralelo. El panel abre con el que de verdad ha dado
