@@ -1160,16 +1160,31 @@ def _weights(names, vol, scheme: str) -> pd.Series:
     return (0.5 * eq + 0.5 * (iv / iv.sum()))
 
 
-def _sleeve_pick(mu, vol, avail, classes, cls_map, n_min, n_max):
+def _sleeve_pick(mu, vol, grand, avail, classes, cls_map, n_min, n_max):
     """Selecciona los del bloque que de verdad convienen en esta fase y
     devuelve su orden y su puntuación. El número elegido no es fijo: se
-    queda con cuantos puntúen positivo (ventaja esperada frente a su propia
-    media, por unidad de volatilidad > 0), acotado entre n_min y n_max. Con menos de n_min
-    positivos se completa hasta n_min con los siguientes mejores aunque
-    puntúen flojo o negativo — n_min es el suelo de diversificación del
-    bloque, no una opinión sobre esos activos concretos; con más de n_max
-    positivos se recorta a los n_max mejores, para que la cartera siga
-    siendo una apuesta por unos pocos nombres y no el índice disfrazado.
+    queda con cuantos NO muestren desventaja de fase (ventaja esperada
+    frente a su propia media, por unidad de volatilidad, >= 0 — no hace
+    falta ventaja de fase, basta con que la fase no le siente peor que su
+    media), acotado entre n_min y n_max. Con menos de n_min aceptables se
+    completa hasta n_min con los siguientes mejores aunque puntúen negativo
+    — n_min es el suelo de diversificación del bloque, no una opinión sobre
+    esos activos concretos; con más de n_max aceptables se recorta a los
+    n_max mejores, para que la cartera siga siendo una apuesta por unos
+    pocos nombres y no el índice disfrazado.
+
+    Entre activos EMPATADOS —lo habitual es contracción total, tau2 = 0: la
+    fase no le sienta ni mejor ni peor que su propia media, así que puntúan
+    exactos 0— el desempate no es el orden de columnas ni la volatilidad a
+    secas: es el rendimiento incondicional del propio activo entre
+    volatilidad (mismo peso por recencia que el resto del cálculo). Sin
+    ninguna ventaja NI desventaja de fase que los diferencie, el mejor
+    desempate disponible es cuál rinde mejor en general. Antes de esto, un
+    activo con contracción total quedaba excluido sin más (0 no es > 0), lo
+    que descartaba Tecnología de las cuatro fases pese a ser, de largo, uno
+    de los dos sectores de mayor rendimiento incondicional de los diez:
+    ninguna fase le sienta mal, así que no hay motivo para excluirlo del
+    todo solo porque ninguna le siente MEJOR que su ya alto promedio.
     La selección es idéntica para los cuatro esquemas: lo único que cambia entre
     ellos es cómo se reparte el dinero entre los ya elegidos."""
     cand = [c for c in avail
@@ -1183,17 +1198,10 @@ def _sleeve_pick(mu, vol, avail, classes, cls_map, n_min, n_max):
     ir = (mu.reindex(cand) / vc).replace([np.inf, -np.inf], np.nan).dropna()
     if ir.empty:
         return [], 0.0
-    # Desempate por volatilidad, no por orden de columna: con contracción total
-    # (tau2 = 0) varios activos empatan EXACTOS en 0 — sin ninguna ventaja de
-    # fase distinguible del ruido, no hay motivo para preferir uno sobre otro
-    # salvo cuál añade menos riesgo. Sin este desempate explícito, el orden de
-    # pandas.sort_values entre empates depende del orden de columnas de X, que
-    # no significa nada: así se coló Tecnología en Estanflación (empatada a 0
-    # con Financiero y Utilities, pero la peor con diferencia de las tres según
-    # la propia matriz de evidencia) solo por el azar de esa ordenación.
-    ir = pd.DataFrame({"ir": ir, "vol": vc.reindex(ir.index)}) \
-        .sort_values(["ir", "vol"], ascending=[False, True])["ir"]
-    n_positive = int((ir > 0).sum())
+    gsh = (grand.reindex(ir.index) / vc.reindex(ir.index)).replace([np.inf, -np.inf], np.nan)
+    ir = pd.DataFrame({"ir": ir, "g": gsh}) \
+        .sort_values(["ir", "g"], ascending=[False, False])["ir"]
+    n_positive = int((ir >= 0).sum())
     n_take = min(max(n_positive, n_min), n_max, len(ir))
     top = list(ir.head(n_take).index)
     if not top:
@@ -1431,6 +1439,7 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
         sig = ph.iloc[k - 1]
         hist, hph = X.iloc[:k], ph.iloc[:k]
         vol = ew_vol(hist)
+        grand = _wmean(hist, _ew(hist, hist.index[-1]))
         if probs is not None and t in probs.index:
             # Mezcla por probabilidad: cuando la clasificación es dudosa —y ahora
             # mismo lo es, con dos fases al 38 % y al 37 %— apostar el 100 % a la
@@ -1452,7 +1461,7 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
         picks, scores = {}, {}
         for name, (classes, lo, hi, n_min, n_max) in SLEEVES.items():
             picks[name], scores[name] = _sleeve_pick(
-                mu, vol, avail, classes, cls_map, n_min, n_max)
+                mu, vol, grand, avail, classes, cls_map, n_min, n_max)
         if not any(picks.values()):
             continue
 
@@ -1488,6 +1497,7 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
     bench_annual = _annual(bench.dropna()) if bench is not None else {}
 
     vol_all = ew_vol(X)
+    grand_all = _wmean(X, _ew(X, X.index[-1]))
     out_schemes = {}
     for sch, label in SCHEMES.items():
         R = pd.Series(rets[sch], index=dates).dropna()
@@ -1511,7 +1521,7 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
             picks, scores = {}, {}
             for sl, (classes, lo, hi, n_min, n_max) in SLEEVES.items():
                 picks[sl], scores[sl] = _sleeve_pick(
-                    mu, vol_all, avail, classes, cls_map, n_min, n_max)
+                    mu, vol_all, grand_all, avail, classes, cls_map, n_min, n_max)
             inner_pb = {sl: _weights(top, vol_all, sch).to_dict()
                         for sl, top in picks.items() if top}
             budgets = _sleeve_weights(scores)
