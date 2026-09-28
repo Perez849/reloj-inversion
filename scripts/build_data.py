@@ -1163,28 +1163,30 @@ def _weights(names, vol, scheme: str) -> pd.Series:
 def _sleeve_pick(mu, vol, grand, avail, classes, cls_map, n_min, n_max):
     """Selecciona los del bloque que de verdad convienen en esta fase y
     devuelve su orden y su puntuación. El número elegido no es fijo: se
-    queda con cuantos NO muestren desventaja de fase (ventaja esperada
-    frente a su propia media, por unidad de volatilidad, >= 0 — no hace
-    falta ventaja de fase, basta con que la fase no le siente peor que su
-    media), acotado entre n_min y n_max. Con menos de n_min aceptables se
-    completa hasta n_min con los siguientes mejores aunque puntúen negativo
-    — n_min es el suelo de diversificación del bloque, no una opinión sobre
-    esos activos concretos; con más de n_max aceptables se recorta a los
-    n_max mejores, para que la cartera siga siendo una apuesta por unos
-    pocos nombres y no el índice disfrazado.
+    queda con los que puntúan **positivo** (ventaja de fase > 0) más los
+    empatados en **cero** —contracción total, tau2 = 0: la fase no le
+    sienta ni mejor ni peor que su propia media— cuyo rendimiento
+    incondicional entre volatilidad iguala o supera al típico del bloque
+    (mediana de todos los candidatos, no solo los empatados). Acotado entre
+    un suelo y un techo. Con menos aceptables que el suelo, se completa
+    hasta el suelo con los siguientes mejores aunque puntúen negativo — el
+    suelo evita la cartera vacía o concentrada en un único nombre, no es
+    una opinión sobre esos activos. Con más aceptables que el techo, se
+    recorta a los mejores, para que la cartera siga siendo una apuesta por
+    unos pocos nombres y no el índice disfrazado.
 
-    Entre activos EMPATADOS —lo habitual es contracción total, tau2 = 0: la
-    fase no le sienta ni mejor ni peor que su propia media, así que puntúan
-    exactos 0— el desempate no es el orden de columnas ni la volatilidad a
-    secas: es el rendimiento incondicional del propio activo entre
-    volatilidad (mismo peso por recencia que el resto del cálculo). Sin
-    ninguna ventaja NI desventaja de fase que los diferencie, el mejor
-    desempate disponible es cuál rinde mejor en general. Antes de esto, un
-    activo con contracción total quedaba excluido sin más (0 no es > 0), lo
-    que descartaba Tecnología de las cuatro fases pese a ser, de largo, uno
-    de los dos sectores de mayor rendimiento incondicional de los diez:
-    ninguna fase le sienta mal, así que no hay motivo para excluirlo del
-    todo solo porque ninguna le siente MEJOR que su ya alto promedio.
+    El empate en cero no basta por sí solo, y el motivo importa: descartar
+    cualquier empate en cero (0 no es > 0) dejaba fuera a Tecnología de las
+    cuatro fases pese a ser, de largo, uno de los dos sectores de mayor
+    rendimiento incondicional de los diez — ninguna fase le sienta mal, así
+    que no había motivo para excluirlo solo porque ninguna le sienta MEJOR
+    que su ya alto promedio. Pero admitir CUALQUIER empate en cero sin más
+    filtro colaba también a los empatados flojos (Utilities, Financiero)
+    junto al empatado fuerte que de verdad merecía el hueco, diluyendo la
+    cartera con nombres mediocres — ni ventaja de fase ni historial que lo
+    compense — y de hecho empeorando el resultado del backtest. El filtro
+    de mediana separa las dos cosas: un empatado en cero solo entra si,
+    además, no es mediocre en términos absolutos.
     La selección es idéntica para los cuatro esquemas: lo único que cambia entre
     ellos es cómo se reparte el dinero entre los ya elegidos."""
     cand = [c for c in avail
@@ -1199,9 +1201,20 @@ def _sleeve_pick(mu, vol, grand, avail, classes, cls_map, n_min, n_max):
     if ir.empty:
         return [], 0.0
     gsh = (grand.reindex(ir.index) / vc.reindex(ir.index)).replace([np.inf, -np.inf], np.nan)
-    ir = pd.DataFrame({"ir": ir, "g": gsh}) \
-        .sort_values(["ir", "g"], ascending=[False, False])["ir"]
-    n_positive = int((ir >= 0).sum())
+    # Empatado en 0 no es automáticamente aceptable: solo lo es si además
+    # rinde, en general, al menos tanto como un candidato típico del bloque
+    # (mediana de gsh entre TODOS los candidatos, no solo los empatados).
+    # Sin este filtro, admitir cualquier empate a 0 colaba también a los
+    # empatados flojos (Utilities, Financiero) junto al empatado fuerte que
+    # de verdad importaba rescatar (Tecnología), diluyendo la cartera con
+    # nombres mediocres que no aportan nada — ni ventaja de fase ni un
+    # historial que lo compense.
+    gsh_bar = gsh.median()
+    ok = (ir > 0) | ((ir >= 0) & (gsh >= gsh_bar))
+    combo = pd.DataFrame({"ir": ir, "g": gsh, "ok": ok}) \
+        .sort_values(["ir", "g"], ascending=[False, False])
+    ir = combo["ir"]
+    n_positive = int(combo["ok"].sum())
     n_take = min(max(n_positive, n_min), n_max, len(ir))
     top = list(ir.head(n_take).index)
     if not top:

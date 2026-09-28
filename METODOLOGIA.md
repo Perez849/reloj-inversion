@@ -326,8 +326,7 @@ explícita, no un hallazgo del backtest. En el mes *t*:
    otro, 7 — y el oro puede no aparecer en absoluto si la fase no lo
    sostiene, que es exactamente lo que ocurre fuera de Reflación.
 
-   **El umbral es ≥ 0, no > 0, y el desempate es por rendimiento
-   incondicional, no por volatilidad ni por orden de columna.** Con
+   **Un empate en 0 solo es aceptable si, además, no es mediocre.** Con
    contracción total (tau2 = 0: la fase no explica nada de la dispersión de
    un activo que el propio ruido de estimación no explique ya), un activo
    puntúa exacto 0 — ninguna ventaja de fase distinguible, pero tampoco
@@ -337,16 +336,23 @@ explícita, no un hallazgo del backtest. En el mes *t*:
    pese a ser uno de los dos sectores con mayor rendimiento incondicional
    de los diez (8,75 % anual, solo por detrás de Energía) — ninguna fase le
    sienta mal, así que no hay motivo para excluirlo solo porque ninguna le
-   siente notablemente mejor que su ya alto promedio. Entre activos con la
-   misma puntuación (lo habitual son varios empatados en 0 a la vez, porque
-   tau2 se calcula por activo, no por fase, y un tau2 = 0 vale para las
-   cuatro fases a la vez), el desempate es el rendimiento incondicional del
-   propio activo entre volatilidad, con el mismo peso por recencia que el
-   resto del cálculo — no la matriz de la sección 6 (pesa todo el histórico
-   por igual; mezclar las dos ponderaciones sería inconsistente), ni la
-   volatilidad a secas, ni el orden en que aparecen las columnas del
-   histórico, que no significa nada y que es lo que decidía antes de este
-   ajuste.
+   siente notablemente mejor que su ya alto promedio. Pero admitir
+   *cualquier* empate en 0 sin más filtro tiene un coste distinto: cuela
+   también a los empatados flojos (con datos reales, Utilities y Financiero
+   empataban con Tecnología en varias fases) junto al empatado fuerte que
+   de verdad merecía el hueco, diluyendo la cartera con nombres mediocres
+   — ni ventaja de fase ni historial que lo compense — y de hecho
+   empeorando el resultado del backtest en la práctica. Por eso un empate
+   en 0 exige una condición extra: su rendimiento incondicional entre
+   volatilidad (mismo peso por recencia que el resto del cálculo, no la
+   matriz de la sección 6, que pesa todo el histórico por igual —mezclar
+   las dos ponderaciones sería inconsistente) tiene que igualar o superar
+   la mediana de todos los candidatos del bloque, no solo la de los
+   empatados. Entre los empatados que sí pasan ese filtro, y entre los
+   candidatos negativos cuando hace falta completar el suelo, el orden lo
+   da ese mismo rendimiento incondicional — nunca la volatilidad a secas ni
+   el orden en que aparecen las columnas del histórico, que no significa
+   nada y que es lo que decidía antes de este ajuste.
 4. Dentro de cada bloque, el reparto entre los elegidos sigue uno de cuatro
    esquemas —equiponderado, inverso de volatilidad, por puesto, o mitad y
    mitad— calculados en paralelo. El panel abre con el que de verdad ha dado
