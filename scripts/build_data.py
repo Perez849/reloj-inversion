@@ -1276,8 +1276,6 @@ HALF_LIFE_M = 60
 # -8 % y -27 % en la fase en la que se las compraba.
 MIN_PHASE_OBS = 36
 
-DEBUG_TEC = True
-
 
 SCHEMES = {
     "equal": "Equiponderado",
@@ -1678,12 +1676,6 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
     bench_annual = _annual(bench.dropna()) if bench is not None else {}
 
     vol_all = ew_vol(X)
-    if DEBUG_TEC and "Tecnología" in X.columns:
-        tec = X["Tecnología"].dropna()
-        print(f"DEBUGTEC serie completa: {tec.size} meses, desde {tec.index[0].date()} "
-              f"hasta {tec.index[-1].date()}")
-        for d, v in tec.tail(36).items():
-            print(f"  {d.date()} fase={ph.get(d)} ret={v:+.2f}%")
     out_schemes = {}
     for sch, label in SCHEMES.items():
         R = pd.Series(rets[sch], index=dates).dropna()
@@ -1704,11 +1696,6 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
             sub_p = X[ph == phase]
             raw_phase = (_wmean(sub_p, _ew(sub_p, X.index[-1])) if not sub_p.empty
                          else _wmean(X, _ew(X, X.index[-1])))
-            if sch == "equal" and DEBUG_TEC:
-                n_tec = int(sub_p["Tecnología"].notna().sum()) if "Tecnología" in sub_p else None
-                print(f"DEBUGTEC {phase}: mu={mu.get('Tecnología'):+.4f} "
-                      f"raw_phase={raw_phase.get('Tecnología'):+.4f} "
-                      f"vol={vol_all.get('Tecnología'):.4f} n_fase={n_tec}")
             # Ken French publica con un mes de retraso: exigir dato en el último
             # mes dejaba fuera todos los sectores y el bloque salía vacío.
             avail = list(X.columns[X.tail(4).notna().any()])
