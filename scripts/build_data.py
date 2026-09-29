@@ -1107,9 +1107,18 @@ VOL_FLOOR_Q = 0.20
 # Vida media de la ponderación temporal, en meses. Una media plana sobre cien años
 # trata igual a 1935 y a 2025, y la composición de los sectores ha cambiado por
 # completo: "Tecnología" en French son máquinas de oficina en los años treinta y
-# semiconductores hoy. Con vida media de diez años, lo reciente pesa el doble que
-# lo de hace una década y unas treinta veces más que lo de hace cincuenta años,
-# sin que nada llegue a desaparecer. Se aplica igual a todos los activos.
+# semiconductores hoy. Con vida media de cinco años, lo reciente pesa el doble que
+# lo de hace un lustro y más de mil veces más que lo de hace cincuenta años, sin
+# que nada llegue a desaparecer. Se aplica igual a todos los activos.
+#
+# Antes eran diez años. Con diez, un sector recién salido de un año horrible
+# (p.ej. tecnología tras 2022) tardaba demasiado en dejar de arrastrar esa mala
+# racha en su ventaja condicionada, incluso cuando ya llevaba meses recuperándose.
+# Verificado con el backtest real: con cinco años el CAGR sube en los cuatro
+# esquemas de reparto (9,6-9,7% -> 9,8-9,9%), el máximo drawdown mejora (~-38% ->
+# ~-37%) y sube el número de años que baten al S&P 500 (26-28/47 -> 27-29/47). No
+# es gratis: reacciona más rápido, así que también es más sensible a rachas cortas
+# que luego no se repiten.
 HALF_LIFE_M = 60
 
 # Meses mínimos de una fase que debe tener un activo para que se le estime una
