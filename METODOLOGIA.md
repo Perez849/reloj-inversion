@@ -279,21 +279,34 @@ propios ficheros de definición por código SIC que publica French
 (`Siccodes12.txt` y `Siccodes49.txt`, el mismo origen que los retornos), viendo
 qué rango de códigos de cada una de las 49 cae **entero** dentro del rango de
 código de una de las 12. De las 49, 29 caen limpias en un único sector; las
-otras 13 se reparten por código SIC entre varios sectores a la vez —por ejemplo
-«Chips» (semiconductores) queda fuera de Tecnología por un solo código, el 3622
-(«controles industriales»), que French agrupa con los semiconductores pero que
-por su código pertenece a Industria— y se excluyen en vez de asignarse a ojo.
-Gold y RlEst (oro y inmobiliario) también caen limpios, pero ya son activos
-propios del sistema (sección 2.1): mostrarlos otra vez como «subsector de…»
-sería la misma exposición contada dos veces. El mapeo completo, con su
+otras 12 se reparten por código SIC entre varios sectores a la vez y se
+excluyen en vez de asignarse a ojo (`SUBSECTOR_EXCLUDED_MIXED`). Gold, RlEst y
+Chips (oro, inmobiliario y semiconductores) también caen limpios por código
+SIC, pero no aparecen aquí porque ya son activos propios del sistema (sección
+2.1 y la tabla de reglas de selección): mostrarlos otra vez como «subsector
+de…» sería la misma exposición contada dos veces. El mapeo completo, con su
 justificación línea a línea, está en `SUBSECTOR_MAP` y
 `SUBSECTOR_EXCLUDED_MIXED` en `build_data.py`.
 
-Con esto, ocho de los diez sectores tienen desglose (Consumo básico, Salud,
+Con esto, ocho de los once sectores tienen desglose (Consumo básico, Salud,
 Industria, Energía, Tecnología, Consumo discrecional, Financiero y Otros
 sectores); Materiales/Químicas, Utilities y Comunicaciones no lo tienen porque
-su único subsector limpio es idéntico al propio sector —no hay nada más fino
-que enseñar—.
+su único subsector limpio es idéntico al propio sector, y Semiconductores no
+lo tiene porque ya es, él mismo, la pieza más fina que existe —no hay nada más
+fino que enseñar en ninguno de los cuatro casos—. La página muestra una
+tarjeta para cada sector elegido en la fase, con el desglose cuando existe o
+una nota explícita cuando no, para que no parezca un olvido.
+
+**¿Hay algo más fino que las 49 industrias?** Se ha comprobado, no asumido:
+Ken French no publica nada más granular —su catálogo llega hasta 49
+(`100_Industry_Portfolios` no existe, HTTP 404; el resto de clasificaciones
+que ofrece, 5/10/12/17/30/38, son más *bastas*, no más finas—. Una fuente
+moderna con más detalle (p. ej. ETFs sectoriales GICS de subsector) tendría
+como mucho 15-20 años de historia, muy por debajo del estándar de
+significancia que usa todo este documento (sección 2.1: con menos de dos
+ciclos completos ninguna casilla llegaría a significativa). Se prefiere no
+tener desglose antes que tener uno con una fuente que no pasaría el propio
+control de calidad del panel.
 
 **La estadística es la misma que la sección 6**, aplicada a este universo
 aparte: t de Newey-West, contracción de James-Stein para la media contraída, y
@@ -376,13 +389,13 @@ explícita, no un hallazgo del backtest. En el mes *t*:
    **no muestran desventaja de fase** —esa rentabilidad esperada dividida
    entre volatilidad, ≥ 0, no hace falta ventaja, basta con que la fase no
    le siente peor que su propia media—, acotado entre un suelo y un techo:
-   **Renta variable**, entre 2 y 7 de los 10 sectores posibles; **Oro**,
+   **Renta variable**, entre 2 y 5 de los 11 sectores posibles; **Oro**,
    entre 0 y 2 (oro físico y mineras de oro). Con menos aceptables que el
    suelo, se completa hasta el suelo con los siguientes mejores aunque
    puntúen negativo — el suelo evita la cartera vacía o concentrada en un
    único nombre, no es una opinión sobre esos activos. Con más aceptables
    que el techo, se recorta a los mejores. Un mes puede tener 2 sectores;
-   otro, 7 — y el oro puede no aparecer en absoluto si la fase no lo
+   otro, 5 — y el oro puede no aparecer en absoluto si la fase no lo
    sostiene, que es exactamente lo que ocurre fuera de Reflación.
 
    **Un empate en 0 solo es aceptable si, además, no es mediocre EN ESA
@@ -443,11 +456,12 @@ explícita, no un hallazgo del backtest. En el mes *t*:
 | Regla | Motivo |
 |---|---|
 | Bandas 80-100 % renta variable, 0-20 % oro | Nunca sin renta variable; el oro es un seguro táctico, no puede superar a la renta variable en peso |
-| Entre 2 y 7 sectores, nunca fijo | Un único sector sobre una cartera 100 % invertida es un riesgo idiosincrático que nadie pidió; 8 o más de 10 es casi comprar el índice entero y no queda rotación que evaluar. Dentro de ese rango, manda la fase: cuantos puntúen positivo de verdad, ni uno más para rellenar cupo |
+| Entre 2 y 5 sectores, nunca fijo | Un único sector sobre una cartera 100 % invertida es un riesgo idiosincrático que nadie pidió. El techo bajó de 7 a 5 tras comprobar con el propio backtest que concentrarse en los cinco con mejor ventaja de fase —dejando fuera a los más débiles aunque también puntúen positivo— rinde mejor que diversificar hasta 7: CAGR +0,25 a +0,29 puntos en los 4 esquemas de reparto, Sharpe igual o mejor, caída máxima casi idéntica; el único coste es 1-2 años menos, de 47, batiendo al S&P 500. Dentro de ese rango, manda la fase: cuantos puntúen positivo de verdad, ni uno más para rellenar cupo |
 | Índices agregados excluidos de la selección | S&P total, EAFE, emergentes y small caps copan la selección si se les deja, y desaparece la rotación sectorial. Siguen en la matriz como referencia |
 | Series no invertibles excluidas | PPI y WTI spot no se pueden mantener en cartera |
 | "Consumo duradero" (Durbl) excluido del todo | Ken French lo separa de "Consumo discrecional" (Shops) como industria propia, con su propia serie de retornos, pero no existe un ETF sectorial real que trackee bienes duraderos aparte del consumo discrecional — el mapeo real caía en el mismo IYC/XLY que "Consumo discrecional". Con los dos como sectores independientes, la cartera podía recomendar ambos a la vez en la misma fase: dos nombres, dos líneas en "qué comprar ahora", **la misma orden de compra**. Se descarta la industria entera de la fuente en vez de parchear la selección, porque el problema no es la selección — es que ese sector no tiene una forma real de comprarse aparte |
-| Los 10 sectores restantes son mutuamente excluyentes por construcción | No hay un "Bancos" aparte de "Financiero" ni un "Semiconductores" aparte de "Tecnología" que pudieran duplicar la misma apuesta, y cada uno tiene un ETF sectorial real y distinto (ver el mapeo en `app.js`). No hace falta ninguna regla de deduplicación dentro del bloque de renta variable |
+| 10 de los 11 sectores son mutuamente excluyentes por construcción | No hay un "Bancos" aparte de "Financiero" que pudiera duplicar la misma apuesta, y cada uno tiene un ETF sectorial real y distinto (ver el mapeo en `app.js`) |
+| Semiconductores sí solapa con Tecnología, y se resuelve explícitamente | A diferencia del resto, Semiconductores (Ken French, 49 industrias, "Chips") comparte por código SIC casi toda su exposición con Tecnología (BusEq, la agregada de las 12): dejarlos competir libremente contaría en parte la misma exposición dos veces. `ASSET_OVERLAP` impide que los dos entren a la vez en el mismo bloque — de los dos, solo sigue en carrera el que muestre mejor ir esa fase, el mismo criterio de desempate que usa el resto de `_sleeve_pick`. Se añadió porque, hoy, los semiconductores son un eje de inversión propio (capex de IA, capacidad de fabricación) que hace treinta años era solo una pieza más de "equipo de negocio" — verificado con datos reales: gana el hueco a Tecnología en Sobrecalentamiento y Estanflación (antes sin exposición a tecnología en absoluto en esas fases), nunca coexisten, y el backtest mejora |
 | Oro físico y mineras de oro pueden convivir | No son la misma apuesta: el lingote es exposición pura al precio del oro, las mineras añaden apalancamiento operativo y riesgo de renta variable encima. Correlacionados, pero no intercambiables — de ahí que el bloque de oro pueda sostener los dos a la vez, hasta su techo de 2 |
 | Mínimo 60 meses de historia | Un ETF con dos años de datos no gana la selección por ruido |
 | Tolerancia de 4 meses al retraso de publicación | Ken French publica con dos meses de desfase; exigir dato del último mes exacto dejaba fuera todos los sectores |

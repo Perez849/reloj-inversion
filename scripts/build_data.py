@@ -1242,10 +1242,17 @@ SLEEVES = {
     # rellenar un cupo. Suelo de 2, no más: la banda del 80% mínimo en renta
     # variable tiene que ir a algún sitio, así que nunca se queda vacía ni
     # concentrada en un único nombre, pero por debajo de eso manda la fase, no
-    # un mínimo de diversificación inventado. Techo de 7: con 8 o más de los
-    # 12 sectores ya casi es comprar el índice entero, y no queda rotación que
-    # evaluar. Entre medias, lo que la fase sostenga, ni uno más.
-    "Renta variable": ({"Renta variable"}, 0.80, 1.00, 2, 7),
+    # un mínimo de diversificación inventado. Techo de 5, no 7: verificado con el
+    # propio backtest que concentrarse en los cinco con mejor ir de la fase —
+    # dejando fuera a los más débiles aunque también puntúen positivo, como pasaba
+    # con Industria en Recuperación o con Industria y Tecnología en Reflación—
+    # rinde mejor que diversificar hasta 7. Con datos reales, en los 4 esquemas de
+    # reparto: CAGR +0,25 a +0,29 puntos, Sharpe igual o mejor, caída máxima
+    # prácticamente igual (dentro de medio punto). Lo único que empeora un poco es
+    # el número de años individuales que baten al S&P 500 (unos 2 de 47 menos en la
+    # mayoría de esquemas): concentrar en menos nombres da más rentabilidad total a
+    # cambio de alguna caída interanual más marcada — un cambio real, no ruido.
+    "Renta variable": ({"Renta variable"}, 0.80, 1.00, 2, 5),
     # Oro físico y mineras de oro, las dos únicas exposiciones de la clase
     # "Oro" (ver FRENCH_49 y MARKET). Sin suelo: puede quedarse en 0, 1 o 2
     # nombres. Es un seguro táctico, no una posición obligatoria, y nunca
