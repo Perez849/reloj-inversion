@@ -1110,7 +1110,7 @@ VOL_FLOOR_Q = 0.20
 # semiconductores hoy. Con vida media de diez años, lo reciente pesa el doble que
 # lo de hace una década y unas treinta veces más que lo de hace cincuenta años,
 # sin que nada llegue a desaparecer. Se aplica igual a todos los activos.
-HALF_LIFE_M = 120
+HALF_LIFE_M = 60
 
 # Meses mínimos de una fase que debe tener un activo para que se le estime una
 # media PROPIA de esa fase. Por debajo, se usa su media general: sigue pudiendo
