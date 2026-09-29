@@ -106,8 +106,15 @@
     <div class="section-head">
       <div class="eyebrow">Por dentro</div>
       <h2>Qué está empujando cada eje</h2>
-      <p class="cap">Cada serie entra estandarizada contra su propia historia reciente (ventana móvil
-        de diez años). El peso no lo elige nadie: sale del primer componente principal de cada bloque.</p>
+      <p class="cap">Cada serie entra estandarizada (convertida a un z-score robusto: cuántas medianas de
+        desviación absoluta se aleja del valor típico de los últimos diez años, un cálculo menos sensible
+        a valores extremos puntuales que la media y la desviación estándar de toda la vida) contra su
+        propia historia reciente — así una serie de tipos de interés y una de confianza del consumidor,
+        con escalas totalmente distintas, quedan en las mismas unidades y se pueden combinar. El peso de
+        cada serie dentro de su bloque no lo elige nadie a mano: sale del primer componente principal
+        (PCA) — la combinación lineal de esas series que mejor resume cómo se mueven juntas, la misma
+        técnica que se usa para construir índices de difusión económica. La cifra de "varianza" bajo cada
+        título dice qué fracción del movimiento conjunto de esas series captura ese único número.</p>
     </div>
     <div class="ind-grid" id="indicators"></div>
   </div>
@@ -133,9 +140,12 @@
     <div class="section-head">
       <div class="eyebrow">La evidencia</div>
       <h2>Qué ha pagado cada activo en cada fase</h2>
-      <p class="cap">Exceso anualizado sobre el comportamiento medio del propio activo, con el
-        contraste estadístico delante: <b>+++</b> exige p&lt;0,01 y superar el control de falsos
-        descubrimientos entre las ~150 casillas evaluadas a la vez.</p>
+      <p class="cap">Para cada activo se compara su rentabilidad anualizada en los meses de cada fase
+        contra su propia media histórica de siempre (no contra los demás activos): un activo mediocre
+        pero que "en Reflación va mejor de lo que suele ir" cuenta, aunque nunca sea el más rentable de
+        la tabla. La nota que acompaña al número es la parte importante: dice si esa diferencia es real o
+        puede ser ruido. Cuantos más meses de historia y menos errática sea la serie, antes se gana la
+        nota más alta — no hace falta una diferencia enorme si es consistente mes a mes.</p>
     </div>
     <div class="matrix-tools">
       <div class="seg" id="classFilter"></div>
@@ -162,6 +172,11 @@
     <div class="section-head">
       <div class="eyebrow">Control de calidad</div>
       <h2>Cómo se comporta el clasificador</h2>
+      <p class="cap">Tres comprobaciones sobre el propio clasificador de fase, independientes de si acierta
+        o no en qué comprar: ¿coincide con las recesiones oficiales, que nunca ve? ¿Cuánto dura cada fase
+        y con qué frecuencia aparece cada una? ¿Salta de fase con el ruido de un mes suelto o persiste de
+        forma razonable? Un clasificador que fallara aquí sería sospechoso aunque la cartera pareciera
+        rentable — podría estar acertando por casualidad.</p>
     </div>
     <div class="val-grid" id="validation"></div>
   </div>
@@ -176,6 +191,106 @@
       <h2>Las reglas, una por una</h2>
     </div>
     <ol class="rules" id="rules"></ol>
+    <details class="details">
+      <summary>Glosario: qué significa cada término técnico</summary>
+      <div class="body">
+        <p><b>σ (sigma), desviación estándar.</b> Unidad para medir "cuánto de raro" es un dato,
+          comparando series que no tienen nada que ver entre sí en su escala natural (tipos de interés
+          en %, confianza del consumidor en un índice de 0 a 100...). +1σ significa "una desviación
+          estándar por encima de lo normal reciente"; en una serie que se comporta como una campana de
+          Gauss, alrededor de dos tercios de las observaciones caen entre -1σ y +1σ, y menos de un 5%
+          caen más allá de ±2σ.</p>
+        <p><b>Z-score robusto / MAD.</b> La forma concreta en que este panel calcula la σ de cada serie:
+          en vez de la media y la desviación estándar de toda la vida (que un único mes extremo puede
+          distorsionar mucho), usa la mediana y la MAD (desviación absoluta respecto a la mediana) — menos
+          sensible a valores atípicos puntuales.</p>
+        <p><b>PCA / componente principal.</b> Análisis de Componentes Principales: una técnica estadística
+          estándar para resumir varias series que se mueven de forma parecida en una sola. El "primer
+          componente principal" de un grupo de series es la combinación de todas ellas que mejor explica
+          cómo se mueven juntas — los pesos salen de la propia estructura de correlaciones, nadie los
+          decide a mano. La "varianza explicada" dice qué fracción del movimiento conjunto de esas series
+          capta ese único número resumen: 68% significa que ese componente resume bien la mayoría del
+          movimiento común, dejando un 32% de matices particulares de cada serie sin resumir.</p>
+        <p><b>P-valor.</b> La probabilidad de observar un resultado igual de extremo (o más) que el que se
+          ve, si en realidad no hubiera ningún efecto real y todo fuera puro azar. Un p-valor de 0,05
+          significa que, si no hubiera ningún efecto de verdad, un resultado así de fuerte solo aparecería
+          por azar 1 de cada 20 veces — cuanto más bajo, menos margen para el azar como explicación.</p>
+        <p><b>Estadístico t / error estándar de Newey-West.</b> El exceso de rentabilidad de un activo en
+          una fase, dividido entre su propio margen de error: cuanto más alto en valor absoluto, menos
+          probable que el resultado sea casualidad. Newey-West es la fórmula concreta que usa este panel
+          para calcular ese margen de error — a diferencia de la fórmula de libro de texto, no asume que
+          cada mes es independiente del anterior, algo que en series financieras (donde un mes bueno tiende
+          a estar seguido de otro parecido) suele ser falso y, si se ignora, hace parecer más fiable de lo
+          que es un resultado que en realidad no lo es tanto.</p>
+        <p><b>Benjamini-Hochberg / control de falsos descubrimientos (FDR) / q-valor.</b> Cuando se hacen
+          cientos de pruebas estadísticas a la vez (como en la matriz de "La evidencia", con activos ×
+          fases), algunas saldrán "significativas" por puro azar aunque no haya ningún efecto real detrás
+          — es matemática pura, no un fallo de este panel en concreto. Benjamini-Hochberg es un método
+          estándar que ajusta el listón hacia arriba en proporción a cuántas pruebas se hacen, para que la
+          <i>proporción esperada</i> de falsos positivos entre todo lo marcado como significativo se
+          mantenga acotada (p. ej. ≤10%) — no que cada casilla individual tenga esa probabilidad exacta de
+          ser falsa, sino el conjunto de todas las marcadas. El q-valor es el resultado de aplicar esa
+          corrección: el p-valor "ajustado" por este efecto.</p>
+        <p><b>Contracción (shrinkage) / "contraído".</b> Cuando una casilla tiene pocos meses de historia o
+          mucho vaivén, su exceso medido puede deberse en buena parte a ruido de una muestra pequeña. La
+          contracción de James-Stein encoge esa cifra hacia la media general del bloque, en mayor medida
+          cuanto menos fiable es la muestra concreta — una racha corta y espectacular se encoge mucho más
+          que un patrón largo y consistente. Es una técnica estándar en estadística bayesiana para evitar
+          sobrerreaccionar a resultados llamativos pero poco respaldados.</p>
+        <p><b>CAGR.</b> Tasa de crecimiento anual compuesto (del inglés <i>compound annual growth rate</i>):
+          la rentabilidad anual constante que, capitalizada mes a mes durante todo el periodo, da el mismo
+          resultado final que la serie real de altibajos. Siempre es menor o igual que la media aritmética
+          de los años sueltos, y es la forma correcta de resumir "cuánto ha rentado esto al año" cuando hay
+          varios años de por medio.</p>
+        <p><b>Volatilidad anualizada.</b> La desviación estándar de los retornos mensuales, multiplicada
+          por la raíz cuadrada de 12 para llevarla a escala anual — la forma estándar de medir "cuánto se
+          mueve" una inversión mes a mes, sin mirar la dirección.</p>
+        <p><b>Sharpe.</b> Rentabilidad anualizada dividida entre volatilidad anualizada: rentabilidad
+          "por unidad de riesgo asumido". Permite comparar dos inversiones con niveles de riesgo distintos
+          en términos justos — ganar más asumiendo mucho más riesgo no es necesariamente "mejor" en Sharpe
+          que ganar algo menos con mucha más tranquilidad.</p>
+        <p><b>Caída máxima (maxDD, <i>maximum drawdown</i>).</b> La mayor pérdida de pico a valle en todo
+          el periodo: cuánto habría bajado el valor de la cartera para quien compró justo en el peor
+          máximo y vendió justo en el peor mínimo posterior. Es el susto más grande del periodo, no una
+          pérdida típica ni la más reciente.</p>
+        <p><b>Peor 12 meses.</b> El peor resultado de cualquier ventana de 12 meses consecutivos dentro del
+          periodo (puede empezar en cualquier mes, no solo en enero) — distinto del "peor año natural" del
+          gráfico "Año contra año", que sí respeta las fronteras del calendario.</p>
+        <p><b>Walk-forward / in-sample.</b> Un backtest walk-forward decide en cada fecha usando solo datos
+          disponibles hasta ese momento, nunca información futura — así se comporta como se habría
+          comportado en directo. Un backtest in-sample (o "con toda la muestra"), en cambio, usa el
+          histórico completo para decidir qué habría funcionado, incluyendo tramos que en su momento
+          todavía no existían: sistemáticamente sale mejor que la versión honesta, porque hace trampa sin
+          querer. Este panel es walk-forward en toda la sección «El backtest» y «Laboratorio».</p>
+        <p><b>AUC (área bajo la curva ROC) / regresión logística (logit).</b> La regresión logística es un
+          modelo estadístico estándar para estimar la probabilidad de un suceso de sí/no (aquí, recesión
+          en los próximos 12 meses) a partir de una o varias variables. El AUC mide qué tan bien distingue
+          ese modelo entre los casos que sí ocurrieron y los que no: 0,50 equivale a adivinar a cara o
+          cruz, 1,00 es una separación perfecta.</p>
+        <p><b>Percentil.</b> La posición relativa de un resultado dentro de un conjunto ordenado, expresada
+          en tanto por ciento. Percentil 90 significa que el resultado superó al 90% de los demás — en el
+          Laboratorio, dónde quedó una combinación concreta dentro de todas las combinaciones posibles esa
+          misma fase.</p>
+        <p><b>Rotación de cartera (turnover).</b> Qué fracción del valor de la cartera cambia de sitio de
+          un mes al siguiente, ya sea por vender una posición entera o por ajustar el peso de las que se
+          mantienen. Más rotación implica, en la práctica real (no en un backtest sin costes), más
+          comisiones y más horquilla pagadas.</p>
+        <p><b>Banda.</b> El rango mínimo–máximo de peso permitido para un bloque de la cartera (p. ej.
+          80–100% en renta variable). Dentro de la banda, el peso exacto lo decide cuánto puntúa ese
+          bloque en la fase vigente; la banda solo pone el límite de hasta dónde puede llegar.</p>
+        <p><b>Bloque (<i>sleeve</i>).</b> Cada una de las dos partes en que se divide la cartera: "Renta
+          variable" (los sectores) y "Oro" (oro físico y mineras de oro, el único seguro no bursátil de
+          este sistema). El término inglés <i>sleeve</i> es habitual en gestión de carteras para referirse
+          a una porción con su propio mandato dentro de una cartera mayor.</p>
+        <p><b>Código SIC / clasificación GICS.</b> Dos sistemas distintos y independientes para clasificar
+          empresas por su actividad. El SIC (<i>Standard Industrial Classification</i>) es el que usa Ken
+          French para construir sus carteras sectoriales históricas, y el que este panel usa para decidir
+          qué subsector pertenece a qué sector sin ambigüedad (ver sección «Un paso más» del backtest y
+          <a href="METODOLOGIA.md">METODOLOGIA.md</a>). El GICS (<i>Global Industry Classification
+          Standard</i>) es el que usan los proveedores de ETFs e índices bursátiles modernos (S&amp;P,
+          MSCI). Los dos no siempre coinciden exactamente en el mismo negocio.</p>
+      </div>
+    </details>
     <details class="details">
       <summary>Lo que este panel no puede hacer</summary>
       <div class="body" id="limits"></div>

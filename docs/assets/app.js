@@ -206,7 +206,10 @@ function phaseWhyText(c) {
   const miTxt = mi == null ? "" : (mi >= 0.10 ? ", subiendo" : mi <= -0.10 ? ", cediendo" : ", estable");
   return `El crecimiento está <b>${fmtNum(Math.abs(c.growth), 2)}σ ${gDir}</b> de su tendencia de los
     últimos diez años${mgTxt}; la inflación, <b>${fmtNum(Math.abs(c.inflation), 2)}σ ${iDir}</b> de la
-    suya${miTxt}. Bajo esa combinación, ${PHASE_DEF[c.phase]}`;
+    suya${miTxt} — <span class="small-cap">σ</span> son desviaciones estándar: cuántas veces la variación
+    típica de la última década se aleja el dato de hoy de lo normal reciente, la misma vara de medir para
+    crecimiento e inflación aunque una se mida en % interanual y la otra en puntos de otra escala, así que
+    +1σ en una es comparable a +1σ en la otra. Bajo esa combinación, ${PHASE_DEF[c.phase]}`;
 }
 
 function confidenceText(c) {
@@ -296,7 +299,12 @@ function renderOutlook() {
       <small>Duración media histórica de un tramo en ${c.phase}.</small></div>
     <div class="item"><dt>Modelo de recesión</dt>
       <dd>${rec.prob_12m != null ? fmtPct(rec.prob_12m, 0) : "—"}</dd>
-      <small>${rec.auc ? `Logit sobre curva y condiciones financieras, AUC ${fmtNum(rec.auc, 2)} en ${rec.n_obs} meses.` : "No disponible."}</small></div>`;
+      <small>${rec.auc ? `Probabilidad de que EE.UU. entre en recesión (según el NBER) en los próximos
+        12 meses, de una regresión logística — un modelo estadístico estándar para estimar la
+        probabilidad de un suceso de sí/no — entrenada con la curva de tipos y las condiciones
+        financieras. Ajuste: AUC ${fmtNum(rec.auc, 2)} en ${rec.n_obs} meses — el "área bajo la curva ROC"
+        mide qué tan bien distingue el modelo entre meses que acabaron en recesión y los que no; 0,50 es
+        adivinar a cara o cruz, 1,00 es perfecto, y ${fmtNum(rec.auc, 2)} está ${rec.auc >= 0.8 ? "cerca del extremo bueno" : rec.auc >= 0.65 ? "claramente por encima del azar, sin ser perfecto" : "solo algo por encima del azar"}.` : "No disponible."}</small></div>`;
 }
 
 /* ------------------------------ qué comprar ------------------------------ */
@@ -499,8 +507,12 @@ function indRow(i) {
   const style = pos ? `left:50%;width:${pctW}%;background:${col}` : `right:50%;width:${pctW}%;background:${col}`;
   const delta = i.z_prev != null ? i.z - i.z_prev : null;
   const arrow = delta == null ? "" : (delta > 0.15 ? "▲" : delta < -0.15 ? "▼" : "▬");
+  const tip = [i.note, `retraso de publicación: ${i.lag_m} ${i.lag_m === 1 ? "mes" : "meses"} — el dato de un mes concreto no entra en la clasificación hasta que de verdad se publicó, no en tiempo real`,
+    i.invert ? "signo invertido: sube el indicador cuando la serie original baja, para que todo el bloque lea en la misma dirección" : null,
+    i.loading != null ? `peso ${fmtNum(i.loading, 2)}: su carga dentro del primer componente principal del bloque — cuánto arrastra al índice conjunto cuando esta serie se mueve, no una importancia fijada a mano` : null,
+  ].filter(Boolean).join(" · ");
   return `
-    <div class="ind-row" title="${i.note || ""}">
+    <div class="ind-row" title="${tip}">
       <div class="nm">${i.name}
         <small>${i.id} · retraso ${i.lag_m}m${i.invert ? " · invertida" : ""}${
           i.loading != null ? ` · peso ${fmtNum(i.loading, 2)}` : ""}</small>
@@ -640,9 +652,17 @@ function drawMatrix() {
         const sig = d.grade !== "0";
         const col = sig ? diverging(d.rel, 12) : "transparent";
         const txtCol = d.rel >= 0 ? POS : NEG;
+        const tCell = [
+          `rentabilidad anualizada en ${p}: ${fmtNum(d.ann, 1)}%`,
+          `exceso sobre su propia media de siempre: ${signed(d.rel, 1)} puntos`,
+          d.rel_shrunk != null ? `contraído hacia cero: ${signed(d.rel_shrunk, 1)} pp — versión más prudente del exceso, encogida en proporción a lo poco fiable que es la muestra (pocos meses o mucho vaivén encogen más), para no dejarse impresionar por una racha corta` : null,
+          `t=${fmtNum(d.t, 2)}: el exceso dividido por su propio margen de error — por debajo de ±2 aproximadamente, no se puede descartar que sea puro azar`,
+          d.q != null ? `q=${fmtNum(d.q, 3)}: la probabilidad de que esta casilla en concreto sea un falso positivo, YA corregida por examinar decenas de casillas a la vez (sin esa corrección, el p-valor sin ajustar sería menor y parecería más fiable de lo que es)` : null,
+          `${d.n} meses de esta fase en la muestra · acertó signo (subió cuando "suele subir") el ${fmtPct(d.hit, 0)} de esos meses`,
+        ].filter(Boolean).join(" · ");
         body += `<td class="cell ${p === cur ? "active" : ""} ${sig ? "" : "dim"}"
             style="background:${col}"
-            title="anualizado ${fmtNum(d.ann, 1)}% · exceso ${signed(d.rel, 1)} pp${d.rel_shrunk != null ? ` (contraído ${signed(d.rel_shrunk, 1)})` : ""} · t=${fmtNum(d.t, 2)}${d.q != null ? ` · q=${fmtNum(d.q, 3)}` : ""} · ${d.n} meses · aciertos ${fmtPct(d.hit, 0)}">
+            title="${tCell}">
             <span class="g" style="color:${sig ? txtCol : INK_FAINT}">${d.grade}</span>
             <span class="r">${signed(d.rel, 1)}</span></td>`;
       }
@@ -653,8 +673,15 @@ function drawMatrix() {
   $("#matrix").innerHTML = head + `<tbody>${body}</tbody>`;
   $("#matrixFoot").innerHTML = `
     Cada celda: exceso anualizado en puntos porcentuales frente a la media histórica del propio activo,
-    y la nota que resume su significatividad. Pasa el cursor por encima para ver t, q, número de meses y tasa de acierto.
-    <b>+++ / ---</b> p&lt;0,01 con FDR ≤ 0,10 &nbsp;·&nbsp; <b>++ / --</b> p&lt;0,05 &nbsp;·&nbsp; <b>+ / -</b> p&lt;0,20 &nbsp;·&nbsp; <b>0</b> indistinguible de su media.`;
+    y la nota que resume su significatividad. Pasa el cursor por encima para ver el detalle completo
+    (t, q, meses y tasa de acierto).<br>
+    <b>+++ / ---</b> la probabilidad de que este resultado sea puro azar (el "p-valor") es menor al 1%,
+    y sigue siéndolo incluso después de corregir por examinar decenas de casillas a la vez ("FDR ≤ 0,10":
+    de las casillas marcadas así, como mucho un 10% de media serían falsos positivos, no cada una
+    individualmente) &nbsp;·&nbsp; <b>++ / --</b> probabilidad de azar menor al 5%, sin esa corrección
+    adicional &nbsp;·&nbsp; <b>+ / -</b> menor al 20% — indicativo, no concluyente &nbsp;·&nbsp;
+    <b>0</b> no se puede distinguir de su propia media, con la muestra disponible hoy — no significa que
+    "no haya efecto", significa que con estos datos no se puede afirmar que lo haya.`;
 }
 
 /* -------------------------------- consenso ------------------------------ */
@@ -670,7 +697,7 @@ function renderConsensus() {
           <h2>Cartera de consenso</h2>
           <p class="cap">${c.confidence >= 0.6
             ? `La clasificación tiene ${fmtPct(c.confidence)} de margen: no hace falta cubrirse contra la fase alternativa. La columna de ${c.phase} de la matriz es suficiente.`
-            : "No hay activos con nota positiva simultánea en las dos fases candidatas. Liquidez y duración corta son la posición por defecto."}</p>
+            : `No hay ningún sector u oro con nota positiva y contrastada a la vez en ${c.phase} y en ${c.alt_phase}. Eso no cambia la cartera de «Qué comprar ahora» — sigue siendo la mejor estimación con los datos de hoy — solo significa que, en este caso, no hay ningún activo que además sirva de colchón si la fase resultara ser la otra candidata.`}</p>
         </div>
       </div>`;
     return;
@@ -916,7 +943,10 @@ function renderRotation() {
         para que el Sharpe signifique lo que dice significar. El S&amp;P 500 en términos brutos ha
         rentado más que la cifra de abajo, aproximadamente el tipo de interés sin riesgo del
         periodo; la comparación entre cartera y mercado es igual de válida porque a los dos se les
-        resta lo mismo.</p>
+        resta lo mismo. "Anual" es siempre <b>CAGR</b> (tasa de crecimiento anual compuesto): la
+        rentabilidad anual constante que, capitalizada mes a mes durante todo el periodo, habría dado
+        el mismo resultado final — no la media aritmética de los años sueltos, que sobreestima el
+        resultado real de una serie con altibajos.</p>
     </div>
 
     <div class="outlook" style="margin-bottom:24px;border-color:${beatsMkt ? POS : PHASE_COLOR["Sobrecalentamiento"]}">
@@ -926,14 +956,25 @@ function renderRotation() {
         <small>Sharpe ${fmtNum(mkt.sharpe, 2)} · caída máxima ${fmtNum(mkt.maxdd, 1)}%</small></div>
       <div class="item"><dt>Diferencia</dt><dd style="color:${beatsMkt ? POS : NEG}">${signed((p.cagr ?? 0) - (mkt.cagr ?? 0), 1)} pp/año</dd>
         <small>${beatsMkt ? "la rotación por fase bate al índice en rentabilidad, no solo en riesgo" : "el índice bate a la rotación en rentabilidad; mira el Sharpe y la caída máxima antes de descartarla"}</small></div>
-      <div class="item"><dt>Sharpe</dt><dd style="color:${(p.sharpe ?? 0) > (mkt.sharpe ?? 0) ? POS : "var(--ink)"}">${fmtNum(p.sharpe, 2)} vs ${fmtNum(mkt.sharpe, 2)}</dd>
-        <small>rentabilidad por unidad de riesgo asumido</small></div>
+      <div class="item" title="Fórmula: rentabilidad anualizada dividida entre la volatilidad anualizada. Compara dos series con distinto nivel de riesgo en términos justos: 8% de rentabilidad con la mitad de vaivén que otra que también da 8% es, en Sharpe, el doble de buena. Por encima de 1 se considera sólido para una cartera de solo renta variable; por debajo de 0,5, flojo."><dt>Sharpe</dt><dd style="color:${(p.sharpe ?? 0) > (mkt.sharpe ?? 0) ? POS : "var(--ink)"}">${fmtNum(p.sharpe, 2)} vs ${fmtNum(mkt.sharpe, 2)}</dd>
+        <small>rentabilidad por unidad de riesgo asumido — más alto es mejor</small></div>
     </div>
-    <p class="foot" style="margin-top:-14px;margin-bottom:20px">* Exceso anualizado sobre letras del Tesoro a 3 meses (ver nota arriba), no CAGR del índice en bruto.</p>
+    <p class="foot" style="margin-top:-14px;margin-bottom:20px">* Exceso anualizado sobre letras del Tesoro a 3 meses (ver nota arriba), no CAGR del índice en bruto. "Caída máxima" (maxDD): la mayor pérdida que habría sufrido quien entró justo en el peor pico y vendió justo en el peor valle posterior — el susto más grande que ha dado la estrategia en todo el periodo, no una pérdida típica.</p>
 
     <h3 style="font-family:var(--serif);font-size:17px;margin-bottom:4px">¿Y si el reparto interno cambia?</h3>
     <p class="cap" style="margin-bottom:14px">La selección de sectores y de oro es idéntica en los cuatro
-      esquemas: lo único que cambia es cómo se reparte el dinero entre los ya elegidos.</p>
+      esquemas — cuáles entran y con qué banda de peso lo decide solo la fase, sección de arriba. Lo único
+      que cambia es cómo se reparte el dinero <i>entre</i> los ya elegidos, y ahí hay más de una forma
+      razonable de hacerlo:</p>
+    <ul class="cap" style="margin:0 0 14px 18px;padding:0">
+      <li><b>Equiponderado</b>: mismo peso para todos los sectores elegidos (si son 4, 25% cada uno) — no
+        apuesta por ninguno en particular dentro del grupo.</li>
+      <li><b>Inverso de la volatilidad</b>: más peso al sector que se mueve con menos vaivén, menos al más
+        errático — para que ningún sector por sí solo acapare el riesgo de la cartera.</li>
+      <li><b>Por puesto</b>: más peso al que mejor puntuó en la fase, menos al último de los elegidos —
+        apuesta explícita por el orden del ranking, no solo por estar dentro de él.</li>
+      <li><b>Mitad y mitad</b>: promedio de equiponderado e inverso de la volatilidad.</li>
+    </ul>
     <div class="seg" id="schemeSeg" style="margin-bottom:18px">
       ${Object.entries(r.schemes).map(([k, v]) => `<button type="button" data-s="${k}"
         aria-pressed="${k === scheme}">${v.label}</button>`).join("")}
@@ -942,10 +983,13 @@ function renderRotation() {
     <div class="matrix-holder" style="margin-bottom:14px">
       <table class="matrix">
         <thead><tr>
-          <th>Esquema de reparto</th><th style="text-align:right">Anual*</th>
-          <th style="text-align:right">Vol</th><th style="text-align:right">Sharpe</th>
-          <th style="text-align:right">Caída máx.</th><th style="text-align:right">Peor año</th>
-          <th style="text-align:right">Años ganados</th>
+          <th>Esquema de reparto</th>
+          <th style="text-align:right" title="CAGR: rentabilidad anual compuesta, exceso sobre letras del Tesoro a 3 meses">Anual*</th>
+          <th style="text-align:right" title="Volatilidad anualizada: la desviación estándar de los retornos mensuales, llevada a escala de un año — cuanto mayor, más se mueve el valor de la cartera mes a mes">Vol</th>
+          <th style="text-align:right" title="Rentabilidad anual dividida entre volatilidad anualizada: rentabilidad por unidad de riesgo asumido">Sharpe</th>
+          <th style="text-align:right" title="Caída máxima (maxDD): la mayor pérdida de pico a valle en todo el periodo, no una pérdida típica">Caída máx.</th>
+          <th style="text-align:right" title="El peor resultado de cualquier ventana de 12 meses consecutivos del periodo (no necesariamente un año natural: puede empezar en marzo y terminar en febrero) — más informativo que el peor año del calendario porque no depende de dónde caigan las fronteras de enero a diciembre">Peor 12 m.</th>
+          <th style="text-align:right" title="En cuántos de los años naturales del periodo la cartera terminó por delante del S&P 500, sobre el total de años con datos completos">Años ganados</th>
         </tr></thead>
         <tbody>
           ${Object.entries(r.schemes).map(([k, v]) =>
@@ -981,10 +1025,13 @@ function renderRotation() {
       Control de riesgo: la cartera terminó con <b>${fmtNum(S.vol_check.cartera, 1)}%</b> de
       volatilidad frente al <b>${fmtNum(S.vol_check.objetivo_mercado, 1)}%</b> de la renta variable pura
       (${signed(S.vol_check.desvio, 1)} puntos) — el seguro de oro y la diversificación entre varios
-      sectores (entre 2 y 7 según la fase, nunca un número fijo), no un objetivo impuesto.</p>` : ""}
-    <p class="foot" style="margin-bottom:24px">Rotación media de cartera: <b>${fmtNum(S.turnover, 1)}%</b>
-      al mes. Los costes de transacción no están descontados; a 15 puntos básicos por unidad de rotación
-      restarían del orden de ${fmtNum(S.turnover * 0.15 * 12 / 100, 2)} puntos al año.</p>
+      sectores (entre 2 y 5 según la fase, nunca un número fijo), no un objetivo impuesto.</p>` : ""}
+    <p class="foot" style="margin-bottom:24px" title="Rotación = qué fracción de la cartera cambia de manos de un mes al siguiente. 20% no significa vender un quinto de las posiciones enteras: puede ser recortar un poco varias a la vez. A más rotación, más peso tienen los costes reales que este backtest no descuenta.">Rotación media de cartera: <b>${fmtNum(S.turnover, 1)}%</b>
+      al mes — qué proporción del dinero cambia de sitio de un mes a otro, sea por vender del todo una
+      posición o por ajustar el peso de las que se mantienen. Los costes de transacción no están
+      descontados; a 15 puntos básicos (0,15%) por unidad de rotación — una estimación conservadora de
+      comisión más horquilla de compraventa — restarían del orden de
+      ${fmtNum(S.turnover * 0.15 * 12 / 100, 2)} puntos al año.</p>
 
     <div class="bt-chart" style="margin-bottom:24px">
       <svg id="rotChart" viewBox="0 0 900 340" role="img" aria-label="Evolución frente al S&P 500"></svg>
@@ -1163,14 +1210,21 @@ function renderLab() {
         <div class="eyebrow">Laboratorio</div>
         <h2>Qué combinaciones funcionaron, y si siguieron funcionando</h2>
         <p class="cap">Para cada fase se evalúan <b>todas</b> las combinaciones posibles de
-          ${S.k ?? 5} activos dentro del bloque, partiendo los meses de esa fase en dos mitades. Las
-          combinaciones se ordenan con la primera mitad y se miran en la segunda, que no se usó para
-          elegirlas. La mejor de ${S.n_combos ?? "cientos"} siempre parece brillante; lo que importa es
-          si aguanta fuera de su propia muestra.</p>
+          ${S.k ?? 5} activos dentro del bloque — con ${S.universe?.length ?? "los"} candidatos en
+          ${labSleeve.toLowerCase()} y grupos de ${S.k ?? 5}, eso son las
+          <b>${S.n_combos ?? "cientos de"}</b> formas distintas de elegir ${S.k ?? 5} de entre
+          ${S.universe?.length ?? "ellos"} sin importar el orden — partiendo los meses de esa fase en dos
+          mitades por la mediana de la fecha (no al azar,
+          para no mezclar meses consecutivos entre las dos mitades). Las combinaciones se ordenan por
+          rentabilidad con la primera mitad y se miran en la segunda, que no se usó para elegirlas. La
+          mejor de esas combinaciones siempre parece brillante en su propia mitad; lo que importa
+          es si aguanta fuera de ella — igual que un fondo que fue el mejor del año pasado no tiene por
+          qué repetir este año.</p>
         <p class="cap" style="margin-top:8px">Tamaño fijo a propósito — evaluar "todas las
-          combinaciones" solo es tratable con un número constante. La cartera real de «Qué comprar
-          ahora» no usa este número: elige entre 2 y 7 sectores según cuántos no muestren desventaja de
-          fase, nunca un tamaño fijo. Esta sección responde una pregunta distinta y más simple: si lo
+          combinaciones" solo es tratable con un número constante de piezas. La cartera real de «Qué
+          comprar ahora» no usa este número: elige entre 2 y 5 sectores según cuántos no muestren
+          desventaja de fase, nunca un tamaño fijo. Esta sección responde una pregunta distinta y más
+          simple: si lo
           que ganaba antes seguía ganando después.</p>
       </div>
 
@@ -1244,21 +1298,23 @@ function renderValidation() {
     <div class="val-card">
       <h3>Contraste con las recesiones del NBER</h3>
       ${nber ? `<table>
-        <tr><td>Meses de recesión con crecimiento negativo</td><td>${fmtPct(nber.recall, 0)}</td></tr>
-        <tr><td>Meses de expansión con crecimiento positivo</td><td>${fmtPct(nber.specificity, 0)}</td></tr>
-        <tr><td>Recesiones repartidas en Reflación</td><td>${fmtPct(nber.phase_mix_in_recession["Reflación"], 0)}</td></tr>
-        <tr><td>Recesiones repartidas en Estanflación</td><td>${fmtPct(nber.phase_mix_in_recession["Estanflación"], 0)}</td></tr>
+        <tr title="De todos los meses que el NBER, con acceso a datos que en su momento no existían, acabó fechando como recesión, en cuántos el eje de crecimiento de este panel ya marcaba negativo — a esto en estadística se le llama 'recall' o sensibilidad"><td>Meses de recesión con crecimiento negativo</td><td>${fmtPct(nber.recall, 0)}</td></tr>
+        <tr title="De todos los meses que el NBER fechó como expansión (no recesión), en cuántos el eje de crecimiento marcaba positivo — el reverso de la fila de arriba, a esto se le llama 'especificidad': si fuera bajo, el modelo vería recesión por todas partes, incluso en expansión clara"><td>Meses de expansión con crecimiento positivo</td><td>${fmtPct(nber.specificity, 0)}</td></tr>
+        <tr title="De los meses que el NBER fechó como recesión, qué fracción cayó en la fase Reflación — la más fría de las cuatro, y la que cabría esperar que coincidiera más con una recesión real"><td>Recesiones repartidas en Reflación</td><td>${fmtPct(nber.phase_mix_in_recession["Reflación"], 0)}</td></tr>
+        <tr title="El resto de meses de recesión que no cayeron en Reflación: caen aquí, en la fase de crecimiento débil con inflación aún alta — coherente con una recesión con inflación pegajosa, no con un fallo del modelo"><td>Recesiones repartidas en Estanflación</td><td>${fmtPct(nber.phase_mix_in_recession["Estanflación"], 0)}</td></tr>
       </table>
-      <p class="cap" style="margin-top:10px;font-size:12px">El fechado del NBER no entra en el modelo:
-      es una comprobación externa e independiente.</p>` : "<p class='cap'>No disponible.</p>"}
+      <p class="cap" style="margin-top:10px;font-size:12px">El fechado del NBER (la autoridad oficial en
+      EE.UU. sobre cuándo empieza y termina una recesión, que decide con meses de retraso y usando datos
+      que este panel no tiene) no entra en ningún cálculo del modelo: es una comprobación externa e
+      independiente, a posteriori.</p>` : "<p class='cap'>No disponible.</p>"}
     </div>
     <div class="val-card">
       <h3>Reparto y duración</h3>
       <table>
         ${D.phases.map(p => `<tr><td><span style="color:${PHASE_COLOR[p]}">■</span> ${p}</td>
           <td>${fmtPct(v.share?.[p], 0)} · ${fmtNum(v.duration_months?.[p], 1)} m</td></tr>`).join("")}
-        <tr><td>Correlación entre los dos ejes</td><td>${fmtNum(v.factor_corr, 2)}</td></tr>
-        ${v.rotation ? `<tr><td>Transiciones en el sentido del reloj</td>
+        <tr title="Cuánto se parecen entre sí, en la práctica, el eje de crecimiento y el de inflación desde 1959. Si estuvieran muy correlacionados (cerca de ±1), no serían dos historias independientes sino la misma contada dos veces, y el reloj de cuatro fases perdería sentido — cerca de 0 confirma que aportan información distinta."><td>Correlación entre los dos ejes</td><td>${fmtNum(v.factor_corr, 2)}</td></tr>
+        ${v.rotation ? `<tr title="De todas las veces que la fase ha cambiado en el histórico, en qué fracción el cambio siguió el orden del reloj clásico (Recuperación → Sobrecalentamiento → Estanflación → Reflación → Recuperación) en vez de saltar a una fase no contigua. Por encima del 50% es más orden que azar (hay 3 destinos posibles al cambiar, así que el azar puro daría ~33%)."><td>Transiciones en el sentido del reloj</td>
           <td style="color:${v.rotation.clockwise_share < 0.4 ? NEG : "var(--ink)"}">${fmtPct(v.rotation.clockwise_share, 0)} de ${v.rotation.n_transitions}</td></tr>` : ""}
       </table>
     </div>
@@ -1318,48 +1374,101 @@ function renderDiagnostics() {
 function renderMethod() {
   const rules = [
     ["Un eje, muchas series", `Crecimiento e inflación se miden con ${D.indicators.filter(i => i.block !== "leading").length}
-      series de FRED, no con una. Cada una entra como z-score robusto (mediana / MAD) calculado con una
-      <b>ventana móvil de diez años</b>: en cada fecha solo se usa el pasado, y solo el pasado reciente.`],
-    ["Los pesos los pone la matriz de correlaciones", `Cada bloque se resume en su primer componente principal.
-      Ningún peso está escrito a mano, y la varianza explicada aparece en el panel de indicadores.`],
-    ["Cada dato entra cuando de verdad se publicó", `Cada serie lleva su retraso de publicación real.
-      El PCE subyacente del mes t no influye en la clasificación hasta t+2, igual que en la vida real.`],
-    ["El cuadrante es el signo de los dos ejes", `Cero significa "en tendencia" por construcción, no un umbral elegido.
-      Recuperación y Sobrecalentamiento están a la derecha del cero de crecimiento; arriba es más inflación.`],
-    ["La confianza sale de la geometría", `Un punto pegado a un eje es ambiguo. La probabilidad de cada cuadrante sale de integrar
-      una normal centrada en la medición actual, con la dispersión que el propio factor ha tenido a
-      ${D.current.horizon_m || 3} meses vista (±${fmtNum(D.current.sigma_g, 2)}σ en crecimiento,
-      ±${fmtNum(D.current.sigma_i, 2)}σ en inflación).`],
-    ["Las notas de activos son contrastes, no opiniones", `Para cada activo y fase se calcula el exceso sobre su propia
-      media con error estándar Newey-West. La nota es el nivel de significación, y se aplica Benjamini-Hochberg
-      porque se testan cientos de casillas a la vez.`],
-    ["El histórico es largo a propósito", `Los sectores usan las carteras de Ken French, que llegan a 1926.
-      Con solo ETFs desde 1999 apenas hay dos ciclos completos y cualquier resultado sería anecdótico.
-      Los tickers junto a cada activo son la forma real de ejecutarlo hoy.`],
-    ["El backtest no se mira a sí mismo", `Cada mes selecciona activos con datos hasta el mes anterior.
-      La versión in-sample se publica al lado precisamente para que se vea cuánto se infla el resultado al hacer trampa.`],
-    ["La comprobación externa es el NBER", `El fechado oficial de recesiones no entra en ninguna estimación:
-      sirve solo para verificar que el eje de crecimiento se hunde cuando debe.`],
-    ["Cuando nada aguanta, se dice", `Si ninguna casilla sobrevive al control de falsos descubrimientos en la
-      fase vigente, el panel lo dice explícitamente en vez de mostrar una recomendación con aspecto de certeza.`],
+      series de FRED, no con una: una sola serie puede tener un mes raro por ruido propio; que once
+      series distintas se muevan juntas es una señal mucho más difícil de fabricar por azar. Cada una
+      entra como <em>z-score robusto</em> — cuántas "medianas de desviación absoluta" (MAD: la versión de
+      la desviación estándar que usa la mediana en vez de la media, y que un solo dato extremo no puede
+      disparar) se aleja del valor típico de esa misma serie — calculado con una <em>ventana móvil de
+      diez años</em>: en cada fecha solo se usa el pasado, y solo el pasado reciente, nunca toda la
+      historia por igual ni el futuro.`],
+    ["Los pesos los pone la matriz de correlaciones", `Cada bloque se resume en su primer componente
+      principal (PCA): la combinación de esas series que mejor explica cómo se mueven a la vez. Ningún
+      peso está escrito a mano — lo decide la propia estructura de correlaciones de los datos — y la
+      varianza explicada (qué fracción del movimiento conjunto capta ese único número) aparece en el
+      panel de indicadores, sección «Por dentro».`],
+    ["Cada dato entra cuando de verdad se publicó", `Cada serie lleva su retraso de publicación real
+      (columna "retraso" en «Por dentro»). El PCE subyacente del mes t no influye en la clasificación
+      hasta t+2, igual que en la vida real: un inversor de ese momento tampoco habría tenido ese dato
+      antes. Ignorar esto — muy fácil de hacer sin querer — es la forma más común de que un backtest
+      parezca mejor de lo que sería en directo.`],
+    ["El cuadrante es el signo de los dos ejes", `Cero significa "en tendencia" por construcción (la
+      media móvil de los últimos diez años de cada eje), no un umbral elegido para que cuadren las
+      fases. Recuperación y Sobrecalentamiento están a la derecha del cero de crecimiento; arriba es
+      más inflación que la tendencia reciente, abajo menos.`],
+    ["La confianza sale de la geometría", `Un punto pegado a un eje es ambiguo: un pequeño cambio en el
+      dato del mes que viene podría moverlo al cuadrante de al lado. La probabilidad de cada cuadrante
+      sale de integrar una campana de Gauss (distribución normal) centrada en la medición actual, con la
+      dispersión que el propio factor ha tenido realmente a ${D.current.horizon_m || 3} meses vista
+      (±${fmtNum(D.current.sigma_g, 2)}σ en crecimiento, ±${fmtNum(D.current.sigma_i, 2)}σ en
+      inflación) — así que un punto cerca del cruce de ejes siempre sale con menos confianza que uno
+      instalado en pleno cuadrante, sin necesidad de una regla aparte para decirlo.`],
+    ["Las notas de activos son contrastes, no opiniones", `Para cada activo y fase se calcula el exceso
+      sobre su propia media histórica, con un error estándar <em>Newey-West</em> — una forma de medir el
+      margen de error que no asume, como la fórmula de libro de texto, que cada mes es independiente del
+      anterior: los retornos financieros suelen estar autocorrelacionados (un mes bueno tiende a ir
+      seguido de otro parecido más de lo que el azar puro explicaría), y usar la fórmula simple ahí
+      infla la confianza de forma artificial. La nota (+++ a ---) es el nivel de significación resultante,
+      y se aplica la corrección de <em>Benjamini-Hochberg</em> — un método que ajusta el umbral de "esto es
+      real" hacia arriba en proporción a cuántas pruebas se hacen a la vez — porque se testan cientos de
+      casillas de golpe, y con tantas, algunas "señales" saldrían significativas por puro azar si no se
+      corrigiera nada.`],
+    ["El histórico es largo a propósito", `Los sectores usan las carteras de Ken French, que llegan a
+      1926 — casi un siglo, con varios ciclos completos de negocio dentro. Con solo ETFs cotizados desde
+      1999 apenas hay dos ciclos completos y cualquier resultado sería, en el mejor de los casos,
+      anecdótico: no se puede separar una ventaja real de haber tenido suerte con el periodo elegido. Los
+      tickers junto a cada activo son la forma real de ejecutarlo hoy, aunque el histórico que respalda
+      la decisión venga de más atrás de lo que ese ETF concreto lleva cotizando.`],
+    ["El backtest no mira al futuro para decidir el pasado", `Walk-forward significa exactamente eso:
+      cada mes selecciona activos usando solo datos hasta el mes anterior, nunca información que en ese
+      momento no existía todavía — ni el propio resultado de ese mes, ni revisiones posteriores del
+      dato. Es la construcción la que impide la trampa, no una comprobación añadida después: no hay
+      forma de que ese resultado esté inflado por haber mirado el futuro al elegir, porque nunca tuvo
+      acceso a él.`],
+    ["La comprobación externa es el NBER", `El fechado oficial de recesiones de EE.UU. (National Bureau
+      of Economic Research, el árbitro académico reconocido para esto, que decide con meses de retraso y
+      con datos que en su momento no existían) no entra en ninguna estimación del modelo: sirve solo,
+      después de los hechos, para verificar que el eje de crecimiento se hunde cuando de verdad hay una
+      recesión — ver «Control de calidad» más abajo.`],
+    ["Cuando nada aguanta, se dice", `Si ninguna casilla sobrevive al control de falsos descubrimientos
+      en la fase vigente, el panel lo dice explícitamente («Lo que aguanta») en vez de mostrar una
+      recomendación con aspecto de certeza que en realidad no está respaldada por los datos.`],
   ];
   $("#rules").innerHTML = rules.map(([t, d]) => `<li><b>${t}</b>${d}</li>`).join("");
 
   $("#limits").innerHTML = `<ul>
-    <li><b>No incorpora valoración.</b> Un sector puede ser el correcto para la fase y estar carísimo.
-    El reloj dice cuándo, no a qué precio.</li>
-    <li><b>Revisiones.</b> Se respeta el retraso de publicación, pero no se reconstruyen las revisiones posteriores
-    de cada dato. El backtest es optimista en ese margen.</li>
-    <li><b>Los treasuries son una aproximación.</b> Su retorno se deriva de la TIR con duración y convexidad,
-    no de un índice de retorno total real.</li>
-    <li><b>Los ETFs de la lista son el instrumento más parecido, no idéntico.</b> Un ETF sectorial pesa por
-    capitalización bursátil actual; las carteras de Ken French son académicas. Composición, comisión y
-    tracking error difieren.</li>
-    <li><b>Régimen cambiante.</b> Curva de Phillips más plana, objetivos de inflación creíbles y QE alteran
-    relaciones que el histórico largo da por estables.</li>
+    <li><b>No incorpora valoración.</b> Un sector puede ser el correcto para la fase y estar carísimo
+    (cotizando a un múltiplo de beneficios ya muy exigente). El reloj dice cuándo suele pagar más un
+    sector dado el ciclo, no a qué precio conviene pagarlo — eso requeriría otro tipo de análisis por
+    completo, de valoración, que este panel no hace.</li>
+    <li><b>Revisiones de los datos.</b> Se respeta el retraso de publicación real de cada serie, pero
+    las cifras macro (PIB, empleo, inflación) casi siempre se revisan meses después de su primera
+    publicación, a veces de forma sustancial. Este panel usa el dato tal como está disponible hoy en
+    FRED, no la serie de publicaciones sucesivas que un inversor habría visto en tiempo real. El
+    backtest es, en ese margen concreto, algo más optimista que la operativa real.</li>
+    <li><b>Los treasuries son una aproximación.</b> Su retorno mensual se deriva matemáticamente del
+    tipo de interés (TIR, la rentabilidad implícita del bono a día de hoy) más su duración y convexidad
+    (cuánto se mueve el precio de un bono cuando cambian los tipos), no de un índice de retorno total
+    real con las compras y ventas efectivas de un fondo — buena aproximación, pero aproximación.</li>
+    <li><b>Los ETFs de la lista son el instrumento más parecido, no idéntico.</b> Un ETF sectorial pesa
+    sus posiciones por capitalización bursátil actual y cambia de composición con el tiempo; las
+    carteras académicas de Ken French que sostienen el histórico son otra cosa, reconstruidas con su
+    propia metodología. Composición, comisión anual y tracking error (cuánto se desvía en la práctica
+    la rentabilidad del ETF de la del índice que dice replicar) difieren entre el dato histórico y el
+    instrumento real con el que se ejecutaría hoy.</li>
+    <li><b>Régimen cambiante.</b> Una curva de Phillips más plana (la relación entre desempleo e
+    inflación se ha debilitado desde los años 90), objetivos de inflación creíbles por parte de los
+    bancos centrales y años de expansión cuantitativa (QE: compras masivas de bonos por la Fed) alteran
+    relaciones económicas que el histórico largo da por estables. Lo que fue cierto en 1975 no tiene por
+    qué seguir siéndolo igual en 2026.</li>
     <li><b>Cuatro cuadrantes son una simplificación.</b> Shocks de oferta, guerras o pandemias no caben
-    en dos ejes, y son precisamente los momentos en que más cara sale una clasificación equivocada.</li>
-    <li><b>No hay costes.</b> Ni comisiones, ni horquilla, ni impuestos, en ningún backtest de este panel.</li>
+    bien en dos ejes continuos, y son precisamente los momentos en que más cara sale una clasificación
+    equivocada — el modelo no distingue "inflación por exceso de demanda" de "inflación porque se ha
+    cortado una cadena de suministro", aunque las dos suban el mismo número.</li>
+    <li><b>No hay costes de operar.</b> Ni comisiones de compraventa, ni horquilla (la diferencia entre
+    el precio de compra y venta de un valor en un momento dado), ni impuestos, en ningún backtest de
+    este panel — la sección del backtest sí estima aparte cuánto restaría la rotación mensual a precios
+    de mercado razonables, pero ni esa estimación ni ninguna otra cifra del panel la descuenta del
+    resultado mostrado.</li>
   </ul>`;
 }
 
