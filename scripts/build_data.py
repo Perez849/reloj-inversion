@@ -949,10 +949,25 @@ SPDR_HOLDINGS_URL = ("https://www.ssga.com/us/en/individual/library-content/"
 # subsector con desglose limpio y fuente fiable (Transporte) se cubre aparte, más
 # abajo, con el ETF específico de esa sub-industria — no del sector "Otros" entero.
 SECTOR_HOLDINGS_TICKERS = {
-    "Tecnología": "XLK", "Semiconductores": "XSD", "Salud": "XLV",
+    "Tecnología": "XLK", "Salud": "XLV",
     "Energía": "XLE", "Comunicaciones": "XLC", "Financiero": "XLF",
     "Industria": "XLI", "Materiales / Químicas": "XLB", "Utilities": "XLU",
     "Consumo discrecional": "XLY", "Consumo básico": "XLP", "Inmobiliario": "XLRE",
+}
+
+# Semiconductores NO tiene su propio ETF aquí a propósito: se probó XSD ("SPDR S&P
+# Semiconductor Select Industry"), pero por ser un índice de ponderación casi
+# igualada, verificado con datos reales, su top-20 NO incluye ni a Nvidia ni a
+# Micron ni a Broadcom — los tres pesan mucho en el mercado real pero casi nada en
+# un índice que reparte el peso a partes iguales entre fabricantes grandes y
+# pequeños. Esas mismas empresas SÍ aparecen, y con peso real de mercado, dentro
+# del propio XLK (Tecnología) que ya se descarga — GICS las agrupa ahí, aunque por
+# código SIC (3674) sean semiconductores y no "Hardware" ni "Software" (ver
+# CHIP_TICKERS). Así que el contenido de Semiconductores se deriva de la propia
+# Tecnología en vez de descargar un cuarto proveedor: mismo dato fiable, sin sumar
+# una fuente más que gestionar, y con los nombres que de verdad importan hoy.
+CHIP_TICKERS = {
+    "NVDA", "AMD", "AVGO", "MU", "INTC", "LRCX", "AMAT", "TXN", "KLAC", "MRVL", "SNDK",
 }
 
 # Subsectores con su propio ETF de sub-industria en la misma familia SPDR. Se probó
@@ -968,48 +983,139 @@ DIRECT_SUBSECTOR_TICKERS = {
 }
 
 # Clasificación ticker -> subsector, construida sobre los holdings REALES observados
-# (no adivinados) en cada sector, contra el código SIC público de cada empresa.
-# Comentario por sector explica los casos excluidos y por qué.
+# (top-20 real de cada sector) contra el código SIC público de cada empresa. Cada
+# entrada omitida se dejó fuera a propósito (ver comentarios): o su SIC real cae en
+# otro sector, o cae en una de las industrias mixtas que ya excluye SUBSECTOR_MAP.
 TICKER_SUBSECTOR = {
-    # Tecnología: los fabricantes de chips del top-8 (Nvidia, AMD, Broadcom, Micron,
-    # Intel) son SIC 3674 -- "Chips" en Ken French, no "Hardw" ni "Softw". Ya se
-    # muestran aparte, sin reclasificar, como posiciones propias de Semiconductores.
+    # Tecnología: los fabricantes de chips (Nvidia, AMD, Broadcom, Micron, Intel,
+    # Lam Research, Applied Materials, Texas Instruments, KLA, Marvell, SanDisk) son
+    # SIC 3674/3559 -- "Chips" en Ken French, no "Hardw" ni "Softw". No se
+    # reclasifican aquí: alimentan directamente el sector Semiconductores (ver
+    # CHIP_TICKERS). Cisco y Arista (equipos de red) y Seagate (almacenamiento) se
+    # dejan fuera: ninguno encaja limpio en Hardware (ordenadores) ni Software.
     "AAPL": "Hardware",
-    "MSFT": "Software", "PLTR": "Software",
-    # Salud
+    "MSFT": "Software", "PLTR": "Software", "PANW": "Software", "CRWD": "Software",
+    "ORCL": "Software",
+    # Salud: Abbott (tras escindir su negocio farma como AbbVie en 2013, su núcleo
+    # es diagnóstico y dispositivos), Intuitive Surgical (robot Da Vinci), Danaher
+    # (instrumentación de laboratorio, como Thermo Fisher), Medtronic y Stryker son
+    # equipo médico, no farmacéuticas. McKesson (distribuidor mayorista de fármacos,
+    # SIC 5122) no encaja en ninguno de los 3 subsectores de Salud y se deja fuera.
     "LLY": "Farmacéuticas", "JNJ": "Farmacéuticas", "ABBV": "Farmacéuticas",
     "MRK": "Farmacéuticas", "AMGN": "Farmacéuticas", "GILD": "Farmacéuticas",
-    "UNH": "Servicios de salud",
-    "TMO": "Equipos médicos",
-    # Energía: las ocho posiciones del top-8 son petroleras integradas, refino u
-    # oilfield services -- todas "Oil", ninguna minera de carbón.
+    "PFE": "Farmacéuticas", "VRTX": "Farmacéuticas", "BMY": "Farmacéuticas",
+    "REGN": "Farmacéuticas",
+    "UNH": "Servicios de salud", "CVS": "Servicios de salud", "ELV": "Servicios de salud",
+    "TMO": "Equipos médicos", "ABT": "Equipos médicos", "ISRG": "Equipos médicos",
+    "DHR": "Equipos médicos", "MDT": "Equipos médicos", "SYK": "Equipos médicos",
+    # Energía: todas las posiciones del top-20 son petroleras integradas, E&P,
+    # midstream, refino u oilfield services -- todas "Oil", ninguna minera de carbón.
     "XOM": "Petróleo y gas", "CVX": "Petróleo y gas", "COP": "Petróleo y gas",
     "VLO": "Petróleo y gas", "MPC": "Petróleo y gas", "PSX": "Petróleo y gas",
-    "WMB": "Petróleo y gas", "SLB": "Petróleo y gas",
-    # Financiero: Visa y Mastercard quedan fuera -- su SIC real (7389, servicios de
-    # procesamiento de datos) no es banca, seguro ni bróker, aunque GICS los
-    # clasifique junto al resto en "Financiero".
-    "JPM": "Banca", "BAC": "Banca", "WFC": "Banca",
-    "BRK.B": "Seguros",
+    "WMB": "Petróleo y gas", "SLB": "Petróleo y gas", "EOG": "Petróleo y gas",
+    "KMI": "Petróleo y gas", "TRGP": "Petróleo y gas", "BKR": "Petróleo y gas",
+    "OKE": "Petróleo y gas", "DVN": "Petróleo y gas", "OXY": "Petróleo y gas",
+    "FANG": "Petróleo y gas", "EQT": "Petróleo y gas", "HAL": "Petróleo y gas",
+    "TPL": "Petróleo y gas", "EXE": "Petróleo y gas",
+    # Financiero: Visa, Mastercard, S&P Global y CME Group quedan fuera -- por SIC
+    # real son procesamiento de datos (7389) o bolsas/proveedores de datos, no
+    # banca, seguro ni bróker, aunque GICS los agrupe junto al resto en
+    # "Financiero". American Express sí entra en Banca: a diferencia de Visa/MA,
+    # concede crédito directamente y es una entidad bancaria regulada desde 2008.
+    "JPM": "Banca", "BAC": "Banca", "WFC": "Banca", "C": "Banca", "AXP": "Banca",
+    "COF": "Banca", "BNY": "Banca", "USB": "Banca",
+    "BRK.B": "Seguros", "PGR": "Seguros", "CB": "Seguros",
     "GS": "Bróker y gestión de activos", "MS": "Bróker y gestión de activos",
-    # Industria: Eaton (SIC 3620, equipo eléctrico) y Union Pacific (SIC 4011,
-    # operador ferroviario, no fabricante) no encajan en ninguno de los 7
-    # subsectores propios de Industria y se dejan fuera.
-    "CAT": "Maquinaria", "DE": "Maquinaria", "GEV": "Maquinaria",
-    "GE": "Aeronáutica", "BA": "Aeronáutica",
-    "RTX": "Defensa",
-    # Consumo discrecional: Tesla (fabricante de coches, "Autos"), McDonald's y
-    # Starbucks (restauración, "Meals") y Booking (agencias de viaje) no son
-    # mayoristas ni minoristas en la definición de Ken French.
+    "SCHW": "Bróker y gestión de activos", "BLK": "Bróker y gestión de activos",
+    "HOOD": "Bróker y gestión de activos",
+    # Industria: Union Pacific y CSX son operadores ferroviarios (SIC 4011, "Trans"
+    # -- Otros sectores), no fabricantes; Eaton, Trane, Vertiv, Johnson Controls y
+    # Emerson son equipo eléctrico ("ElcEq", mixta y excluida); Uber es transporte,
+    # no industria; ADP es servicios empresariales; 3M es demasiado diversificada
+    # para clasificar con confianza. Ninguno encaja limpio y se dejan fuera.
+    "CAT": "Maquinaria", "DE": "Maquinaria", "GEV": "Maquinaria", "PH": "Maquinaria",
+    "GE": "Aeronáutica", "BA": "Aeronáutica", "HWM": "Aeronáutica",
+    "RTX": "Defensa", "LMT": "Defensa",
+    # Consumo discrecional: Tesla/GM/Ford (fabricantes de coches, "Autos"),
+    # McDonald's/Starbucks (restauración, "Meals"), Booking/Marriott/Hilton/Royal
+    # Caribbean (viaje y alojamiento), DoorDash/Airbnb (plataformas) y Nike (su SIC
+    # real es fabricación de calzado, no venta al por menor) no son mayoristas ni
+    # minoristas en la definición de Ken French.
     "AMZN": "Minoristas", "HD": "Minoristas", "TJX": "Minoristas", "LOW": "Minoristas",
-    # Consumo básico: Walmart, Costco y Target son minoristas generalistas (SIC
-    # 5331/5411, "Rtail" -- el subsector de Consumo DISCRECIONAL, no de aquí).
-    # P&G y Colgate son "Hshld" (bienes del hogar), industria mixta y excluida.
-    "KO": "Golosinas y refrescos",
+    "ROST": "Minoristas", "ORLY": "Minoristas", "AZO": "Minoristas",
+    # Consumo básico: Walmart/Costco/Target/Kroger/Dollar General son minoristas
+    # generalistas (SIC 5331/5411, "Rtail" -- el subsector de Consumo DISCRECIONAL,
+    # no de aquí). P&G/Colgate/Kenvue/Kimberly-Clark/Estée Lauder son "Hshld"/
+    # "PerSv" (bienes e higiene personal/del hogar), industrias mixtas y excluidas.
+    # Sysco es un mayorista de distribución alimentaria (SIC 5140, "Whlsl" -- de
+    # Consumo discrecional, no de aquí) y se deja fuera por la misma razón.
+    "KO": "Golosinas y refrescos", "MDLZ": "Golosinas y refrescos",
+    "PEP": "Golosinas y refrescos", "MNST": "Golosinas y refrescos",
+    "KDP": "Golosinas y refrescos", "HSY": "Golosinas y refrescos",
     "PM": "Tabaco", "MO": "Tabaco",
+    "ADM": "Agricultura",
 }
 
-N_HOLDINGS = 8
+# Para Comunicaciones, Utilities y Materiales/Químicas Ken French no ofrece ningún
+# desglose (su única industria de las 49 que cae limpia es idéntica al sector
+# entero, ver SUBSECTOR_MAP). A petición expresa del usuario, en vez de enseñar
+# solo la lista plana de posiciones, se deducen sub-grupos reales -- mismo
+# tratamiento visual que Salud o Financiero, pero el número ya no es rentabilidad
+# por fase (no hay historia que medir para un grupo inventado) sino el peso real
+# agregado de ese grupo en el ETF hoy. Cada grupo se construye sumando tickers REALES
+# observados en el top-20 de cada sector, clasificados contra su sub-industria GICS
+# pública y verificable -- nunca a ojo. Una empresa del top-20 que no encaje con
+# confianza en ningún grupo se deja fuera, igual que en TICKER_SUBSECTOR.
+HOLDINGS_GROUPS = {
+    "Comunicaciones": {
+        # Meta/Alphabet (publicidad + plataforma), AppLovin (publicidad in-app) y
+        # Reddit son "Interactive Media & Services". Omnicom (agencia de
+        # publicidad tradicional) y News Corp (editorial, SIC de imprenta) quedan
+        # fuera: ni son plataformas ni caen en este sector por SIC real.
+        "Medios interactivos y redes": {"META", "GOOGL", "GOOG", "APP", "RDDT"},
+        # AT&T, T-Mobile y Verizon son telecomunicaciones integradas; Comcast,
+        # Charter y EchoStar son cable/satélite -- misma infraestructura de
+        # conectividad, se agrupan juntas.
+        "Telecomunicaciones": {"T", "TMUS", "VZ", "CMCSA", "CHTR", "ECHO"},
+        # Warner Bros Discovery, Disney y Fox son "Movies & Entertainment"/
+        # "Broadcasting"; Netflix es streaming (misma sub-industria que WBD/Disney);
+        # Live Nation y TKO (WWE/UFC) son ocio y espectáculos en vivo.
+        "Entretenimiento": {"WBD", "DIS", "NFLX", "LYV", "FOXA", "TKO"},
+        "Videojuegos": {"TTWO"},
+    },
+    "Utilities": {
+        # NextEra, Southern, Duke, AEP, Entergy, Exelon y PPL son eléctricas puras
+        # (regulated electric utilities).
+        "Eléctricas reguladas": {"NEE", "SO", "DUK", "AEP", "ETR", "EXC", "PPL"},
+        # Dominion, Sempra, Xcel, ConEd, PSEG, WEC, Ameren, PG&E y DTE distribuyen
+        # electricidad Y gas a la vez -- "Multi-Utilities" en la clasificación GICS.
+        "Multiservicios (electricidad y gas)": {
+            "D", "SRE", "XEL", "ED", "PEG", "WEC", "AEE", "PCG", "DTE",
+        },
+        # Constellation y Vistra son generadoras competitivas/mercantiles (nuclear
+        # y gas, sobre todo), no distribuidoras reguladas -- "Independent Power
+        # Producers".
+        "Generación independiente": {"CEG", "VST"},
+        "Agua": {"AWK"},
+        "Gas natural": {"ATO"},
+    },
+    "Materiales / Químicas": {
+        # Linde/Air Products (gases industriales), Ecolab/Sherwin-Williams/PPG
+        # (química especializada), Dow (química de base), Corteva/CF Industries
+        # (agroquímica) e IFF (aromas y fragancias) son todas "Chemicals" GICS.
+        "Química": {"LIN", "ECL", "SHW", "APD", "PPG", "IFF", "DOW", "CTVA", "CF"},
+        "Minería": {"NEM", "FCX"},
+        "Acero": {"STLD", "NUE"},
+        # Vulcan Materials, Martin Marietta y CRH son áridos y materiales de
+        # construcción -- "Construction Materials" GICS.
+        "Materiales de construcción": {"VMC", "MLM", "CRH"},
+        # Smurfit WestRock, Packaging Corp, Amcor e International Paper son
+        # envases/embalaje -- "Containers & Packaging" GICS.
+        "Envases y embalaje": {"SW", "PKG", "AMCR", "IP"},
+    },
+}
+
+N_HOLDINGS = 20
 
 
 def _fetch_spdr_xlsx(ticker: str):
@@ -1065,11 +1171,10 @@ def _fetch_spdr_xlsx(ticker: str):
 def fetch_holdings():
     """Universo COMPLEMENTARIO (sección 8c): posiciones reales y actuales de los
     SPDR sectoriales, para (a) dar contenido de verdad a los sectores sin desglose
-    en Ken French (Utilities, Materiales/Químicas, Comunicaciones, y Semiconductores
-    que tampoco tiene subsectores propios) y (b) sustituir ejemplos de empresas
-    elegidos de memoria por las posiciones reales de hoy en cada subsector. No
-    participa en means(), _sleeve_pick, rotation() ni el backtest — es análisis
-    aparte, igual que subsector_analysis()."""
+    en Ken French (Utilities, Materiales/Químicas, Comunicaciones y Semiconductores)
+    y (b) sustituir ejemplos de empresas elegidos de memoria por las posiciones
+    reales de hoy en cada subsector. No participa en means(), _sleeve_pick,
+    rotation() ni el backtest — es análisis aparte, igual que subsector_analysis()."""
     por_sector: dict[str, list] = {}
     as_of = None
     for sector, ticker in SECTOR_HOLDINGS_TICKERS.items():
@@ -1077,19 +1182,49 @@ def fetch_holdings():
         if pos:
             por_sector[sector] = pos
             as_of = as_of or d
+    # Semiconductores se deriva de Tecnología (ver CHIP_TICKERS), no de un fetch
+    # propio: filtra, entre las posiciones reales ya descargadas de XLK, las que por
+    # SIC real son semiconductores, y las ordena por su propio peso dentro de XLK.
+    tecnologia = por_sector.get("Tecnología", [])
+    chips = sorted((p for p in tecnologia if p["ticker"] in CHIP_TICKERS),
+                   key=lambda r: -r["weight"])
+    if chips:
+        por_sector["Semiconductores"] = chips
+
     por_subsector: dict[str, list] = {}
     for sub, ticker in DIRECT_SUBSECTOR_TICKERS.items():
         pos, d = _fetch_spdr_xlsx(ticker)
         if pos:
             por_subsector[sub] = pos
             as_of = as_of or d
-    for pos_list in por_sector.values():
+    for sector, pos_list in por_sector.items():
+        if sector == "Semiconductores":
+            continue  # ya clasificado en su totalidad: no vuelve a pasar por aquí.
         for pos in pos_list:
             sub = TICKER_SUBSECTOR.get(pos["ticker"])
             if sub:
                 por_subsector.setdefault(sub, []).append(pos)
     for sub, rows in por_subsector.items():
         rows.sort(key=lambda r: -r["weight"])
+
+    # Grupos derivados (Comunicaciones, Utilities, Materiales/Químicas): mismo
+    # tratamiento que un subsector Ken French en la interfaz, pero el número es el
+    # peso real agregado del grupo en el ETF, no una rentabilidad por fase.
+    grupos: dict[str, list] = {}
+    for sector, groups in HOLDINGS_GROUPS.items():
+        pos_by_ticker = {p["ticker"]: p for p in por_sector.get(sector, [])}
+        rows = []
+        for name, tickers in groups.items():
+            miembros = sorted((pos_by_ticker[t] for t in tickers if t in pos_by_ticker),
+                              key=lambda r: -r["weight"])
+            if miembros:
+                rows.append({"grupo": name,
+                            "peso": round(sum(m["weight"] for m in miembros), 2),
+                            "empresas": miembros})
+        if rows:
+            rows.sort(key=lambda r: -r["peso"])
+            grupos[sector] = rows
+
     # Salvaguarda permanente: por construcción TICKER_SUBSECTOR asigna cada ticker a
     # un único subsector, así que la misma empresa no debería poder aparecer nunca
     # en dos subsectores a la vez. Se comprueba en vez de asumirlo: un futuro cambio
@@ -1103,7 +1238,18 @@ def fetch_holdings():
                 warn(f"Holdings: {r['ticker']} aparece en dos subsectores a la vez "
                      f"({prev} y {sub})")
             seen[r["ticker"]] = sub
-    return {"por_sector": por_sector, "por_subsector": por_subsector,
+    # Misma salvaguarda para HOLDINGS_GROUPS: un ticker no debería caer en dos
+    # grupos del mismo sector a la vez.
+    for sector, rows in grupos.items():
+        seen_g: dict[str, str] = {}
+        for row in rows:
+            for m in row["empresas"]:
+                prev = seen_g.get(m["ticker"])
+                if prev and prev != row["grupo"]:
+                    warn(f"Holdings: {m['ticker']} aparece en dos grupos de "
+                         f"{sector} a la vez ({prev} y {row['grupo']})")
+                seen_g[m["ticker"]] = row["grupo"]
+    return {"por_sector": por_sector, "por_subsector": por_subsector, "grupos": grupos,
             "meta": {"as_of": as_of, "source": "SPDR / State Street (holdings diarios)"}}
 
 
