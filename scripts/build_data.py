@@ -1009,7 +1009,7 @@ TICKER_SUBSECTOR = {
     "PM": "Tabaco", "MO": "Tabaco",
 }
 
-N_HOLDINGS = 8
+N_HOLDINGS = 20
 
 
 def _fetch_spdr_xlsx(ticker: str):
@@ -1083,6 +1083,10 @@ def fetch_holdings():
         if pos:
             por_subsector[sub] = pos
             as_of = as_of or d
+    if os.environ.get("DEBUG_HOLDINGS"):
+        print("DEBUGHOLD2 por_sector (top-20 reales, antes de clasificar):")
+        for sector, pos in por_sector.items():
+            print(f"  {sector}:", [(p["name"], p["ticker"], p["weight"]) for p in pos])
     for pos_list in por_sector.values():
         for pos in pos_list:
             sub = TICKER_SUBSECTOR.get(pos["ticker"])

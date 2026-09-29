@@ -45,6 +45,7 @@ jobs:
       - name: Generar data.json
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          DEBUG_HOLDINGS: "1"
         run: python -u scripts/build_data.py
 
       - name: Comprobar que el fichero es válido
