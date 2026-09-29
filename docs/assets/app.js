@@ -792,8 +792,15 @@ function subsectorHTML(S, phase) {
   const rows = (S.playbook[phase] || []).filter(x => x.sleeve === "Renta variable");
   const cards = rows.map(x => {
     const items = sub.por_sector[x.name]?.[phase];
-    if (!items || !items.length) return null;
     const secAnn = D.assets.find(a => a.name === x.name)?.phases?.[phase]?.ann;
+    if (!items || !items.length) {
+      return `<div class="cons-card">
+        <span class="cls">${x.name}${secAnn != null ? ` · en conjunto ${fmtNum(secAnn, 1)}%` : ""}</span>
+        <p class="foot" style="margin-top:8px;margin-bottom:0">Sin desglose disponible: en la fuente
+          (Ken French, 49 industrias) no hay ninguna pieza más fina que ${x.name} que no sea, por código
+          SIC, el propio sector entero — no se enseña un desglose que no existe.</p>
+      </div>`;
+    }
     const best = items[0];
     const delta = (secAnn != null && best.ann != null) ? best.ann - secAnn : null;
     return `<div class="cons-card">
