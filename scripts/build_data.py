@@ -1296,8 +1296,6 @@ HALF_LIFE_M = 60
 # -8 % y -27 % en la fase en la que se las compraba.
 MIN_PHASE_OBS = 36
 
-DEBUG_SLEEVE2 = True
-
 
 SCHEMES = {
     "equal": "Equiponderado",
@@ -1736,25 +1734,6 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
             for sl, (classes, lo, hi, n_min, n_max) in SLEEVES.items():
                 picks[sl], scores[sl] = _sleeve_pick(
                     mu, vol_all, raw_phase, avail, classes, cls_map, n_min, n_max)
-            if sch == "equal" and DEBUG_SLEEVE2 and "Renta variable" in SLEEVES:
-                classes, lo, hi, n_min, n_max = SLEEVES["Renta variable"]
-                cand = [c for c in avail if cls_map.get(c) in classes and c not in NOT_SELECTABLE]
-                for child, parent in ASSET_OVERLAP.items():
-                    if child in cand and parent in cand:
-                        irc = mu.get(child, -1e9) / max(abs(vol_all.get(child, 0.0)), 1e-9)
-                        irp = mu.get(parent, -1e9) / max(abs(vol_all.get(parent, 0.0)), 1e-9)
-                        cand.remove(child if irc <= irp else parent)
-                vc2 = vol_all.reindex(cand).replace(0, np.nan)
-                fl2 = vc2.quantile(VOL_FLOOR_Q) if vc2.notna().sum() > 2 else None
-                if fl2 and fl2 > 0:
-                    vc2 = vc2.clip(lower=fl2)
-                ir2 = (mu.reindex(cand) / vc2).replace([np.inf, -np.inf], np.nan).dropna()
-                raw2 = (raw_phase.reindex(ir2.index) / vc2.reindex(ir2.index)).replace([np.inf, -np.inf], np.nan)
-                bar2 = raw2.median()
-                ok2 = (ir2 > 0) | ((ir2 >= 0) & (raw2 >= bar2))
-                print(f"DEBUGSEC {phase}: picked={picks['Renta variable']}")
-                for c in ir2.sort_values(ascending=False).index:
-                    print(f"  {c:28s} ir={ir2[c]:+.4f} raw={raw2[c]:+.4f} ok={bool(ok2[c])}")
             inner_pb = {sl: _weights(top, vol_all, sch).to_dict()
                         for sl, top in picks.items() if top}
             budgets = _sleeve_weights(scores)
