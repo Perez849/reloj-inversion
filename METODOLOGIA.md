@@ -302,17 +302,23 @@ explícita, no un hallazgo del backtest. En el mes *t*:
 
    **Una diferencia real con la sección 6, y a propósito**: ahí la media de
    cada fase pesa igual el dato de 1935 que el de 2025; aquí pesa con una
-   vida media de diez años (la misma que usa el backtest de asignación, ver
+   vida media de cinco años (la misma que usa el backtest de asignación, ver
    más abajo), porque es la decisión que se ejecuta hoy y da igual lo que
    hiciera una tecnológica en 1935. Con esto, el signo de una casilla casi
    plana en la sección 6 —próxima a cero, sin marca de significancia— puede
-   salir con el signo contrario aquí si el comportamiento de la última
-   década pesa distinto que el conjunto de la serie: no es un error, es la
+   salir con el signo contrario aquí si el comportamiento de los últimos
+   años pesa distinto que el conjunto de la serie: no es un error, es la
    misma contracción con otra ponderación temporal. Cuanto más fuerte sea la
    marca de significancia en la sección 6 (`++`, `+++` y sus negativos), más
-   improbable es que la última década por sí sola la contradiga, pero no hay
-   una garantía matemática de que no pueda ocurrir en una serie con muy poca
-   historia reciente en esa fase.
+   improbable es que los últimos años por sí solos la contradigan, pero no
+   hay una garantía matemática de que no pueda ocurrir en una serie con muy
+   poca historia reciente en esa fase.
+
+   Antes la vida media era de diez años; se bajó a cinco tras comprobar con el
+   propio backtest que reaccionar más rápido a un sector saliendo de una mala
+   racha (p.ej. tecnología tras el batacazo de 2022) mejora el resultado: CAGR
+   más alto en los cuatro esquemas de reparto, mejor drawdown máximo y más años
+   batiendo al S&P 500. El coste es más sensibilidad a rachas cortas.
 3. **El número de activos no es fijo.** Dentro de cada bloque se quedan los que
    **no muestran desventaja de fase** —esa rentabilidad esperada dividida
    entre volatilidad, ≥ 0, no hace falta ventaja, basta con que la fase no
