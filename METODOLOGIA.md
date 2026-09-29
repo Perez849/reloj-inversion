@@ -297,10 +297,12 @@ más fina que existe. La página muestra una tarjeta para cada sector elegido
 en la fase, con el mismo aspecto visual en los once casos: una fila por cada
 línea de negocio, nombre a la izquierda y un número en mono a la derecha. En
 los ocho con desglose estadístico ese número es la rentabilidad anualizada de
-la fase; en los cuatro sin desglose (Utilities, Materiales/Químicas,
-Comunicaciones, Semiconductores) es el peso real de hoy de cada posición en
-el propio ETF sectorial (ver más abajo) — mismo formato, dato de otra
-naturaleza, nunca un hueco vacío ni un texto aparte explicando la ausencia.
+la fase; en Materiales/Químicas, Utilities y Comunicaciones es el peso real
+agregado de hoy de un grupo de negocio deducido de la propia composición del
+ETF (ver `HOLDINGS_GROUPS` más abajo); en Semiconductores es el peso real de
+cada empresa, también de hoy — mismo formato en los once casos, dato de otra
+naturaleza donde no hay historia que medir, nunca un hueco vacío ni un texto
+aparte explicando la ausencia.
 
 **¿Hay algo más fino que las 49 industrias, para los RETORNOS?** Se ha
 comprobado, no asumido: Ken French no publica nada más granular —su catálogo
@@ -344,11 +346,13 @@ público (verificable en SEC EDGAR) — el mismo criterio que usa el propio
 Ken French para construir sus 49 industrias, nunca "a qué suena" el negocio
 de la empresa. Esto tiene consecuencias visibles: los mayores fabricantes de
 chips que hoy pesan en el ETF de Tecnología (Nvidia, AMD, Broadcom, Micron,
-Intel) no aparecen bajo "Hardware" ni "Software" — por código SIC son
-semiconductores, y ya se muestran, sin reclasificar, en el propio sector
-Semiconductores. Visa y Mastercard, con todo su peso en el ETF Financiero,
-tampoco aparecen bajo Banca, Seguros ni Bróker — su código SIC real es el de
-una empresa de procesamiento de datos, no el de una entidad financiera. Un
+Intel, Lam Research, Applied Materials...) no aparecen bajo "Hardware" ni
+"Software" — por código SIC son semiconductores (ver `CHIP_TICKERS`), y
+alimentan en su lugar, con su mismo peso real dentro de Tecnología, el propio
+sector Semiconductores (más abajo). Visa, Mastercard, S&P Global y CME
+Group, con todo su peso en el ETF Financiero, tampoco aparecen bajo Banca,
+Seguros ni Bróker — su código SIC real es el de procesamiento de datos o
+mercados/proveedores de datos, no el de una entidad financiera al uso. Un
 holding que no encaja con confianza en ningún subsector de su propio sector
 se deja fuera del ejemplo antes que forzarlo en el más parecido.
 
@@ -363,16 +367,42 @@ queda igual, sin ejemplos: no existe un ETF de esa sub-industria exacta.
 sus ejemplos no pasan por la tabla de clasificación: sus posiciones ya son,
 todas, empresas de transporte por definición del propio fondo.
 
-Un aviso de metodología para Semiconductores en concreto: sus ejemplos salen
-de XSD ("SPDR S&P Semiconductor Select Industry"), un índice de
-ponderación casi igualada entre sus componentes, no de capitalización — a
-diferencia de SOXX o SMH, los tickers que sí aparecen como instrumento
-recomendado en la tabla de arriba. Sus mayores posiciones por peso serán,
-por diseño del índice, nombres más pequeños y menos conocidos que si la
-fuente fuera un fondo ponderado por capitalización — es la única de las tres
-fuentes probadas que se pudo verificar como descargable de forma fiable
-para este sector, así que se usa con este aviso explícito en vez de no
-mostrar nada.
+Un aviso de metodología para Semiconductores en concreto: se probó primero
+XSD ("SPDR S&P Semiconductor Select Industry"), la fuente más directa por
+nombre — pero es un índice de ponderación casi igualada entre sus
+componentes, no de capitalización, y comprobado con datos reales su top-20
+no incluye ni a Nvidia ni a Micron ni a Broadcom: pesan mucho en el mercado
+real y casi nada en un índice que reparte el peso a partes iguales entre
+fabricantes grandes y pequeños. Esas mismas empresas SÍ aparecen, y con su
+peso real de mercado, dentro del propio XLK (Tecnología) que ya se descarga
+— GICS las agrupa ahí, aunque por SIC sean semiconductores y no "Hardware"
+ni "Software" (ver el párrafo anterior). Así que Semiconductores no tiene
+fetch propio: se deriva filtrando, dentro de las posiciones ya descargadas
+de Tecnología, las que por SIC real fabrican semiconductores (`CHIP_TICKERS`
+en `build_data.py`) — mismo dato fiable de SPDR, sin sumar un cuarto
+proveedor, y con los nombres que de verdad pesan hoy. El peso mostrado es su
+peso dentro de XLK, no de un fondo de semiconductores propio: la página lo
+deja explícito en el pie de la tarjeta para no confundir las dos cosas.
+
+**Los grupos derivados (Comunicaciones, Utilities, Materiales/Químicas).**
+Para estos tres sectores, además de no tener desglose de retornos por
+subsector, tampoco tenía sentido enseñar solo una lista plana de empresas:
+se pidió expresamente el mismo tipo de vista que ya tienen Salud o
+Financiero, con líneas de negocio con nombre. Como no hay una fuente de
+retornos por línea de negocio para deducirlas de ahí, se deducen de la
+propia composición del ETF: `HOLDINGS_GROUPS` en `build_data.py` agrupa los
+tickers reales observados en el top-20 de cada sector contra su sub-industria
+GICS pública y verificable (p. ej. en Utilities: "Eléctricas reguladas"
+frente a "Multiservicios electricidad y gas" frente a "Generación
+independiente" — NextEra o Duke Energy no son lo mismo que Constellation,
+que genera de forma competitiva en vez de operar una red regulada). El
+número de cada grupo es la suma de los pesos reales de sus miembros en el
+fondo, nunca un cálculo por fase — no hay historia de retornos que agrupar,
+solo composición de hoy. Igual que en `TICKER_SUBSECTOR`, una empresa que no
+encaja con confianza en ningún grupo se deja fuera en vez de forzarla: por
+eso los grupos de un sector no siempre suman el 100% del top-20 (p. ej.
+Omnicom, una agencia de publicidad tradicional, o News Corp, una editorial
+por su SIC real, se quedan fuera de los grupos de Comunicaciones).
 
 **La estadística es la misma que la sección 6**, aplicada a este universo
 aparte: t de Newey-West, contracción de James-Stein para la media contraída, y

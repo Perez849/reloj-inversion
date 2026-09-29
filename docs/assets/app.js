@@ -784,22 +784,45 @@ function subsectorHTML(S, phase) {
     const secAnn = D.assets.find(a => a.name === x.name)?.phases?.[phase]?.ann;
     if (!items || !items.length) {
       // Sin historia propia que desglosar por fase: en vez de un texto explicando
-      // por qué, se enseña lo que sí hay — las mayores posiciones reales de hoy
-      // del fondo que replica el sector — con el mismo aspecto que las filas de
-      // abajo, cambiando solo la rentabilidad por fase por el peso real en el fondo.
+      // por qué, se enseña lo que sí hay, con el mismo aspecto que las filas de
+      // abajo. Primero se intentan los grupos deducidos de la composición real del
+      // ETF (Comunicaciones/Utilities/Materiales); si no hay grupos para este
+      // sector, se cae a la lista plana de posiciones reales.
+      const grupos = hold?.grupos?.[x.name];
+      if (grupos && grupos.length) {
+        return `<div class="cons-card">
+          <span class="cls">${x.name}${secAnn != null ? ` · en conjunto ${fmtNum(secAnn, 1)}%` : ""}</span>
+          ${grupos.map(g => metricRow({
+            label: g.grupo,
+            caption: holdingsExamples(g.empresas),
+            value: `${fmtNum(g.peso, 1)}%`,
+            valueColor: "var(--ink-soft)",
+            title: `peso agregado real de hoy en el fondo que replica ${x.name}${asOf ? `, a ${asOf}` : ""}`,
+          })).join("")}
+          <p class="foot" style="margin-top:8px;margin-bottom:0">Peso real de hoy por línea de
+            negocio dentro del fondo que replica este sector — no hay historia propia para
+            desglosarlo por fase como al resto, así que se enseña la composición actual en su
+            lugar.</p>
+        </div>`;
+      }
       const secHold = hold?.por_sector?.[x.name] || [];
       if (!secHold.length) return null;
+      // Semiconductores no tiene fondo propio fiable (ver METODOLOGIA.md): sus
+      // posiciones vienen del propio ETF de Tecnología, que es donde estas
+      // empresas pesan de verdad — el pie lo deja claro para no dar a entender
+      // que existe un fondo de semiconductores detrás de este número.
+      const esSemis = x.name === "Semiconductores";
       return `<div class="cons-card">
         <span class="cls">${x.name}${secAnn != null ? ` · en conjunto ${fmtNum(secAnn, 1)}%` : ""}</span>
         ${secHold.map(h => metricRow({
           label: `${h.name} <span class="small-cap">${h.ticker}</span>`,
           value: `${fmtNum(h.weight, 1)}%`,
           valueColor: "var(--ink-soft)",
-          title: `peso en el fondo que replica ${x.name}${asOf ? `, a ${asOf}` : ""}`,
+          title: `peso real ${esSemis ? "en el ETF de Tecnología (XLK)" : `en el fondo que replica ${x.name}`}${asOf ? `, a ${asOf}` : ""}`,
         })).join("")}
-        <p class="foot" style="margin-top:8px;margin-bottom:0">Peso real de hoy en el fondo que
-          replica este sector — no hay suficiente historia propia para desglosarlo por fase como al
-          resto, así que se enseña la composición actual en su lugar.</p>
+        <p class="foot" style="margin-top:8px;margin-bottom:0">${esSemis
+          ? "Peso real de hoy dentro del ETF de Tecnología (XLK): no hay un fondo de semiconductores fiable que refleje el peso real de mercado de estas empresas, así que se muestra su peso dentro de Tecnología, filtrado a las que por actividad son fabricantes de semiconductores."
+          : "Peso real de hoy en el fondo que replica este sector — no hay suficiente historia propia para desglosarlo por fase como al resto, así que se enseña la composición actual en su lugar."}</p>
       </div>`;
     }
     const best = items[0];
