@@ -748,6 +748,43 @@ function renderRobustness() {
 // en qué peso — eso lo decide solo `rotation()`/`_sleeve_pick` en build_data.py.
 // Esto solo mira, para los sectores YA elegidos en la fase, qué subsector (de los
 // que caen limpios en un único sector por código SIC, ver METODOLOGIA.md) pagó más.
+
+// Ejemplos ILUSTRATIVOS de empresas conocidas en cada línea de negocio, para que el
+// nombre del subsector se entienda sin tener que buscarlo. No es la composición
+// exacta del índice de Ken French (esa no se publica empresa por empresa) ni
+// cambia ningún número: es solo una referencia de qué tipo de compañía es.
+const SUBSECTOR_EXAMPLES = {
+  "Agricultura": "Archer-Daniels-Midland, Bunge, Corteva",
+  "Alimentación": "Kraft Heinz, General Mills, Tyson Foods",
+  "Golosinas y refrescos": "Coca-Cola, PepsiCo, Hershey",
+  "Cerveza y licores": "AB InBev, Constellation Brands, Brown-Forman",
+  "Tabaco": "Altria, Philip Morris International",
+  "Edición e imprenta": "News Corp, The New York Times Company",
+  "Textil": "Hanesbrands, Unifi",
+  "Servicios de salud": "HCA Healthcare, Universal Health Services, DaVita",
+  "Equipos médicos": "Medtronic, Stryker, Boston Scientific",
+  "Farmacéuticas": "Pfizer, Merck, Eli Lilly",
+  "Caucho y plástico": "Goodyear",
+  "Acero": "Nucor, Steel Dynamics, U.S. Steel",
+  "Metal fabricado": "Mueller Industries",
+  "Maquinaria": "Caterpillar, Deere & Company, Parker Hannifin",
+  "Aeronáutica": "Boeing, RTX (Raytheon), Textron",
+  "Naval y ferroviario": "Huntington Ingalls, Wabtec, Greenbrier",
+  "Defensa": "Lockheed Martin, Northrop Grumman, General Dynamics",
+  "Carbón": "Peabody Energy, Consol Energy, Arch Resources",
+  "Petróleo y gas": "ExxonMobil, Chevron, ConocoPhillips",
+  "Hardware": "Apple, Dell Technologies, HP Inc.",
+  "Software": "Microsoft, Salesforce, Adobe",
+  "Mayoristas": "Sysco, McKesson, W.W. Grainger",
+  "Minoristas": "Walmart, Target, Home Depot",
+  "Banca": "JPMorgan Chase, Bank of America, Wells Fargo",
+  "Seguros": "Progressive, Allstate, MetLife",
+  "Bróker y gestión de activos": "Goldman Sachs, Morgan Stanley, BlackRock",
+  "Ocio y entretenimiento": "Live Nation, Six Flags, Cinemark",
+  "Construcción": "D.R. Horton, Lennar, PulteGroup",
+  "Transporte": "Union Pacific, FedEx, UPS",
+};
+
 function subsectorHTML(S, phase) {
   const sub = D.subsectors;
   if (!sub || !sub.por_sector) return "";
@@ -763,9 +800,11 @@ function subsectorHTML(S, phase) {
       ${items.map(it => {
         const col = it.ann < 0 ? NEG : (secAnn != null && it.ann >= secAnn ? POS : "var(--ink-soft)");
         const sig = it.grade && it.grade !== "0" && it.grade !== "s/d";
+        const examples = SUBSECTOR_EXAMPLES[it.name];
         return `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:6px 0;border-bottom:1px solid var(--line-soft);font-size:12.5px"
             title="anualizado ${fmtNum(it.ann, 1)}% · exceso ${signed(it.rel, 1)} pp${it.rel_shrunk != null ? ` (contraído ${signed(it.rel_shrunk, 1)})` : ""} · ${it.n} meses">
-          <span>${it.name}${sig ? ` <span class="small-cap" style="color:${it.ann >= 0 ? POS : NEG}">${it.grade}</span>` : ""}</span>
+          <span style="min-width:0">${it.name}${sig ? ` <span class="small-cap" style="color:${it.ann >= 0 ? POS : NEG}">${it.grade}</span>` : ""}
+            ${examples ? `<small class="small-cap" style="display:block;margin-top:1px">${examples}</small>` : ""}</span>
           <b style="font-family:var(--mono);white-space:nowrap;color:${col}">${fmtNum(it.ann, 1)}%</b>
         </div>`;
       }).join("")}
@@ -783,7 +822,9 @@ function subsectorHTML(S, phase) {
       arriba, que sigue decidida por sector completo. Solo mira, dentro de los sectores YA elegidos en
       <b>${phase}</b>, qué subsector (por código SIC, verificado contra la propia definición de Ken
       French — no todos los sectores tienen desglose disponible) pagó más y cuál menos.
-      Metodología idéntica a la sección «La evidencia», sobre un universo de activos aparte.</p>
+      Metodología idéntica a la sección «La evidencia», sobre un universo de activos aparte.
+      Bajo cada nombre, un par de empresas conocidas de ese tipo de negocio para hacerse una idea
+      de a qué se parece — ejemplo ilustrativo, no la composición exacta del índice.</p>
     <div class="cons-grid" style="margin-bottom:8px">${cards.join("")}</div>`;
 }
 
