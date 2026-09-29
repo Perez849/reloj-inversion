@@ -743,6 +743,50 @@ function renderRobustness() {
     </div>`;
 }
 
+/* ---------------------- subsectores (complementario) --------------------- */
+// Análisis aparte, por debajo del principal: NUNCA cambia qué sector se compra ni
+// en qué peso — eso lo decide solo `rotation()`/`_sleeve_pick` en build_data.py.
+// Esto solo mira, para los sectores YA elegidos en la fase, qué subsector (de los
+// que caen limpios en un único sector por código SIC, ver METODOLOGIA.md) pagó más.
+function subsectorHTML(S, phase) {
+  const sub = D.subsectors;
+  if (!sub || !sub.por_sector) return "";
+  const rows = (S.playbook[phase] || []).filter(x => x.sleeve === "Renta variable");
+  const cards = rows.map(x => {
+    const items = sub.por_sector[x.name]?.[phase];
+    if (!items || !items.length) return null;
+    const secAnn = D.assets.find(a => a.name === x.name)?.phases?.[phase]?.ann;
+    const best = items[0];
+    const delta = (secAnn != null && best.ann != null) ? best.ann - secAnn : null;
+    return `<div class="cons-card">
+      <span class="cls">${x.name}${secAnn != null ? ` · en conjunto ${fmtNum(secAnn, 1)}%` : ""}</span>
+      ${items.map(it => {
+        const col = it.ann < 0 ? NEG : (secAnn != null && it.ann >= secAnn ? POS : "var(--ink-soft)");
+        const sig = it.grade && it.grade !== "0" && it.grade !== "s/d";
+        return `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:6px 0;border-bottom:1px solid var(--line-soft);font-size:12.5px"
+            title="anualizado ${fmtNum(it.ann, 1)}% · exceso ${signed(it.rel, 1)} pp${it.rel_shrunk != null ? ` (contraído ${signed(it.rel_shrunk, 1)})` : ""} · ${it.n} meses">
+          <span>${it.name}${sig ? ` <span class="small-cap" style="color:${it.ann >= 0 ? POS : NEG}">${it.grade}</span>` : ""}</span>
+          <b style="font-family:var(--mono);white-space:nowrap;color:${col}">${fmtNum(it.ann, 1)}%</b>
+        </div>`;
+      }).join("")}
+      ${delta != null ? `<p class="foot" style="margin-top:8px;margin-bottom:0">
+        Si en <b>${phase}</b> solo se hubiera comprado <b>${best.name}</b> en vez de todo
+        ${x.name}, la diferencia habría sido de
+        <b style="color:${delta >= 0 ? POS : NEG}">${signed(delta, 1)} pp</b> —
+        con los datos ya vistos, nunca una predicción de lo que hará el próximo.</p>` : ""}
+    </div>`;
+  }).filter(Boolean);
+  if (!cards.length) return "";
+  return `
+    <h3 style="font-family:var(--serif);font-size:17px;margin:32px 0 4px">Un paso más: qué subsector lo hizo mejor</h3>
+    <p class="cap" style="margin-bottom:14px">Análisis <b>complementario</b>: nunca cambia la cartera de
+      arriba, que sigue decidida por sector completo. Solo mira, dentro de los sectores YA elegidos en
+      <b>${phase}</b>, qué subsector (por código SIC, verificado contra la propia definición de Ken
+      French — no todos los sectores tienen desglose disponible) pagó más y cuál menos.
+      Metodología idéntica a la sección «La evidencia», sobre un universo de activos aparte.</p>
+    <div class="cons-grid" style="margin-bottom:8px">${cards.join("")}</div>`;
+}
+
 /* ------------------------------ backtest --------------------------------- */
 let pbPhase = null;
 let scheme = null;
@@ -924,7 +968,8 @@ function renderRotation() {
     </div>
     <p class="foot">Reparto <b>${S.label.toLowerCase()}</b>. Las primas largo-corto (value, tamaño,
       momentum) quedan fuera: no se compran en una cartera solo larga.
-      ${pbPhase === D.current.phase ? "Esta es la fase vigente." : `La fase vigente es ${D.current.phase}.`}</p>`;
+      ${pbPhase === D.current.phase ? "Esta es la fase vigente." : `La fase vigente es ${D.current.phase}.`}</p>
+    ${subsectorHTML(S, pbPhase)}`;
 
   drawCurve("#rotChart", S.curve || [], S.label, "S&P 500 (mercado)");
   drawAnnual("#annChart", S.annual || {}, r.bench_annual || {});

@@ -481,6 +481,71 @@ FRENCH_49 = {
               "sustituye al índice Wilshire, retirado de FRED"),
 }
 
+# ======================================================================================
+# 5b. Subsectores — análisis COMPLEMENTARIO, no forma parte de la cartera
+# ======================================================================================
+# Qué subsector, DENTRO de cada uno de los 10 sectores que ya usa el sistema, ha
+# pagado más en cada fase. Es solo para ver un poco más allá de lo que ya recomienda
+# la cartera: no entra en means(), _sleeve_pick, rotation() ni en ningún otro punto
+# de la selección o el backtest — la sección 8b del JSON se calcula aparte y por
+# completo después de que la cartera principal ya está decidida.
+#
+# El mapeo subsector -> sector NO se ha adivinado por el nombre: se ha verificado
+# contra los propios ficheros de definición por código SIC de Ken French
+# (Siccodes12.txt y Siccodes49.txt, mismo origen que los retornos), comprobando qué
+# rango SIC de cada una de las 49 industrias cae ENTERO dentro del rango SIC de
+# cuál de los 12 sectores ya usados (FRENCH_IND). De las 49, solo estas caen limpias
+# en un único sector — el resto (ver SUBSECTOR_EXCLUDED_MIXED) se reparte entre
+# varios sectores a la vez por código SIC y se excluye en vez de asignarse a ojo.
+# Gold y RlEst también caen limpios (bajo "Otros sectores" y "Financiero"), pero se
+# excluyen aquí porque YA son activos propios del sistema (ver FRENCH_49): mostrarlos
+# otra vez como "subsector de..." sería la misma exposición contada dos veces.
+SUBSECTOR_MAP = {
+    "Agric": ("Agricultura", "Consumo básico"),
+    "Food": ("Alimentación", "Consumo básico"),
+    "Soda": ("Golosinas y refrescos", "Consumo básico"),
+    "Beer": ("Cerveza y licores", "Consumo básico"),
+    "Smoke": ("Tabaco", "Consumo básico"),
+    "Books": ("Edición e imprenta", "Consumo básico"),
+    "Txtls": ("Textil", "Consumo básico"),
+    "Hlth": ("Servicios de salud", "Salud"),
+    "MedEq": ("Equipos médicos", "Salud"),
+    "Drugs": ("Farmacéuticas", "Salud"),
+    "Rubbr": ("Caucho y plástico", "Industria"),
+    "Steel": ("Acero", "Industria"),
+    "FabPr": ("Metal fabricado", "Industria"),
+    "Mach": ("Maquinaria", "Industria"),
+    "Aero": ("Aeronáutica", "Industria"),
+    "Ships": ("Naval y ferroviario", "Industria"),
+    "Guns": ("Defensa", "Industria"),
+    "Coal": ("Carbón", "Energía"),
+    "Oil": ("Petróleo y gas", "Energía"),
+    "Hardw": ("Hardware", "Tecnología"),
+    "Softw": ("Software", "Tecnología"),
+    "Whlsl": ("Mayoristas", "Consumo discrecional"),
+    "Rtail": ("Minoristas", "Consumo discrecional"),
+    "Banks": ("Banca", "Financiero"),
+    "Insur": ("Seguros", "Financiero"),
+    "Fin": ("Bróker y gestión de activos", "Financiero"),
+    "Fun": ("Ocio y entretenimiento", "Otros sectores"),
+    "Cnstr": ("Construcción", "Otros sectores"),
+    "Trans": ("Transporte", "Otros sectores"),
+}
+
+# Se reparten por código SIC entre varios de los 12 sectores a la vez, así que no
+# hay un único sector "correcto" al que asignarlas sin decidir a ojo dónde trazar
+# la línea. La más notable es "Chips" (semiconductores): por código SIC se queda
+# fuera de Tecnología por un solo código (3622, "controles industriales", que French
+# incluye en Chips pero que en los 12 sectores pertenece a Industria) — no se ha
+# forzado su entrada en Tecnología para no romper la misma regla que se aplica al
+# resto. Materiales/Químicas, Utilities y Comunicaciones no aparecen aquí porque su
+# subsector de las 49 (Chems, Util, Telcm) es idéntico al sector de las 12: no hay
+# desglose más fino que ofrecer.
+SUBSECTOR_EXCLUDED_MIXED = [
+    "Toys", "Hshld", "Clths", "BldMt", "ElcEq", "Autos", "PerSv", "BusSv",
+    "Chips", "LabEq", "Paper", "Boxes", "Meals",
+]
+
 # ICE truncó a 3 años TODOS sus índices de retorno total en FRED en abril de 2026,
 # incluidos los subconjuntos por rating. El crédito se cubre con los rendimientos de
 # Moody's (duración, desde 1919) y con ETF reales vía Yahoo para el tramo moderno.
@@ -803,6 +868,41 @@ def fetch_assets(df: pd.DataFrame):
     return X, meta
 
 
+def fetch_subsectors():
+    """Universo de subsectores para el análisis COMPLEMENTARIO (sección 8b): las
+    industrias de las 49 de Ken French que caen limpias dentro de un sector ya usado
+    (ver SUBSECTOR_MAP). Descarga independiente de F-F_Research_Data_Factors y de
+    49_Industry_Portfolios —no comparte el DataFrame ni el `rf` con fetch_assets()—
+    precisamente para que un fallo o un cambio aquí no pueda tocar el universo de
+    activos de la cartera principal. Mismo criterio de exceso sobre el tipo libre de
+    riesgo que usa fetch_assets(), para que el `ann` de un subsector sea comparable
+    al `ann` del sector en `assets`."""
+    ff, err = french_zip(FRENCH_BASE + "F-F_Research_Data_Factors_CSV.zip",
+                          "factores (subsectores)")
+    ind49, err2 = french_zip(FRENCH_BASE + "49_Industry_Portfolios_CSV.zip",
+                              "49 industrias (subsectores)")
+    if ind49 is None:
+        warn(f"Subsectores (Ken French 49 industrias): {err2}")
+        return {}, {}, {}
+    rf = ff["RF"] if ff is not None and "RF" in ff.columns else pd.Series(0.0, index=ind49.index)
+    rets: dict[str, pd.Series] = {}
+    meta: dict[str, dict] = {}
+    parent_of: dict[str, str] = {}
+    for col, (label, parent) in SUBSECTOR_MAP.items():
+        if col not in ind49.columns:
+            continue
+        s = (ind49[col] - rf.reindex(ind49.index).ffill().fillna(0.0)).dropna()
+        s = s[np.isfinite(s.values)]
+        if s.size < MIN_MONTHS:
+            continue
+        rets[label] = s
+        meta[label] = {"class": "Renta variable (subsector)",
+                       "source": "Ken French (49 industrias)",
+                       "note": f"subsector de {parent}"}
+        parent_of[label] = parent
+    return rets, meta, parent_of
+
+
 # ======================================================================================
 # 6. Estadística condicional
 # ======================================================================================
@@ -875,8 +975,9 @@ def shrink(mu: dict, se: dict, grand: float) -> dict:
     return out
 
 
-def conditional_stats(X: pd.DataFrame, phases: pd.Series, meta: dict):
-    print("5. Estimando retornos condicionales…")
+def conditional_stats(X: pd.DataFrame, phases: pd.Series, meta: dict,
+                       label: str = "5. Estimando retornos condicionales…"):
+    print(label)
     rows, cells = [], []
     for col in X.columns:
         s = X[col].dropna()
@@ -937,6 +1038,52 @@ def conditional_stats(X: pd.DataFrame, phases: pd.Series, meta: dict):
     print(f"  ✓ {len(rows)} activos · {len(cells)} casillas · {graded} con nota · "
           f"{fdr} robustas al control de falsos descubrimientos")
     return rows, {"cells": len(cells), "graded": graded, "fdr_survivors": fdr}
+
+
+def subsector_analysis(phases: pd.Series):
+    """Análisis COMPLEMENTARIO (sección 8b): qué subsector, dentro de cada uno de
+    los sectores que ya usa la cartera principal, ha pagado más en cada fase. Usa
+    la MISMA metodología que la matriz de evidencia de la sección 6
+    (conditional_stats: t de Newey-West, contracción de James-Stein para
+    rel_shrunk, control de FDR — propio y separado del de la matriz principal,
+    porque es una familia de contrastes distinta) sobre un universo de activos
+    aparte (fetch_subsectors). No participa en means(), _sleeve_pick, rotation()
+    ni en ningún otro punto de la selección o el backtest: es solo para ver un
+    poco más allá de lo que ya recomienda la cartera, nunca para decidir por
+    ella."""
+    rets, meta, parent_of = fetch_subsectors()
+    if not rets:
+        return None
+    X_sub = pd.DataFrame(rets)
+    rows, stats = conditional_stats(
+        X_sub, phases, meta,
+        label="5b. Subsectores (complementario, no altera la cartera)…")
+    by_sector: dict[str, dict[str, list]] = {}
+    for row in rows:
+        parent = parent_of.get(row["name"])
+        if not parent:
+            continue
+        for phase in PHASES:
+            d = row["phases"].get(phase)
+            if not d or "ann" not in d:
+                continue
+            by_sector.setdefault(parent, {}).setdefault(phase, []).append({
+                "name": row["name"], "ann": d["ann"], "rel": d.get("rel"),
+                "rel_shrunk": d.get("rel_shrunk"), "grade": d.get("grade"),
+                "n": d["n"],
+            })
+    for byphase in by_sector.values():
+        for items in byphase.values():
+            items.sort(key=lambda r: -(r["ann"] if r["ann"] is not None else -999.0))
+    return {
+        "por_sector": by_sector,
+        "meta": {
+            "n_subsectores": len(rows),
+            "n_excluidos_mixtos": len(SUBSECTOR_EXCLUDED_MIXED),
+            "cells": stats["cells"],
+            "fdr_survivors": stats["fdr_survivors"],
+        },
+    }
 
 
 # ======================================================================================
@@ -1837,6 +1984,7 @@ def main() -> None:
     lab = laboratory(X, phases, cls_map)
     val = validation(df, F, phases)
     rec = recession_model(df, F.index)
+    subsectors = subsector_analysis(phases)
 
     p1, p2 = rank[0][0], rank[1][0]
     # Restringido a la clase invertible de la cartera (renta variable + oro): el
@@ -1921,7 +2069,7 @@ def main() -> None:
         "pca": pca, "indicators": indicators, "history": history, "nber": nber,
         "assets": assets, "asset_stats": astats, "consensus": consensus[:14],
         "backtest": bt, "rotation": rot, "lab": lab,
-        "validation": val,
+        "validation": val, "subsectors": subsectors,
         "phases": PHASES, "phase_long": PHASE_LONG,
     }
 

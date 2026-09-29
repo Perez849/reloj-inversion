@@ -57,7 +57,7 @@ def synth(sid: str):
 
 def fake_french(url, hint=""):
     if "49_Industry" in url:
-        cols = list(bd.FRENCH_49)
+        cols = list(bd.FRENCH_49) + list(bd.SUBSECTOR_MAP)
     elif "12_Industry" in url:
         cols = list(bd.FRENCH_IND)
     elif "Factors" in url:
@@ -126,3 +126,14 @@ ids = {i["id"] for i in d["indicators"]}
 assert "BAA_AAA" in ids, "falta el diferencial derivado"
 print("indicadores:", len(d["indicators"]), "/", d["meta"]["series_total"])
 print("validación NBER:", d["validation"].get("nber"))
+
+sub = d.get("subsectors")
+assert sub and sub.get("por_sector"), "faltan subsectores (análisis complementario)"
+assert sub["meta"]["n_subsectores"] == len(bd.SUBSECTOR_MAP), \
+    "no se cargaron todos los subsectores esperados"
+for sector, byphase in sub["por_sector"].items():
+    for phase, items in byphase.items():
+        assert phase in bd.PHASES
+        anns = [it["ann"] for it in items]
+        assert anns == sorted(anns, reverse=True), f"{sector}/{phase} no viene ordenado"
+print("subsectores:", sub["meta"], "| sectores con desglose:", sorted(sub["por_sector"]))

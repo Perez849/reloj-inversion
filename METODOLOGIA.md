@@ -258,6 +258,59 @@ completos y ninguna casilla llegaría a significativa. Desde 1926 hay quince.
 
 ---
 
+## 6b. Subsectores — análisis complementario
+
+Sección «Un paso más», dentro de «El backtest». Responde a una pregunta distinta
+de la de la cartera principal: dentro de un sector que la cartera **ya ha
+elegido** para una fase, ¿hay un subsector que lo hizo notablemente mejor —o
+peor— que el sector en conjunto?
+
+**No participa en la selección ni en el backtest de ningún modo.** No entra en
+`means()`, `_sleeve_pick()`, `rotation()` ni en ningún punto de la cartera de las
+secciones 7.1/7.2: se calcula aparte, después de que la cartera ya está decidida,
+y solo se muestra para los sectores que la cartera principal ya recomienda —
+nunca decide cuáles son.
+
+**El universo — verificado, no adivinado.** Ken French publica los mismos
+retornos sectoriales agregados en 49 industrias, más finas que las 12 que ya usa
+el sistema (sección 2.1). La pregunta de qué industria de las 49 cae dentro de
+cuál de las 12 no se ha respondido mirando el nombre: se ha comprobado contra los
+propios ficheros de definición por código SIC que publica French
+(`Siccodes12.txt` y `Siccodes49.txt`, el mismo origen que los retornos), viendo
+qué rango de códigos de cada una de las 49 cae **entero** dentro del rango de
+código de una de las 12. De las 49, 29 caen limpias en un único sector; las
+otras 13 se reparten por código SIC entre varios sectores a la vez —por ejemplo
+«Chips» (semiconductores) queda fuera de Tecnología por un solo código, el 3622
+(«controles industriales»), que French agrupa con los semiconductores pero que
+por su código pertenece a Industria— y se excluyen en vez de asignarse a ojo.
+Gold y RlEst (oro y inmobiliario) también caen limpios, pero ya son activos
+propios del sistema (sección 2.1): mostrarlos otra vez como «subsector de…»
+sería la misma exposición contada dos veces. El mapeo completo, con su
+justificación línea a línea, está en `SUBSECTOR_MAP` y
+`SUBSECTOR_EXCLUDED_MIXED` en `build_data.py`.
+
+Con esto, ocho de los diez sectores tienen desglose (Consumo básico, Salud,
+Industria, Energía, Tecnología, Consumo discrecional, Financiero y Otros
+sectores); Materiales/Químicas, Utilities y Comunicaciones no lo tienen porque
+su único subsector limpio es idéntico al propio sector —no hay nada más fino
+que enseñar—.
+
+**La estadística es la misma que la sección 6**, aplicada a este universo
+aparte: t de Newey-West, contracción de James-Stein para la media contraída, y
+su **propio** control de Benjamini-Hochberg —una familia de contrastes
+distinta de la de la matriz principal, corregida por separado— porque mezclar
+las dos familias en un único control habría sido estadísticamente incorrecto.
+
+**Cómo leerlo**: para cada sector ya elegido en la fase que se está mirando, se
+lista cada subsector con su rentabilidad real de esa fase y, cuando corresponde,
+la nota de significancia. Se marca en verde el que igualó o batió al sector en
+conjunto, en rojo el que perdió dinero. Además se calcula, con los datos ya
+vistos, la diferencia que habría supuesto comprar solo el mejor subsector en vez
+de todo el sector — **una constatación histórica, nunca una previsión**: no hay
+ninguna garantía de que el mismo subsector repita.
+
+---
+
 ## 7. Backtest walk-forward
 
 Hay dos backtests y miden cosas distintas. Confundirlos es el error más fácil de
