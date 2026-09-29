@@ -1090,6 +1090,19 @@ def fetch_holdings():
                 por_subsector.setdefault(sub, []).append(pos)
     for sub, rows in por_subsector.items():
         rows.sort(key=lambda r: -r["weight"])
+    # Salvaguarda permanente: por construcción TICKER_SUBSECTOR asigna cada ticker a
+    # un único subsector, así que la misma empresa no debería poder aparecer nunca
+    # en dos subsectores a la vez. Se comprueba en vez de asumirlo: un futuro cambio
+    # en la tabla (o un ticker que coincida con uno de DIRECT_SUBSECTOR_TICKERS)
+    # podría romper esa garantía en silencio.
+    seen: dict[str, str] = {}
+    for sub, rows in por_subsector.items():
+        for r in rows:
+            prev = seen.get(r["ticker"])
+            if prev and prev != sub:
+                warn(f"Holdings: {r['ticker']} aparece en dos subsectores a la vez "
+                     f"({prev} y {sub})")
+            seen[r["ticker"]] = sub
     return {"por_sector": por_sector, "por_subsector": por_subsector,
             "meta": {"as_of": as_of, "source": "SPDR / State Street (holdings diarios)"}}
 

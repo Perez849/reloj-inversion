@@ -761,6 +761,18 @@ function holdingsExamples(list) {
     .join(" · ");
 }
 
+// Una fila con el mismo aspecto en los dos tipos de tarjeta: nombre a la izquierda
+// (con una insignia opcional), un número a la derecha en mono. Evita que las dos
+// variantes de subsectorHTML (con rentabilidad por fase, o solo con peso real en
+// el fondo) se vean como cosas distintas.
+function metricRow({ label, badge, caption, value, valueColor, title }) {
+  return `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:6px 0;border-bottom:1px solid var(--line-soft);font-size:12.5px"
+      title="${title}">
+    <span style="min-width:0">${label}${badge || ""}${caption ? `<small class="small-cap" style="display:block;margin-top:1px">${caption}</small>` : ""}</span>
+    <b style="font-family:var(--mono);white-space:nowrap;color:${valueColor}">${value}</b>
+  </div>`;
+}
+
 function subsectorHTML(S, phase) {
   const sub = D.subsectors;
   const hold = D.holdings;
@@ -771,15 +783,23 @@ function subsectorHTML(S, phase) {
     const items = sub.por_sector[x.name]?.[phase];
     const secAnn = D.assets.find(a => a.name === x.name)?.phases?.[phase]?.ann;
     if (!items || !items.length) {
-      const secHold = hold?.por_sector?.[x.name];
+      // Sin historia propia que desglosar por fase: en vez de un texto explicando
+      // por qué, se enseña lo que sí hay — las mayores posiciones reales de hoy
+      // del fondo que replica el sector — con el mismo aspecto que las filas de
+      // abajo, cambiando solo la rentabilidad por fase por el peso real en el fondo.
+      const secHold = hold?.por_sector?.[x.name] || [];
+      if (!secHold.length) return null;
       return `<div class="cons-card">
         <span class="cls">${x.name}${secAnn != null ? ` · en conjunto ${fmtNum(secAnn, 1)}%` : ""}</span>
-        <p class="foot" style="margin-top:8px;margin-bottom:0">Sin desglose disponible: en la fuente
-          (Ken French, 49 industrias) no hay ninguna pieza más fina que ${x.name} que no sea, por código
-          SIC, el propio sector entero — no se enseña un desglose que no existe.</p>
-        ${secHold ? `<p class="foot" style="margin-top:6px;margin-bottom:0">Lo que sí es real: las
-          mayores posiciones de hoy del propio ETF sectorial —
-          ${holdingsExamples(secHold)}${asOf ? ` (${asOf})` : ""}.</p>` : ""}
+        ${secHold.map(h => metricRow({
+          label: `${h.name} <span class="small-cap">${h.ticker}</span>`,
+          value: `${fmtNum(h.weight, 1)}%`,
+          valueColor: "var(--ink-soft)",
+          title: `peso en el fondo que replica ${x.name}${asOf ? `, a ${asOf}` : ""}`,
+        })).join("")}
+        <p class="foot" style="margin-top:8px;margin-bottom:0">Peso real de hoy en el fondo que
+          replica este sector — no hay suficiente historia propia para desglosarlo por fase como al
+          resto, así que se enseña la composición actual en su lugar.</p>
       </div>`;
     }
     const best = items[0];
@@ -790,12 +810,14 @@ function subsectorHTML(S, phase) {
         const col = it.ann < 0 ? NEG : (secAnn != null && it.ann >= secAnn ? POS : "var(--ink-soft)");
         const sig = it.grade && it.grade !== "0" && it.grade !== "s/d";
         const examples = holdingsExamples(hold?.por_subsector?.[it.name]);
-        return `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:6px 0;border-bottom:1px solid var(--line-soft);font-size:12.5px"
-            title="anualizado ${fmtNum(it.ann, 1)}% · exceso ${signed(it.rel, 1)} pp${it.rel_shrunk != null ? ` (contraído ${signed(it.rel_shrunk, 1)})` : ""} · ${it.n} meses">
-          <span style="min-width:0">${it.name}${sig ? ` <span class="small-cap" style="color:${it.ann >= 0 ? POS : NEG}">${it.grade}</span>` : ""}
-            ${examples ? `<small class="small-cap" style="display:block;margin-top:1px">${examples}</small>` : ""}</span>
-          <b style="font-family:var(--mono);white-space:nowrap;color:${col}">${fmtNum(it.ann, 1)}%</b>
-        </div>`;
+        return metricRow({
+          label: it.name,
+          badge: sig ? ` <span class="small-cap" style="color:${it.ann >= 0 ? POS : NEG}">${it.grade}</span>` : "",
+          caption: examples,
+          value: `${fmtNum(it.ann, 1)}%`,
+          valueColor: col,
+          title: `anualizado ${fmtNum(it.ann, 1)}% · exceso ${signed(it.rel, 1)} pp${it.rel_shrunk != null ? ` (contraído ${signed(it.rel_shrunk, 1)})` : ""} · ${it.n} meses`,
+        });
       }).join("")}
       ${delta != null ? `<p class="foot" style="margin-top:8px;margin-bottom:0">
         Si en <b>${phase}</b> solo se hubiera comprado <b>${best.name}</b> en vez de todo
@@ -808,12 +830,11 @@ function subsectorHTML(S, phase) {
   return `
     <h3 style="font-family:var(--serif);font-size:17px;margin:32px 0 4px">Un paso más: qué subsector lo hizo mejor</h3>
     <p class="cap" style="margin-bottom:14px">Análisis <b>complementario</b>: nunca cambia la cartera de
-      arriba, que sigue decidida por sector completo. Solo mira, dentro de los sectores YA elegidos en
-      <b>${phase}</b>, qué subsector (por código SIC, verificado contra la propia definición de Ken
-      French — no todos los sectores tienen desglose disponible) pagó más y cuál menos.
-      Metodología idéntica a la sección «La evidencia», sobre un universo de activos aparte.
-      Bajo cada nombre, las mayores posiciones reales de hoy del ETF sectorial que replica ese
-      subsector (nombre, ticker y peso) — no una lista elegida de memoria, ver METODOLOGIA.md.</p>
+      arriba, que sigue decidida por sector completo. Dentro de cada sector YA elegido en <b>${phase}</b>,
+      mira qué línea de negocio pagó más y cuál menos — con historia suficiente para medirlo por fase en
+      la mayoría de sectores; donde no la hay, se enseñan en su lugar las mayores posiciones reales de hoy
+      del fondo que replica ese sector. Bajo cada nombre, un par de empresas reales y actuales (nombre,
+      ticker y peso) — nunca una lista elegida de memoria, ver METODOLOGIA.md.</p>
     <div class="cons-grid" style="margin-bottom:8px">${cards.join("")}</div>`;
 }
 

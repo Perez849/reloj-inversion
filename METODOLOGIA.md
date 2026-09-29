@@ -294,10 +294,13 @@ discrecional, Financiero y Otros sectores); Materiales/Químicas, Utilities y
 Comunicaciones no lo tienen porque su único subsector limpio es idéntico al
 propio sector, y Semiconductores no lo tiene porque ya es, él mismo, la pieza
 más fina que existe. La página muestra una tarjeta para cada sector elegido
-en la fase, con el desglose cuando existe o una nota explícita cuando no,
-para que no parezca un olvido — y, en los cuatro casos sin desglose
-estadístico, con las posiciones reales de hoy del ETF sectorial en su lugar
-(ver más abajo): sin retorno por fase, pero no vacío.
+en la fase, con el mismo aspecto visual en los once casos: una fila por cada
+línea de negocio, nombre a la izquierda y un número en mono a la derecha. En
+los ocho con desglose estadístico ese número es la rentabilidad anualizada de
+la fase; en los cuatro sin desglose (Utilities, Materiales/Químicas,
+Comunicaciones, Semiconductores) es el peso real de hoy de cada posición en
+el propio ETF sectorial (ver más abajo) — mismo formato, dato de otra
+naturaleza, nunca un hueco vacío ni un texto aparte explicando la ausencia.
 
 **¿Hay algo más fino que las 49 industrias, para los RETORNOS?** Se ha
 comprobado, no asumido: Ken French no publica nada más granular —su catálogo
