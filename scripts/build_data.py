@@ -1046,7 +1046,7 @@ def _fetch_spdr_xlsx(ticker: str):
                 # El fichero sustituye el símbolo "&" por "+" en los nombres
                 # (JPMORGAN CHASE + CO, AT+T INC...): se deshace, es una
                 # codificación del propio proveedor, no una invención nuestra.
-                name = str(row[0]).replace(" + ", " & ").title()
+                name = str(row[0]).replace("+", "&").title()
                 out.append({"name": name, "ticker": str(row[1]),
                            "weight": round(weight, 2)})
                 if len(out) >= N_HOLDINGS:
