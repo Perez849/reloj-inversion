@@ -924,6 +924,118 @@ def fetch_subsectors():
 
 
 # ======================================================================================
+# 5c. Holdings reales (complementario): qué empresas pesan hoy en cada sector
+# ======================================================================================
+# Ken French da retornos por industria, no nombres de empresa — no publica la
+# composición del índice. Para mostrar ejemplos reales (no elegidos de memoria) se
+# usa el propio fichero de posiciones que cada SPDR/State Street Select Sector ETF
+# publica a diario: mismo ticker que ya aparece en ETF_MAP, mismo proveedor, y
+# fichero descargable de forma fiable con requests (verificado: iShares devuelve el
+# HTML del sitio en vez del CSV que promete su URL, y VanEck no se ha podido
+# verificar como fuente programática, así que quedan fuera). Comprobado con datos
+# reales: la columna "Sector" del propio fichero viene vacía, así que no clasifica
+# solo. Por eso HOLDINGS_SUBSECTOR clasifica cada ticker a mano, pero contra la
+# clasificación GICS pública de la propia empresa (un hecho verificable), nunca por
+# lo que "suene" del sector.
+SPDR_HOLDINGS_URL = ("https://www.ssga.com/us/en/individual/library-content/"
+                      "products/fund-data/etfs/us/holdings-daily-us-en-{ticker}.xlsx")
+
+# Sector de la cartera -> ticker del SPDR que lo replica (mismos tickers que ETF_MAP).
+# "Otros sectores" (Fama-French "Other": ocio, construcción, transporte, minería...)
+# no tiene un SPDR sectorial propio por mezclar varios sectores GICS a la vez: sus
+# subsectores con desglose limpio (Construcción, Transporte) se cubren aparte, más
+# abajo, con el ETF específico de esa sub-industria — no del sector "Otros" entero.
+SECTOR_HOLDINGS_TICKERS = {
+    "Tecnología": "XLK", "Semiconductores": "XSD", "Salud": "XLV",
+    "Energía": "XLE", "Comunicaciones": "XLC", "Financiero": "XLF",
+    "Industria": "XLI", "Materiales / Químicas": "XLB", "Utilities": "XLU",
+    "Consumo discrecional": "XLY", "Consumo básico": "XLP", "Inmobiliario": "XLRE",
+}
+
+# Subsectores (de los 29 de SUBSECTOR_MAP) que tienen su propio ETF de sub-industria
+# en la misma familia SPDR, en vez de tener que clasificarse a partir del sector
+# entero. "Ocio y entretenimiento" se queda sin fuente: no hay un SPDR de esa
+# sub-industria exacta y no se inventa una alternativa.
+DIRECT_SUBSECTOR_TICKERS = {
+    "Construcción": "XHB",
+    "Transporte": "XTN",
+}
+
+N_HOLDINGS = 8
+
+
+def _fetch_spdr_xlsx(ticker: str):
+    """Descarga y parsea el .xlsx de posiciones de un SPDR/State Street. Devuelve
+    la lista de posiciones (nombre, ticker, peso) ya recortada a N_HOLDINGS, o
+    None si falla — nunca inventa una posición que no esté en el fichero."""
+    url = SPDR_HOLDINGS_URL.format(ticker=ticker.lower())
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; investment-clock/2.0)"}
+    last = "sin intentos"
+    for attempt in range(RETRIES):
+        try:
+            r = requests.get(url, timeout=OPTIONAL_TIMEOUT, headers=headers)
+            if r.status_code != 200 or r.content[:2] != b"PK":
+                raise RuntimeError(f"HTTP {r.status_code}, no es un .xlsx válido")
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(r.content), data_only=True)
+            ws = wb[wb.sheetnames[0]]
+            rows = list(ws.iter_rows(values_only=True))
+            header_idx = next((i for i, row in enumerate(rows)
+                               if row and row[0] == "Name"), None)
+            if header_idx is None:
+                raise RuntimeError("no se encontró la fila de cabecera")
+            out = []
+            for row in rows[header_idx + 1:]:
+                if not row or not row[0] or row[1] is None:
+                    break
+                try:
+                    weight = float(row[4])
+                except (TypeError, ValueError):
+                    break
+                out.append({"name": str(row[0]).title(), "ticker": str(row[1]),
+                           "weight": round(weight, 2)})
+                if len(out) >= N_HOLDINGS:
+                    break
+            if not out:
+                raise RuntimeError("fichero sin posiciones")
+            return out
+        except Exception as exc:  # noqa: BLE001
+            last = str(exc)
+            if attempt < RETRIES - 1:
+                time.sleep(1.5 * (attempt + 1))
+    warn(f"Holdings {ticker}: {last}")
+    return None
+
+
+def fetch_holdings():
+    """Universo COMPLEMENTARIO (sección 8c): posiciones reales y actuales de los
+    SPDR sectoriales, para (a) dar contenido de verdad a los sectores sin desglose
+    en Ken French (Utilities, Materiales/Químicas, Comunicaciones, y Semiconductores
+    que tampoco tiene subsectores propios) y (b) sustituir ejemplos de empresas
+    elegidos de memoria por las posiciones reales de hoy en cada subsector. No
+    participa en means(), _sleeve_pick, rotation() ni el backtest — es análisis
+    aparte, igual que subsector_analysis()."""
+    por_sector: dict[str, list] = {}
+    for sector, ticker in SECTOR_HOLDINGS_TICKERS.items():
+        pos = _fetch_spdr_xlsx(ticker)
+        if pos:
+            por_sector[sector] = pos
+    por_subsector: dict[str, list] = {}
+    for sub, ticker in DIRECT_SUBSECTOR_TICKERS.items():
+        pos = _fetch_spdr_xlsx(ticker)
+        if pos:
+            por_subsector[sub] = pos
+    if os.environ.get("DEBUG_HOLDINGS"):
+        print("DEBUGHOLD por_sector:")
+        for sector, pos in por_sector.items():
+            print(f"  {sector}:", [(p["name"], p["ticker"], p["weight"]) for p in pos])
+        print("DEBUGHOLD por_subsector (directo):")
+        for sub, pos in por_subsector.items():
+            print(f"  {sub}:", [(p["name"], p["ticker"], p["weight"]) for p in pos])
+    return {"por_sector": por_sector, "por_subsector": por_subsector}
+
+
+# ======================================================================================
 # 6. Estadística condicional
 # ======================================================================================
 
@@ -2023,6 +2135,8 @@ def main() -> None:
     val = validation(df, F, phases)
     rec = recession_model(df, F.index)
     subsectors = subsector_analysis(phases)
+    if os.environ.get("DEBUG_HOLDINGS"):
+        fetch_holdings()
 
     p1, p2 = rank[0][0], rank[1][0]
     # Restringido a la clase invertible de la cartera (renta variable + oro): el
