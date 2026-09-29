@@ -55,6 +55,7 @@ const MONTHS = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov
    activo, se marca "aprox." y se explica la diferencia. */
 const ETF_MAP = {
   "Tecnología": [["IYW","iShares US Technology"], ["XLK","Technology Select Sector SPDR"]],
+  "Semiconductores": [["SOXX","iShares Semiconductor ETF"], ["SMH","VanEck Semiconductor ETF"]],
   "Salud": [["IYH","iShares US Healthcare"], ["XLV","Health Care Select Sector SPDR"], ["IBB","iShares Biotechnology"]],
   "Energía": [["IYE","iShares US Energy"], ["XLE","Energy Select Sector SPDR"]],
   "Comunicaciones": [["IYZ","iShares US Telecommunications"], ["XLC","Communication Services SPDR"]],

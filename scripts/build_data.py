@@ -479,6 +479,25 @@ FRENCH_49 = {
              "mineras de oro, no lingote: el oro físico ya no está en FRED"),
     "RlEst": ("Inmobiliario", "Real / alternativos",
               "sustituye al índice Wilshire, retirado de FRED"),
+    # "Renta variable" a propósito, igual que los otros diez sectores: hace treinta
+    # años los semiconductores eran una pieza más de "equipo de negocio"; hoy son un
+    # eje de inversión propio (capex de IA, escasez de capacidad de fabricación,
+    # ciclo distinto al del resto del hardware/software). Por código SIC solapa casi
+    # entero con Tecnología (BusEq) —de ahí que antes se excluyera sin más, ver
+    # SUBSECTOR_EXCLUDED_MIXED—, así que no compite como una exposición más: ver
+    # ASSET_OVERLAP, que impide que los dos cuenten a la vez por el mismo hueco.
+    "Chips": ("Semiconductores", "Renta variable",
+              "solapa con Tecnología por código SIC; resuelto en ASSET_OVERLAP"),
+}
+
+# Pares (activo más fino, activo más amplio que lo contiene) que NO pueden competir
+# a la vez por el mismo hueco de un bloque: medirían, en parte, la misma exposición
+# económica, y dejarlos competir libremente la sobreponderaría sin que sea
+# diversificación real. Se resuelve en _sleeve_pick: de los dos, solo sigue en la
+# lista de candidatos el que muestre mejor ventaja de fase — el mismo criterio que
+# ya decide cualquier otro desempate del sistema, no una regla nueva por activo.
+ASSET_OVERLAP = {
+    "Semiconductores": "Tecnología",
 }
 
 # ======================================================================================
@@ -534,16 +553,17 @@ SUBSECTOR_MAP = {
 
 # Se reparten por código SIC entre varios de los 12 sectores a la vez, así que no
 # hay un único sector "correcto" al que asignarlas sin decidir a ojo dónde trazar
-# la línea. La más notable es "Chips" (semiconductores): por código SIC se queda
-# fuera de Tecnología por un solo código (3622, "controles industriales", que French
-# incluye en Chips pero que en los 12 sectores pertenece a Industria) — no se ha
-# forzado su entrada en Tecnología para no romper la misma regla que se aplica al
-# resto. Materiales/Químicas, Utilities y Comunicaciones no aparecen aquí porque su
-# subsector de las 49 (Chems, Util, Telcm) es idéntico al sector de las 12: no hay
-# desglose más fino que ofrecer.
+# la línea. "Chips" (semiconductores) NO está en esta lista: por código SIC también
+# se reparte (un solo código, 3622, "controles industriales", que pertenece a
+# Industria y no a Tecnología), pero en vez de excluirlo se ha promovido a sector
+# propio — ver FRENCH_49 y ASSET_OVERLAP — porque a diferencia del resto de esta
+# lista tiene entidad e importancia propias como para no quedarse solo en un
+# apunte del análisis complementario. Materiales/Químicas, Utilities y
+# Comunicaciones no aparecen aquí porque su subsector de las 49 (Chems, Util,
+# Telcm) es idéntico al sector de las 12: no hay desglose más fino que ofrecer.
 SUBSECTOR_EXCLUDED_MIXED = [
     "Toys", "Hshld", "Clths", "BldMt", "ElcEq", "Autos", "PerSv", "BusSv",
-    "Chips", "LabEq", "Paper", "Boxes", "Meals",
+    "LabEq", "Paper", "Boxes", "Meals",
 ]
 
 # ICE truncó a 3 años TODOS sus índices de retorno total en FRED en abril de 2026,
@@ -1223,7 +1243,7 @@ SLEEVES = {
     # variable tiene que ir a algún sitio, así que nunca se queda vacía ni
     # concentrada en un único nombre, pero por debajo de eso manda la fase, no
     # un mínimo de diversificación inventado. Techo de 7: con 8 o más de los
-    # 11 sectores ya casi es comprar el índice entero, y no queda rotación que
+    # 12 sectores ya casi es comprar el índice entero, y no queda rotación que
     # evaluar. Entre medias, lo que la fase sostenga, ni uno más.
     "Renta variable": ({"Renta variable"}, 0.80, 1.00, 2, 7),
     # Oro físico y mineras de oro, las dos únicas exposiciones de la clase
@@ -1275,6 +1295,8 @@ HALF_LIFE_M = 60
 # materias primas (29) entraban con estimaciones que eran puro ruido, y rendían
 # -8 % y -27 % en la fase en la que se las compraba.
 MIN_PHASE_OBS = 36
+
+DEBUG_SLEEVE2 = True
 
 
 SCHEMES = {
@@ -1357,11 +1379,22 @@ def _sleeve_pick(mu, vol, raw_phase, avail, classes, cls_map, n_min, n_max):
     ventaja contraída no diferencia nada, sea para decidir si un empate en
     cero es aceptable o para ordenar al rellenar el suelo con negativos.
     La selección es idéntica para los cuatro esquemas: lo único que cambia entre
-    ellos es cómo se reparte el dinero entre los ya elegidos."""
+    ellos es cómo se reparte el dinero entre los ya elegidos.
+
+    Antes de nada, ASSET_OVERLAP quita del candidato más débil de cada par que
+    solapa exposición económica (hoy solo Semiconductores/Tecnología): que
+    compitan los dos sería, en parte, contar la misma exposición dos veces, así
+    que solo sigue en carrera el que muestre mejor ir — el mismo criterio que
+    decide cualquier otro desempate de esta función, no una regla especial."""
     cand = [c for c in avail
             if cls_map.get(c) in classes and c not in NOT_SELECTABLE]
     if not cand:
         return [], 0.0
+    for child, parent in ASSET_OVERLAP.items():
+        if child in cand and parent in cand:
+            ir_child = mu.get(child, -1e9) / max(abs(vol.get(child, 0.0)), 1e-9)
+            ir_parent = mu.get(parent, -1e9) / max(abs(vol.get(parent, 0.0)), 1e-9)
+            cand.remove(child if ir_child <= ir_parent else parent)
     vc = vol.reindex(cand).replace(0, np.nan)
     floor = vc.quantile(VOL_FLOOR_Q) if vc.notna().sum() > 2 else None
     if floor and floor > 0:
@@ -1703,6 +1736,25 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
             for sl, (classes, lo, hi, n_min, n_max) in SLEEVES.items():
                 picks[sl], scores[sl] = _sleeve_pick(
                     mu, vol_all, raw_phase, avail, classes, cls_map, n_min, n_max)
+            if sch == "equal" and DEBUG_SLEEVE2 and "Renta variable" in SLEEVES:
+                classes, lo, hi, n_min, n_max = SLEEVES["Renta variable"]
+                cand = [c for c in avail if cls_map.get(c) in classes and c not in NOT_SELECTABLE]
+                for child, parent in ASSET_OVERLAP.items():
+                    if child in cand and parent in cand:
+                        irc = mu.get(child, -1e9) / max(abs(vol_all.get(child, 0.0)), 1e-9)
+                        irp = mu.get(parent, -1e9) / max(abs(vol_all.get(parent, 0.0)), 1e-9)
+                        cand.remove(child if irc <= irp else parent)
+                vc2 = vol_all.reindex(cand).replace(0, np.nan)
+                fl2 = vc2.quantile(VOL_FLOOR_Q) if vc2.notna().sum() > 2 else None
+                if fl2 and fl2 > 0:
+                    vc2 = vc2.clip(lower=fl2)
+                ir2 = (mu.reindex(cand) / vc2).replace([np.inf, -np.inf], np.nan).dropna()
+                raw2 = (raw_phase.reindex(ir2.index) / vc2.reindex(ir2.index)).replace([np.inf, -np.inf], np.nan)
+                bar2 = raw2.median()
+                ok2 = (ir2 > 0) | ((ir2 >= 0) & (raw2 >= bar2))
+                print(f"DEBUGSEC {phase}: picked={picks['Renta variable']}")
+                for c in ir2.sort_values(ascending=False).index:
+                    print(f"  {c:28s} ir={ir2[c]:+.4f} raw={raw2[c]:+.4f} ok={bool(ok2[c])}")
             inner_pb = {sl: _weights(top, vol_all, sch).to_dict()
                         for sl, top in picks.items() if top}
             budgets = _sleeve_weights(scores)
