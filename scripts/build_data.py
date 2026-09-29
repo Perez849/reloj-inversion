@@ -1120,6 +1120,8 @@ HALF_LIFE_M = 120
 # -8 % y -27 % en la fase en la que se las compraba.
 MIN_PHASE_OBS = 36
 
+DEBUG_YEARS = {1999, 2000, 2002, 2013, 2017, 2022, 2023}
+
 
 SCHEMES = {
     "equal": "Equiponderado",
@@ -1507,6 +1509,12 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
             turn[sch].append(sum(abs(w_all.get(c, 0) - prev[sch].get(c, 0))
                                  for c in keys) / 2)
             prev[sch] = w_all
+            if DEBUG_YEARS and sch == "invvol" and t.year in DEBUG_YEARS:
+                b = X.loc[t, eq_c] if eq_c in X.columns else float("nan")
+                wstr = " ".join(f"{c}:{w*100:.1f}%" for c, w in
+                                 sorted(w_all.items(), key=lambda kv: -kv[1]))
+                print(f"DEBUGY {t.date()} fase={sig} cartera={rets[sch][-1]:+.3f}% "
+                      f"bench={float(b):+.3f}% | {wstr}")
         dates.append(t)
         held.append(sig)
 
