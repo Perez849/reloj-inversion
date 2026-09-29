@@ -39,6 +39,9 @@ jobs:
       - name: Instalar dependencias
         run: pip install -r requirements.txt
 
+      - name: TEMP investigación SIC
+        run: python -u scripts/_research_sic.py
+
       - name: Autotest sin red
         run: python -u scripts/_selftest.py
 
