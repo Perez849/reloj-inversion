@@ -39,8 +39,10 @@ jobs:
       - name: Instalar dependencias
         run: pip install -r requirements.txt
 
-      - name: TEMP investigación holdings ETF
-        run: python -u scripts/_research_holdings.py
+      - name: TEMP investigación holdings ETF (ronda 2)
+        run: |
+          pip install openpyxl
+          python -u scripts/_research_holdings2.py
 
       - name: Autotest sin red
         run: python -u scripts/_selftest.py
