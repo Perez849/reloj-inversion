@@ -924,6 +924,177 @@ def fetch_subsectors():
 
 
 # ======================================================================================
+# 5c. Holdings reales (complementario): qué empresas pesan hoy en cada sector
+# ======================================================================================
+# Ken French da retornos por industria, no nombres de empresa — no publica la
+# composición del índice. Para mostrar ejemplos reales (no elegidos de memoria) se
+# usa el propio fichero de posiciones que cada SPDR/State Street Select Sector ETF
+# publica a diario: mismo ticker que ya aparece en ETF_MAP, mismo proveedor, y
+# fichero descargable de forma fiable con requests (verificado: iShares devuelve el
+# HTML del sitio en vez del CSV que promete su URL, y VanEck no se ha podido
+# verificar como fuente programática, así que quedan fuera). Comprobado con datos
+# reales: la columna "Sector" del propio fichero viene vacía, así que no clasifica
+# sola. Por eso TICKER_SUBSECTOR clasifica cada ticker a mano — pero contra el
+# código SIC real y público de cada empresa (mismo criterio que usa Ken French para
+# sus propias 49 industrias, verificable en SEC EDGAR), nunca por lo que "suene" del
+# negocio. Si una posición del top-8 no tiene un código SIC que encaje limpio en
+# ninguno de los subsectores DE SU MISMO SECTOR, se deja fuera de la clasificación
+# — no se reasigna a otro sector ni se fuerza en el más parecido.
+SPDR_HOLDINGS_URL = ("https://www.ssga.com/us/en/individual/library-content/"
+                      "products/fund-data/etfs/us/holdings-daily-us-en-{ticker}.xlsx")
+
+# Sector de la cartera -> ticker del SPDR que lo replica (mismos tickers que ETF_MAP).
+# "Otros sectores" (Fama-French "Other": ocio, construcción, transporte, minería...)
+# no tiene un SPDR sectorial propio por mezclar varios sectores GICS a la vez: su
+# subsector con desglose limpio y fuente fiable (Transporte) se cubre aparte, más
+# abajo, con el ETF específico de esa sub-industria — no del sector "Otros" entero.
+SECTOR_HOLDINGS_TICKERS = {
+    "Tecnología": "XLK", "Semiconductores": "XSD", "Salud": "XLV",
+    "Energía": "XLE", "Comunicaciones": "XLC", "Financiero": "XLF",
+    "Industria": "XLI", "Materiales / Químicas": "XLB", "Utilities": "XLU",
+    "Consumo discrecional": "XLY", "Consumo básico": "XLP", "Inmobiliario": "XLRE",
+}
+
+# Subsectores con su propio ETF de sub-industria en la misma familia SPDR. Se probó
+# también Construcción (XHB, "S&P Homebuilders Select Industry"): sus posiciones
+# reales incluyen hoy un fabricante de pequeños electrodomésticos (SharkNinja) y una
+# cadena de menaje del hogar (Williams-Sonoma) junto a los constructores — el fondo
+# ya no es un proxy limpio de "Construcción" y mostrarlo sin poder separar caso a
+# caso sería justo el tipo de ejemplo mal etiquetado que se quiere evitar, así que
+# se descarta. "Ocio y entretenimiento" se queda sin fuente por la misma razón: no
+# hay un SPDR de esa sub-industria exacta y no se inventa una alternativa.
+DIRECT_SUBSECTOR_TICKERS = {
+    "Transporte": "XTN",
+}
+
+# Clasificación ticker -> subsector, construida sobre los holdings REALES observados
+# (no adivinados) en cada sector, contra el código SIC público de cada empresa.
+# Comentario por sector explica los casos excluidos y por qué.
+TICKER_SUBSECTOR = {
+    # Tecnología: los fabricantes de chips del top-8 (Nvidia, AMD, Broadcom, Micron,
+    # Intel) son SIC 3674 -- "Chips" en Ken French, no "Hardw" ni "Softw". Ya se
+    # muestran aparte, sin reclasificar, como posiciones propias de Semiconductores.
+    "AAPL": "Hardware",
+    "MSFT": "Software", "PLTR": "Software",
+    # Salud
+    "LLY": "Farmacéuticas", "JNJ": "Farmacéuticas", "ABBV": "Farmacéuticas",
+    "MRK": "Farmacéuticas", "AMGN": "Farmacéuticas", "GILD": "Farmacéuticas",
+    "UNH": "Servicios de salud",
+    "TMO": "Equipos médicos",
+    # Energía: las ocho posiciones del top-8 son petroleras integradas, refino u
+    # oilfield services -- todas "Oil", ninguna minera de carbón.
+    "XOM": "Petróleo y gas", "CVX": "Petróleo y gas", "COP": "Petróleo y gas",
+    "VLO": "Petróleo y gas", "MPC": "Petróleo y gas", "PSX": "Petróleo y gas",
+    "WMB": "Petróleo y gas", "SLB": "Petróleo y gas",
+    # Financiero: Visa y Mastercard quedan fuera -- su SIC real (7389, servicios de
+    # procesamiento de datos) no es banca, seguro ni bróker, aunque GICS los
+    # clasifique junto al resto en "Financiero".
+    "JPM": "Banca", "BAC": "Banca", "WFC": "Banca",
+    "BRK.B": "Seguros",
+    "GS": "Bróker y gestión de activos", "MS": "Bróker y gestión de activos",
+    # Industria: Eaton (SIC 3620, equipo eléctrico) y Union Pacific (SIC 4011,
+    # operador ferroviario, no fabricante) no encajan en ninguno de los 7
+    # subsectores propios de Industria y se dejan fuera.
+    "CAT": "Maquinaria", "DE": "Maquinaria", "GEV": "Maquinaria",
+    "GE": "Aeronáutica", "BA": "Aeronáutica",
+    "RTX": "Defensa",
+    # Consumo discrecional: Tesla (fabricante de coches, "Autos"), McDonald's y
+    # Starbucks (restauración, "Meals") y Booking (agencias de viaje) no son
+    # mayoristas ni minoristas en la definición de Ken French.
+    "AMZN": "Minoristas", "HD": "Minoristas", "TJX": "Minoristas", "LOW": "Minoristas",
+    # Consumo básico: Walmart, Costco y Target son minoristas generalistas (SIC
+    # 5331/5411, "Rtail" -- el subsector de Consumo DISCRECIONAL, no de aquí).
+    # P&G y Colgate son "Hshld" (bienes del hogar), industria mixta y excluida.
+    "KO": "Golosinas y refrescos",
+    "PM": "Tabaco", "MO": "Tabaco",
+}
+
+N_HOLDINGS = 8
+
+
+def _fetch_spdr_xlsx(ticker: str):
+    """Descarga y parsea el .xlsx de posiciones de un SPDR/State Street. Devuelve
+    (posiciones, fecha "as of" del propio fichero) recortado a N_HOLDINGS, o
+    (None, None) si falla — nunca inventa una posición que no esté en el fichero."""
+    url = SPDR_HOLDINGS_URL.format(ticker=ticker.lower())
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; investment-clock/2.0)"}
+    last = "sin intentos"
+    for attempt in range(RETRIES):
+        try:
+            r = requests.get(url, timeout=OPTIONAL_TIMEOUT, headers=headers)
+            if r.status_code != 200 or r.content[:2] != b"PK":
+                raise RuntimeError(f"HTTP {r.status_code}, no es un .xlsx válido")
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(r.content), data_only=True)
+            ws = wb[wb.sheetnames[0]]
+            rows = list(ws.iter_rows(values_only=True))
+            as_of = None
+            if len(rows) > 2 and rows[2] and rows[2][0] == "Holdings:":
+                as_of = str(rows[2][1]).replace("As of ", "")
+            header_idx = next((i for i, row in enumerate(rows)
+                               if row and row[0] == "Name"), None)
+            if header_idx is None:
+                raise RuntimeError("no se encontró la fila de cabecera")
+            out = []
+            for row in rows[header_idx + 1:]:
+                if not row or not row[0] or row[1] is None:
+                    break
+                try:
+                    weight = float(row[4])
+                except (TypeError, ValueError):
+                    break
+                # El fichero sustituye el símbolo "&" por "+" en los nombres
+                # (JPMORGAN CHASE + CO, AT+T INC...): se deshace, es una
+                # codificación del propio proveedor, no una invención nuestra.
+                name = str(row[0]).replace("+", "&").title()
+                out.append({"name": name, "ticker": str(row[1]),
+                           "weight": round(weight, 2)})
+                if len(out) >= N_HOLDINGS:
+                    break
+            if not out:
+                raise RuntimeError("fichero sin posiciones")
+            return out, as_of
+        except Exception as exc:  # noqa: BLE001
+            last = str(exc)
+            if attempt < RETRIES - 1:
+                time.sleep(1.5 * (attempt + 1))
+    warn(f"Holdings {ticker}: {last}")
+    return None, None
+
+
+def fetch_holdings():
+    """Universo COMPLEMENTARIO (sección 8c): posiciones reales y actuales de los
+    SPDR sectoriales, para (a) dar contenido de verdad a los sectores sin desglose
+    en Ken French (Utilities, Materiales/Químicas, Comunicaciones, y Semiconductores
+    que tampoco tiene subsectores propios) y (b) sustituir ejemplos de empresas
+    elegidos de memoria por las posiciones reales de hoy en cada subsector. No
+    participa en means(), _sleeve_pick, rotation() ni el backtest — es análisis
+    aparte, igual que subsector_analysis()."""
+    por_sector: dict[str, list] = {}
+    as_of = None
+    for sector, ticker in SECTOR_HOLDINGS_TICKERS.items():
+        pos, d = _fetch_spdr_xlsx(ticker)
+        if pos:
+            por_sector[sector] = pos
+            as_of = as_of or d
+    por_subsector: dict[str, list] = {}
+    for sub, ticker in DIRECT_SUBSECTOR_TICKERS.items():
+        pos, d = _fetch_spdr_xlsx(ticker)
+        if pos:
+            por_subsector[sub] = pos
+            as_of = as_of or d
+    for pos_list in por_sector.values():
+        for pos in pos_list:
+            sub = TICKER_SUBSECTOR.get(pos["ticker"])
+            if sub:
+                por_subsector.setdefault(sub, []).append(pos)
+    for sub, rows in por_subsector.items():
+        rows.sort(key=lambda r: -r["weight"])
+    return {"por_sector": por_sector, "por_subsector": por_subsector,
+            "meta": {"as_of": as_of, "source": "SPDR / State Street (holdings diarios)"}}
+
+
+# ======================================================================================
 # 6. Estadística condicional
 # ======================================================================================
 
@@ -2023,6 +2194,7 @@ def main() -> None:
     val = validation(df, F, phases)
     rec = recession_model(df, F.index)
     subsectors = subsector_analysis(phases)
+    holdings = fetch_holdings()
 
     p1, p2 = rank[0][0], rank[1][0]
     # Restringido a la clase invertible de la cartera (renta variable + oro): el
@@ -2107,7 +2279,7 @@ def main() -> None:
         "pca": pca, "indicators": indicators, "history": history, "nber": nber,
         "assets": assets, "asset_stats": astats, "consensus": consensus[:14],
         "backtest": bt, "rotation": rot, "lab": lab,
-        "validation": val, "subsectors": subsectors,
+        "validation": val, "subsectors": subsectors, "holdings": holdings,
         "phases": PHASES, "phase_long": PHASE_LONG,
     }
 

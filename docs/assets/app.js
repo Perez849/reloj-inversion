@@ -750,55 +750,36 @@ function renderRobustness() {
 // Esto solo mira, para los sectores YA elegidos en la fase, qué subsector (de los
 // que caen limpios en un único sector por código SIC, ver METODOLOGIA.md) pagó más.
 
-// Ejemplos ILUSTRATIVOS de empresas conocidas en cada línea de negocio, para que el
-// nombre del subsector se entienda sin tener que buscarlo. No es la composición
-// exacta del índice de Ken French (esa no se publica empresa por empresa) ni
-// cambia ningún número: es solo una referencia de qué tipo de compañía es.
-const SUBSECTOR_EXAMPLES = {
-  "Agricultura": "Archer-Daniels-Midland, Bunge, Corteva",
-  "Alimentación": "Kraft Heinz, General Mills, Tyson Foods",
-  "Golosinas y refrescos": "Coca-Cola, PepsiCo, Hershey",
-  "Cerveza y licores": "AB InBev, Constellation Brands, Brown-Forman",
-  "Tabaco": "Altria, Philip Morris International",
-  "Edición e imprenta": "News Corp, The New York Times Company",
-  "Textil": "Hanesbrands, Unifi",
-  "Servicios de salud": "HCA Healthcare, Universal Health Services, DaVita",
-  "Equipos médicos": "Medtronic, Stryker, Boston Scientific",
-  "Farmacéuticas": "Pfizer, Merck, Eli Lilly",
-  "Caucho y plástico": "Goodyear",
-  "Acero": "Nucor, Steel Dynamics, U.S. Steel",
-  "Metal fabricado": "Mueller Industries",
-  "Maquinaria": "Caterpillar, Deere & Company, Parker Hannifin",
-  "Aeronáutica": "Boeing, RTX (Raytheon), Textron",
-  "Naval y ferroviario": "Huntington Ingalls, Wabtec, Greenbrier",
-  "Defensa": "Lockheed Martin, Northrop Grumman, General Dynamics",
-  "Carbón": "Peabody Energy, Consol Energy, Arch Resources",
-  "Petróleo y gas": "ExxonMobil, Chevron, ConocoPhillips",
-  "Hardware": "Apple, Dell Technologies, HP Inc.",
-  "Software": "Microsoft, Salesforce, Adobe",
-  "Mayoristas": "Sysco, McKesson, W.W. Grainger",
-  "Minoristas": "Walmart, Target, Home Depot",
-  "Banca": "JPMorgan Chase, Bank of America, Wells Fargo",
-  "Seguros": "Progressive, Allstate, MetLife",
-  "Bróker y gestión de activos": "Goldman Sachs, Morgan Stanley, BlackRock",
-  "Ocio y entretenimiento": "Live Nation, Six Flags, Cinemark",
-  "Construcción": "D.R. Horton, Lennar, PulteGroup",
-  "Transporte": "Union Pacific, FedEx, UPS",
-};
+// Ejemplos de empresas reales bajo cada subsector: NO es una lista escrita de
+// memoria. Son las posiciones reales y actuales (nombre, ticker, peso) del propio
+// SPDR/State Street sectorial que ya aparece en ETF_MAP — ver holdings.meta.source
+// y fetch_holdings() en build_data.py. Nunca cambian ningún número de la cartera.
+function holdingsExamples(list) {
+  if (!list || !list.length) return "";
+  return list.slice(0, 3)
+    .map(h => `${h.name} <span class="small-cap">${h.ticker}</span> ${fmtNum(h.weight, 1)}%`)
+    .join(" · ");
+}
 
 function subsectorHTML(S, phase) {
   const sub = D.subsectors;
+  const hold = D.holdings;
   if (!sub || !sub.por_sector) return "";
+  const asOf = hold?.meta?.as_of;
   const rows = (S.playbook[phase] || []).filter(x => x.sleeve === "Renta variable");
   const cards = rows.map(x => {
     const items = sub.por_sector[x.name]?.[phase];
     const secAnn = D.assets.find(a => a.name === x.name)?.phases?.[phase]?.ann;
     if (!items || !items.length) {
+      const secHold = hold?.por_sector?.[x.name];
       return `<div class="cons-card">
         <span class="cls">${x.name}${secAnn != null ? ` · en conjunto ${fmtNum(secAnn, 1)}%` : ""}</span>
         <p class="foot" style="margin-top:8px;margin-bottom:0">Sin desglose disponible: en la fuente
           (Ken French, 49 industrias) no hay ninguna pieza más fina que ${x.name} que no sea, por código
           SIC, el propio sector entero — no se enseña un desglose que no existe.</p>
+        ${secHold ? `<p class="foot" style="margin-top:6px;margin-bottom:0">Lo que sí es real: las
+          mayores posiciones de hoy del propio ETF sectorial —
+          ${holdingsExamples(secHold)}${asOf ? ` (${asOf})` : ""}.</p>` : ""}
       </div>`;
     }
     const best = items[0];
@@ -808,7 +789,7 @@ function subsectorHTML(S, phase) {
       ${items.map(it => {
         const col = it.ann < 0 ? NEG : (secAnn != null && it.ann >= secAnn ? POS : "var(--ink-soft)");
         const sig = it.grade && it.grade !== "0" && it.grade !== "s/d";
-        const examples = SUBSECTOR_EXAMPLES[it.name];
+        const examples = holdingsExamples(hold?.por_subsector?.[it.name]);
         return `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:6px 0;border-bottom:1px solid var(--line-soft);font-size:12.5px"
             title="anualizado ${fmtNum(it.ann, 1)}% · exceso ${signed(it.rel, 1)} pp${it.rel_shrunk != null ? ` (contraído ${signed(it.rel_shrunk, 1)})` : ""} · ${it.n} meses">
           <span style="min-width:0">${it.name}${sig ? ` <span class="small-cap" style="color:${it.ann >= 0 ? POS : NEG}">${it.grade}</span>` : ""}
@@ -831,8 +812,8 @@ function subsectorHTML(S, phase) {
       <b>${phase}</b>, qué subsector (por código SIC, verificado contra la propia definición de Ken
       French — no todos los sectores tienen desglose disponible) pagó más y cuál menos.
       Metodología idéntica a la sección «La evidencia», sobre un universo de activos aparte.
-      Bajo cada nombre, un par de empresas conocidas de ese tipo de negocio para hacerse una idea
-      de a qué se parece — ejemplo ilustrativo, no la composición exacta del índice.</p>
+      Bajo cada nombre, las mayores posiciones reales de hoy del ETF sectorial que replica ese
+      subsector (nombre, ticker y peso) — no una lista elegida de memoria, ver METODOLOGIA.md.</p>
     <div class="cons-grid" style="margin-bottom:8px">${cards.join("")}</div>`;
 }
 

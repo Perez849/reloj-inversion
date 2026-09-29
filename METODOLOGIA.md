@@ -288,25 +288,88 @@ de…» sería la misma exposición contada dos veces. El mapeo completo, con su
 justificación línea a línea, está en `SUBSECTOR_MAP` y
 `SUBSECTOR_EXCLUDED_MIXED` en `build_data.py`.
 
-Con esto, ocho de los once sectores tienen desglose (Consumo básico, Salud,
-Industria, Energía, Tecnología, Consumo discrecional, Financiero y Otros
-sectores); Materiales/Químicas, Utilities y Comunicaciones no lo tienen porque
-su único subsector limpio es idéntico al propio sector, y Semiconductores no
-lo tiene porque ya es, él mismo, la pieza más fina que existe —no hay nada más
-fino que enseñar en ninguno de los cuatro casos—. La página muestra una
-tarjeta para cada sector elegido en la fase, con el desglose cuando existe o
-una nota explícita cuando no, para que no parezca un olvido.
+Con esto, ocho de los once sectores tienen desglose **estadístico** por
+subsector (Consumo básico, Salud, Industria, Energía, Tecnología, Consumo
+discrecional, Financiero y Otros sectores); Materiales/Químicas, Utilities y
+Comunicaciones no lo tienen porque su único subsector limpio es idéntico al
+propio sector, y Semiconductores no lo tiene porque ya es, él mismo, la pieza
+más fina que existe. La página muestra una tarjeta para cada sector elegido
+en la fase, con el desglose cuando existe o una nota explícita cuando no,
+para que no parezca un olvido — y, en los cuatro casos sin desglose
+estadístico, con las posiciones reales de hoy del ETF sectorial en su lugar
+(ver más abajo): sin retorno por fase, pero no vacío.
 
-**¿Hay algo más fino que las 49 industrias?** Se ha comprobado, no asumido:
-Ken French no publica nada más granular —su catálogo llega hasta 49
-(`100_Industry_Portfolios` no existe, HTTP 404; el resto de clasificaciones
-que ofrece, 5/10/12/17/30/38, son más *bastas*, no más finas—. Una fuente
-moderna con más detalle (p. ej. ETFs sectoriales GICS de subsector) tendría
-como mucho 15-20 años de historia, muy por debajo del estándar de
-significancia que usa todo este documento (sección 2.1: con menos de dos
-ciclos completos ninguna casilla llegaría a significativa). Se prefiere no
-tener desglose antes que tener uno con una fuente que no pasaría el propio
-control de calidad del panel.
+**¿Hay algo más fino que las 49 industrias, para los RETORNOS?** Se ha
+comprobado, no asumido: Ken French no publica nada más granular —su catálogo
+llega hasta 49 (`100_Industry_Portfolios` no existe, HTTP 404; el resto de
+clasificaciones que ofrece, 5/10/12/17/30/38, son más *bastas*, no más
+finas—. Una fuente moderna con más detalle (p. ej. ETFs sectoriales GICS de
+subsector) tendría como mucho 15-20 años de historia, muy por debajo del
+estándar de significancia que usa todo este documento (sección 2.1: con
+menos de dos ciclos completos ninguna casilla llegaría a significativa). Se
+prefiere no tener desglose de **retornos** antes que tener uno con una
+fuente que no pasaría el propio control de calidad del panel. Esto sigue
+siendo así: la tabla de rentabilidad por subsector y fase viene, sin
+excepción, de Ken French.
+
+**Los ejemplos de empresas — de posiciones reales, no de memoria.** Bajo
+cada subsector (y bajo los cuatro sectores sin desglose estadístico) se
+muestran empresas concretas. Hasta esta versión eran una lista fija escrita
+a mano; ahora son las posiciones reales de hoy del propio ETF SPDR/State
+Street sectorial —mismo ticker que ya aparece en la tabla de instrumentos—,
+descargadas a diario junto con el resto de datos (`fetch_holdings()` en
+`build_data.py`, fichero `.xlsx` de holdings que State Street publica en
+abierto). Es un dato de otra naturaleza que la tabla de retornos: no es una
+serie histórica sino una foto de la composición del fondo en el momento de
+generar la página, así que el problema de historia corta de más arriba no
+le afecta — no se usa para calcular nada, solo para ilustrar con nombres
+reales y verificables (nombre, ticker y peso) qué tipo de empresa compone
+cada subsector hoy.
+
+De los tres proveedores que ya aparecen en `ETF_MAP` se probaron los tres
+antes de elegir: el endpoint de iShares que se documentaba como CSV
+descargable devuelve hoy el HTML del sitio en vez de datos; VanEck no se
+pudo verificar como fuente programática fiable; SPDR/State Street sí expone
+un `.xlsx` real y estable. Se queda como única fuente para este dato.
+
+El propio fichero de SPDR **no** trae una columna de sub-industria utilizable
+— la columna "Sector" viene vacía en los holdings de los cinco fondos
+probados—, así que no hay forma de que el subsector de cada empresa salga
+solo del dato descargado: la tabla `TICKER_SUBSECTOR` en `build_data.py`
+clasifica cada ticker a mano, uno por uno, contra su código SIC real y
+público (verificable en SEC EDGAR) — el mismo criterio que usa el propio
+Ken French para construir sus 49 industrias, nunca "a qué suena" el negocio
+de la empresa. Esto tiene consecuencias visibles: los mayores fabricantes de
+chips que hoy pesan en el ETF de Tecnología (Nvidia, AMD, Broadcom, Micron,
+Intel) no aparecen bajo "Hardware" ni "Software" — por código SIC son
+semiconductores, y ya se muestran, sin reclasificar, en el propio sector
+Semiconductores. Visa y Mastercard, con todo su peso en el ETF Financiero,
+tampoco aparecen bajo Banca, Seguros ni Bróker — su código SIC real es el de
+una empresa de procesamiento de datos, no el de una entidad financiera. Un
+holding que no encaja con confianza en ningún subsector de su propio sector
+se deja fuera del ejemplo antes que forzarlo en el más parecido.
+
+También se probó, y se descartó, un ETF de sub-industria (XHB) para dar
+ejemplos reales de "Construcción": sus posiciones de hoy incluyen un
+fabricante de pequeños electrodomésticos y una cadena de menaje del hogar
+junto a las constructoras — el fondo ya no es un proxy limpio de esa
+sub-industria, y mostrarlo tal cual habría sido precisamente el tipo de
+ejemplo mal etiquetado que se quiere evitar. "Ocio y entretenimiento" se
+queda igual, sin ejemplos: no existe un ETF de esa sub-industria exacta.
+"Transporte" sí tiene fuente propia y fiable (XTN, mismo proveedor), así que
+sus ejemplos no pasan por la tabla de clasificación: sus posiciones ya son,
+todas, empresas de transporte por definición del propio fondo.
+
+Un aviso de metodología para Semiconductores en concreto: sus ejemplos salen
+de XSD ("SPDR S&P Semiconductor Select Industry"), un índice de
+ponderación casi igualada entre sus componentes, no de capitalización — a
+diferencia de SOXX o SMH, los tickers que sí aparecen como instrumento
+recomendado en la tabla de arriba. Sus mayores posiciones por peso serán,
+por diseño del índice, nombres más pequeños y menos conocidos que si la
+fuente fuera un fondo ponderado por capitalización — es la única de las tres
+fuentes probadas que se pudo verificar como descargable de forma fiable
+para este sector, así que se usa con este aviso explícito en vez de no
+mostrar nada.
 
 **La estadística es la misma que la sección 6**, aplicada a este universo
 aparte: t de Newey-West, contracción de James-Stein para la media contraída, y
