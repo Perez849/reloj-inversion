@@ -496,8 +496,27 @@ FRENCH_49 = {
 # diversificación real. Se resuelve en _sleeve_pick: de los dos, solo sigue en la
 # lista de candidatos el que muestre mejor ventaja de fase — el mismo criterio que
 # ya decide cualquier otro desempate del sistema, no una regla nueva por activo.
+#
+# Los tres pares de renta fija son el mismo caso que Semiconductores/Tecnología,
+# pero entre un rendimiento FRED convertido a retorno sintético (ver FRED_YIELD)
+# y el ETF real que mide, en esencia, la misma exposición:
+#  - "Hipotecario 30 años (aprox.)" es el tipo hipotecario medio a 30 años;
+#    "Titulizaciones hipotecarias (MBB)" son las propias titulizaciones cuyo precio
+#    fija ese mismo tipo (el "current coupon"). Casi la misma serie con dos fuentes.
+#  - "TIPS 10 años (aprox.)" es el tipo real de mercado a 10 años; "TIPS (TIP)" es
+#    una cesta de esos mismos bonos ligados a la inflación. Mismo mercado.
+#  - "Crédito Baa (aprox.)" es el rendimiento Moody's del escalón MÁS BAJO de grado
+#    de inversión; "Crédito Investment Grade (LQD)" es una cesta amplia de grado de
+#    inversión donde BBB pesa más que ningún otro escalón por capitalización, así
+#    que las dos series se mueven, en la práctica, muy pegadas.
+# "Crédito Aaa (aprox.)" NO entra en este último par a propósito: el escalón más
+# alto (un puñado de emisores hoy) se comporta más como cuasi-Treasury que como el
+# crédito medio de LQD — separarlos es la exposición correcta, no un descuido.
 ASSET_OVERLAP = {
     "Semiconductores": "Tecnología",
+    "Hipotecario 30 años (aprox.)": "Titulizaciones hipotecarias (MBB)",
+    "TIPS 10 años (aprox.)": "TIPS (TIP)",
+    "Crédito Baa (aprox.)": "Crédito Investment Grade (LQD)",
 }
 
 # ======================================================================================
@@ -613,6 +632,13 @@ MARKET = {
     "Renta variable internacional": ("Índice regional", "EFA", "efa.us",
                                      "índice de país, no sector: fuera de la selección"),
     "Small caps": ("Estilo", "IWM", "iwm.us", ""),
+    # Referencia del reloj de renta fija (ver ROTATION_FI): mismo papel que
+    # "Renta variable EE.UU. (mercado)" para el de renta variable — clase
+    # "Índice regional" a propósito, para que quede fuera de SLEEVES_FI por
+    # construcción (ver el comentario junto a NOT_SELECTABLE) y no compita
+    # nunca como una posición más.
+    "Renta fija EE.UU. (mercado)": ("Índice regional", "AGG", "agg.us",
+                                    "índice agregado de bonos EE.UU.; referencia, no posición"),
 }
 
 # Carteras internacionales de Ken French: misma fuente que ya funciona, historia
@@ -1765,7 +1791,7 @@ def _sleeve_pick(mu, vol, raw_phase, avail, classes, cls_map, n_min, n_max):
     return top, score
 
 
-def _sleeve_weights(scores: dict) -> dict:
+def _sleeve_weights(scores: dict, sleeves: dict | None = None) -> dict:
     """Reparte el 100 % entre bloques en proporción a lo que puntúa cada uno en la
     fase, respetando las bandas. Una puntuación negativa se trata como cero: ese
     bloque baja a su mínimo, y el oro puede quedarse fuera del todo.
@@ -1775,10 +1801,15 @@ def _sleeve_weights(scores: dict) -> dict:
     error: el reparto proporcional ya sale con una volatilidad muy parecida a la del
     bloque dominante por sí solo, y forzarla dejaba la renta variable clavada en su
     suelo, costando rentabilidad sin comprar nada a cambio.
+
+    `sleeves` por defecto es el diccionario global SLEEVES (renta variable + oro);
+    se pasa uno distinto para reutilizar el mismo reparto con otro conjunto de
+    bloques (por ejemplo SLEEVES_FI, un único bloque de renta fija al 100%).
     """
-    names = list(SLEEVES)
-    lo = {k: SLEEVES[k][1] for k in names}
-    hi = {k: SLEEVES[k][2] for k in names}
+    sleeves = SLEEVES if sleeves is None else sleeves
+    names = list(sleeves)
+    lo = {k: sleeves[k][1] for k in names}
+    hi = {k: sleeves[k][2] for k in names}
     pos = {k: max(0.0, scores.get(k, 0.0)) for k in names}
     tot = sum(pos.values())
     raw = ({k: (lo[k] + hi[k]) / 2 for k in names} if tot <= 0
@@ -1856,7 +1887,10 @@ def factor_betas(hist: pd.DataFrame, F: pd.DataFrame, half_life: int = HALF_LIFE
 
 def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
              probs: pd.DataFrame | None = None, F: pd.DataFrame | None = None,
-             min_train: int = 120) -> dict:
+             min_train: int = 120, sleeves: dict | None = None,
+             bench_name: str = "Renta variable EE.UU. (mercado)",
+             bd_name: str = "Treasury 10 años",
+             include_6040: bool = True) -> dict:
     """Cartera solo larga, siempre invertida al 100 %, sin apalancar ni cortos.
     La fase decide qué activos ocupan cada bloque y cuánto pesa cada bloque dentro
     de sus bandas. Se calculan los cuatro esquemas de reparto en paralelo sobre
@@ -1868,7 +1902,13 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
     estanflación y desinflación forzada más severo del histórico — justo el tipo de
     tramo que más interesa ver atravesar a una cartera que rota por fase. El coste
     es que las estimaciones de los primeros años, con menos meses de referencia,
-    son más ruidosas."""
+    son más ruidosas.
+
+    `sleeves`/`bench_name`/`bd_name`/`include_6040` por defecto reproducen EXACTAMENTE
+    la cartera de renta variable + oro; se pasan valores distintos para reutilizar el
+    mismo motor de backtest con otro conjunto de bloques (ver SLEEVES_FI, el reloj de
+    renta fija). `include_6040=False` omite el 60/40 de contexto, que no tiene sentido
+    como referencia de una cartera que ya es 100% renta fija."""
     print("7. Rotación por fase (4 esquemas de reparto)…")
     common = X.dropna(how="all").index.intersection(phases.dropna().index)
     X = X.loc[common]
@@ -1973,7 +2013,8 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
         ww = dev2.notna().mul(w, axis=0)
         return (dev2.mul(w, axis=0).sum() / ww.sum().replace(0, np.nan)) ** 0.5
 
-    eq_c, bd_c = "Renta variable EE.UU. (mercado)", "Treasury 10 años"
+    sleeves = SLEEVES if sleeves is None else sleeves
+    eq_c, bd_c = bench_name, bd_name
     rets = {k: [] for k in SCHEMES}
     turn = {k: [] for k in SCHEMES}
     prev = {k: {} for k in SCHEMES}
@@ -2006,7 +2047,7 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
             mu = means(hist, hph, sig)
         avail = list(X.loc[t].dropna().index)
         picks, scores = {}, {}
-        for name, (classes, lo, hi, n_min, n_max) in SLEEVES.items():
+        for name, (classes, lo, hi, n_min, n_max) in sleeves.items():
             picks[name], scores[name] = _sleeve_pick(
                 mu, vol, raw_phase, avail, classes, cls_map, n_min, n_max)
         if not any(picks.values()):
@@ -2015,7 +2056,7 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
         for sch in SCHEMES:
             inner = {name: _weights(top, vol, sch).to_dict()
                      for name, top in picks.items() if top}
-            budgets = _sleeve_weights(scores)
+            budgets = _sleeve_weights(scores, sleeves)
             w_all = {}
             for name, w in inner.items():
                 for c, wt in w.items():
@@ -2035,11 +2076,13 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
         held.append(sig)
 
     eq, bd = X.get(eq_c), X.get(bd_c)
-    # La cartera es 100% renta variable (+ oro): la referencia primaria es la
-    # propia renta variable EE.UU., no un 60/40 que esta cartera no tiene. El
-    # 60/40 se conserva aparte, solo como contexto para quien lo quiera.
+    # La referencia primaria es siempre el propio benchmark de este reloj (renta
+    # variable EE.UU. para el de acciones, el agregado de bonos para el de renta
+    # fija), no un 60/40 que ninguna de las dos carteras tiene. El 60/40 se
+    # conserva aparte, solo como contexto adicional, y solo cuando include_6040.
     bench = eq.reindex(dates) if eq is not None else None
-    bench_6040 = (0.6 * eq + 0.4 * bd).reindex(dates) if eq is not None and bd is not None else None
+    bench_6040 = ((0.6 * eq + 0.4 * bd).reindex(dates)
+                  if include_6040 and eq is not None and bd is not None else None)
     hp = pd.Series(held, index=dates)
     bench_annual = _annual(bench.dropna()) if bench is not None else {}
 
@@ -2068,12 +2111,12 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
             # mes dejaba fuera todos los sectores y el bloque salía vacío.
             avail = list(X.columns[X.tail(4).notna().any()])
             picks, scores = {}, {}
-            for sl, (classes, lo, hi, n_min, n_max) in SLEEVES.items():
+            for sl, (classes, lo, hi, n_min, n_max) in sleeves.items():
                 picks[sl], scores[sl] = _sleeve_pick(
                     mu, vol_all, raw_phase, avail, classes, cls_map, n_min, n_max)
             inner_pb = {sl: _weights(top, vol_all, sch).to_dict()
                         for sl, top in picks.items() if top}
-            budgets = _sleeve_weights(scores)
+            budgets = _sleeve_weights(scores, sleeves)
             rows = []
             for sl, w in inner_pb.items():
                 for c in picks[sl]:
@@ -2122,7 +2165,7 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
             "bench_6040": perf(bench_6040) if bench_6040 is not None else {},
             "bench_annual": bench_annual,
             "bands": {k: [round(v[1] * 100), round(v[2] * 100)]
-                      for k, v in SLEEVES.items()}}
+                      for k, v in sleeves.items()}}
 
 
 
@@ -2150,7 +2193,8 @@ LAB_MIN_TOTAL = 24  # meses mínimos de la fase para entrar en el universo
 
 
 def laboratory(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
-               k_pick: int = 5, max_universe: int = 18) -> dict:
+               k_pick: int = 5, max_universe: int = 18,
+               sleeve_defs: dict | None = None) -> dict:
     """Para cada fase, evalúa todas las combinaciones posibles de k activos dentro
     de cada bloque y comprueba si la que mandaba en la primera mitad seguía
     mandando en la segunda.
@@ -2169,10 +2213,15 @@ def laboratory(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
     mitad de los meses en que existe. A cambio, las mitades ya no cubren las mismas
     fechas entre unos y otros, así que se publican los meses usados y el tramo
     temporal de cada uno para que la comparación se lea con esa cautela.
+
+    `sleeve_defs` por defecto son los bloques {nombre: clases} de la cartera de
+    renta variable + oro; se pasa un dict distinto (p.ej. {"Renta fija": {"Renta
+    fija"}}) para repetir exactamente el mismo análisis sobre otro conjunto de
+    bloques, como el reloj de renta fija.
     """
     print("8. Laboratorio de combinaciones…")
     out = {}
-    sleeve_defs = {
+    sleeve_defs = sleeve_defs if sleeve_defs is not None else {
         "Renta variable": {"Renta variable"},
         "Oro": {"Oro"},
     }
@@ -2260,9 +2309,9 @@ def laboratory(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
                 "asset_ic": (round(_spearman(a1, a2), 3) if len(a1) > 7 else None),
             }
         out[phase] = phase_out
-        eq = out[phase]["sleeves"].get("Renta variable", {})
+        first_sleeve = out[phase]["sleeves"].get(next(iter(sleeve_defs), ""), {})
         print(f"  · {phase:<20} {len(months):>4} meses · "
-              f"persistencia {eq.get('rank_ic')} · "
+              f"persistencia {first_sleeve.get('rank_ic')} · "
               f"universos " + "/".join(str(len(v.get('universe', [])))
                                        for v in out[phase]["sleeves"].values()))
     return out
