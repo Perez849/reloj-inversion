@@ -618,13 +618,14 @@ con la misma estructura — «Qué comprar ahora», «El backtest» y «Laborato
 pero universo, benchmark y resultados propios. Nunca se combinan: activar uno no
 mezcla ni un solo número con el otro, ni en la cartera ni en el backtest.
 
-**Universo.** Los 13 activos de clase "Renta fija" que ya existen en el sistema
-(sección 2.2): Treasury a 2, 10 y 30 años, crédito investment-grade (LQD) y
-high-yield (HYG), TIPS (yield sintético a 10 años y el ETF TIP), titulizaciones
-hipotecarias (el tipo hipotecario a 30 años como yield sintético y el ETF MBB),
-deuda emergente (EMB), municipales (MUB) y crédito Baa/Aaa (yields Moody's,
-sintéticos), más Liquidez (letras 3 meses) — ver más abajo por qué esta sí
-entra aquí aunque quede fuera del reloj de renta variable. Tres pares solapan
+**Universo.** Los 14 activos de clase "Renta fija" que ya existen en el sistema
+(sección 2.2): Treasury a 2, 10 y 30 años, crédito investment-grade (LQD),
+high-yield (HYG) y ultracorto plazo (ICSH), TIPS (yield sintético a 10 años y
+el ETF TIP), titulizaciones hipotecarias (el tipo hipotecario a 30 años como
+yield sintético y el ETF MBB), deuda emergente (EMB), municipales (MUB) y
+crédito Baa/Aaa (yields Moody's, sintéticos), más Liquidez (letras 3 meses) —
+ver más abajo por qué esta sí entra aquí aunque quede fuera del reloj de
+renta variable. Tres pares solapan
 la misma exposición económica medida por dos fuentes distintas — un yield FRED
 convertido a retorno sintético y el ETF real que mide, en esencia, lo mismo —
 y se resuelven con el mismo mecanismo `ASSET_OVERLAP` que ya separaba
@@ -690,13 +691,43 @@ ayuda — empeora en las mismas métricas que ya empeoraba sin ella —, así qu
 techo se queda en 2 y Liquidez compite en igualdad de condiciones con el resto
 del universo, sin trato especial.
 
+**El tramo bajista de 2021-2024, y el candidato que sí ayudó.** Con este
+diseño, el reloj de renta fija tuvo cuatro años seguidos en negativo
+(2021-2024): coincide con el peor mercado bajista de bonos en décadas — en
+2022, hasta el propio AGG cayó −14,24 %. La cartera ya amortiguaba bastante
+frente a comprar el agregado sin más (−6,58 % ese mismo año), pero no evitaba
+la caída del todo. Antes de dar el diseño por cerrado se probaron, con datos
+reales y no por intuición, tres vías más:
+
+- Préstamos bancarios a tipo flotante (BKLN), casi sin duración: **empeoró**
+  el resultado. 2022 no fue solo un shock de tipos, también de diferencial de
+  crédito, y los préstamos bancarios sí tienen riesgo de crédito — cayeron a
+  la par que el resto en los meses peores en vez de proteger la cartera.
+- Soberanos internacionales cubiertos en dólares (BNDX): **también empeoró**
+  — la subida de tipos de 2022 fue una respuesta sincronizada de bancos
+  centrales a nivel global, no solo de la Reserva Federal, así que cubrir el
+  riesgo de divisa no evita el mismo shock de fondo.
+- Bonos investment-grade de ultra corto plazo, ~6 meses de duración (ICSH):
+  **sí ayudó**, de forma consistente en los cuatro esquemas de reparto.
+  Esquema Inverso de la volatilidad: Sharpe 0,68→0,72, caída máxima
+  −13,3 %→−9,7 %, peor 12 meses −9,2 %→−6,5 %, con el CAGR prácticamente
+  plano o mejor. La diferencia con BKLN es el grado: al ser investment-grade
+  (no high yield) y de duración muy corta, no carga ni el riesgo de tipos de
+  un bono largo ni el riesgo de crédito que hundió a los préstamos bancarios
+  — en los meses más duros de 2022 se mantuvo prácticamente plano. Entra al
+  universo, no como excepción: compite por el mismo hueco que Liquidez en
+  Sobrecalentamiento, sin preferencia fija por ninguno de los dos. Confirmado
+  de nuevo que el techo de 2 sigue siendo el óptimo con ICSH ya en el
+  universo — el Sharpe cae de forma monótona al subir el techo, el mismo
+  patrón que sin él.
+
 El resto del mecanismo es idéntico al de 7.2, reutilizando el mismo código con
 otros parámetros: la misma ventaja de fase contraída con James-Stein, el mismo
 desempate por rendimiento real sin contraer, los mismos cuatro esquemas de
 reparto calculados en paralelo, la misma tolerancia de retraso de publicación
 y el mismo guardián de plausibilidad. El laboratorio de 7.4 se repite también,
 con `k=2` (el techo real de este reloj, igual que 7.4 usa `k=5` porque es el
-techo real del otro) sobre el mismo universo de hasta 14 candidatos.
+techo real del otro) sobre el mismo universo de hasta 15 candidatos.
 
 ---
 

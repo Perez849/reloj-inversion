@@ -623,6 +623,12 @@ MARKET = {
                                        "retorno total real, desde 2002"),
     "Crédito High Yield (HYG)": ("Renta fija", "HYG", "hyg.us",
                                  "retorno total real, desde 2007"),
+    # Añadido tras verificar con datos reales que amortigua el tramo bajista de
+    # renta fija de 2021-2024 (ver el comentario junto a SLEEVES_FI): grado de
+    # inversión, ~6 meses de duración -- ni el riesgo de tipos de un bono largo
+    # ni el riesgo de crédito de un préstamo bancario high-yield.
+    "Crédito ultracorto plazo (ICSH)": ("Renta fija", "ICSH", "icsh.us",
+                                        "investment-grade, ~6 meses de duración"),
     "Deuda emergente (EMB)": ("Renta fija", "EMB", "emb.us", ""),
     "TIPS (TIP)": ("Renta fija", "TIP", "tip.us", ""),
     "Municipales (MUB)": ("Renta fija", "MUB", "mub.us", ""),
@@ -1655,6 +1661,28 @@ SLEEVES = {
 # apenas rentabilidad. Comprobado también que NO reproduce el problema de renta
 # variable al subir el techo con Liquidez ya elegible (3 o 4): empeora en las
 # mismas métricas que ya empeoraba sin ella, así que el techo se queda en 2.
+#
+# "Crédito ultracorto plazo (ICSH)" se añadió, con la misma exigencia de prueba
+# real, para atacar el tramo bajista de 2021-2024 (2022 fue el peor mercado
+# bajista de bonos en décadas: hasta el propio AGG cayó -14,24% ese año). Antes
+# de añadirlo se probaron y RECHAZARON dos hipótesis con datos reales: (1)
+# préstamos bancarios a tipo flotante (BKLN), que empeoraba el resultado --
+# 2022 no fue solo un shock de tipos, también de diferencial de crédito, y los
+# préstamos bancarios sí tienen riesgo de crédito (cayeron a la par que el
+# resto en los peores meses); (2) aflojar el suelo de 2 a 1 para que Liquidez
+# pudiera quedarse sola al 100%, que también empeoraba -- renunciar a toda
+# diversificación justo cuando peor pinta no evita la caída, solo la
+# opcionalidad al alza. ICSH sí funciona: grado de inversión (no el riesgo de
+# crédito que hundió a BKLN) y ~6 meses de duración (ni el riesgo de tipos de
+# un bono largo ni el de una letra a 3 meses sin apenas rendimiento). Con
+# datos reales, esquema Inverso de la volatilidad: Sharpe 0,68->0,72, caída
+# máxima -13,3%->-9,7%, peor 12 meses -9,2%->-6,5%, CAGR prácticamente plano
+# o mejor -- mejora en los 4 esquemas a la vez, no solo en uno. Entra solo en
+# Sobrecalentamiento, compitiendo con Liquidez por el mismo hueco defensivo
+# (gana el que puntúe mejor cada mes, ninguno tiene preferencia fija).
+# Confirmado también que el techo sigue en 2 con ICSH ya en el universo: el
+# Sharpe cae de forma monótona al subir el techo a 3, 4 o 5 en los 4 esquemas
+# a la vez, el mismo patrón que sin él.
 SLEEVES_FI = {
     "Renta fija": ({"Renta fija", "Liquidez"}, 1.00, 1.00, 2, 2),
 }
