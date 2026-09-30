@@ -159,3 +159,26 @@ if has_bkln:
             if r["name"] == bkln_name:
                 bkln_phases[phase] = r["weight"]
     print(f"  BKLN en el manual por fase (esquema {best}): {bkln_phases or 'nunca'}")
+
+print("\n--- ¿Ayuda soltar el suelo de 2 a 1 (sin BKLN, universo actual)? ---")
+print("Si Liquidez es, con mucho, la mejor puntuada un mes, el suelo de 2 la obliga")
+print("a compartir la mitad del bloque con la segunda mejor aunque puntúe negativo.")
+print("Con suelo 1, esos meses podrían quedarse al 100% en Liquidez.\n")
+sleeves_floor1 = {"Renta fija": ({"Renta fija", "Liquidez"}, 1.0, 1.0, 1, 2)}
+rot3 = bd.rotation(X, phases, cls_map, probs_df, F, sleeves=sleeves_floor1,
+                    bench_name="Renta fija EE.UU. (mercado)", include_6040=False)
+for sch in bd.SCHEMES:
+    p = rot3["schemes"][sch]["portfolio"]
+    print(f"  {bd.SCHEMES[sch]}: CAGR {p.get('cagr')} · Sharpe {p.get('sharpe')} · "
+          f"MaxDD {p.get('maxdd')} · Worst12 {p.get('worst12')}")
+best3name = rot3["default"]
+S3 = rot3["schemes"][best3name]
+single_phases = {ph_: [r["name"] for r in rows] for ph_, rows in S3["playbook"].items()
+                  if len(rows) == 1}
+print(f"  Fases con una sola posición (esquema {best3name}): {single_phases or 'ninguna'}")
+
+print("\n(referencia, suelo=techo=2, universo actual sin BKLN):")
+for sch in bd.SCHEMES:
+    p = rot["schemes"][sch]["portfolio"]
+    print(f"  {bd.SCHEMES[sch]}: CAGR {p.get('cagr')} · Sharpe {p.get('sharpe')} · "
+          f"MaxDD {p.get('maxdd')} · Worst12 {p.get('worst12')}")
