@@ -2142,12 +2142,27 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
     bench_6040 = ((0.6 * eq + 0.4 * bd).reindex(dates)
                   if include_6040 and eq is not None and bd is not None else None)
     hp = pd.Series(held, index=dates)
-    bench_annual = _annual(bench.dropna()) if bench is not None else {}
+    bench_valid = bench.dropna() if bench is not None else None
+    bench_annual = _annual(bench_valid) if bench_valid is not None else {}
+    # Si el benchmark cotiza desde más tarde que la propia rotación —el caso real:
+    # el agregado de bonos (AGG) tiene datos desde 2003, pero el universo de renta
+    # fija arranca antes vía rendimientos FRED— comparar curva, cifras y año a año
+    # desde el inicio de la rotación mostraría al benchmark plano (a 100, sin
+    # moverse) durante años en los que sencillamente no existía: no es una caída
+    # a cero, es que no cotizaba. La selección de cada mes sigue aprendiendo de
+    # todo el histórico disponible hasta esa fecha (eso no cambia); lo que se
+    # ajusta es desde cuándo se MUESTRA el resultado frente al benchmark, para
+    # comparar siempre desde la fecha en la que los dos cotizan.
+    cmp_start = bench_valid.index[0] if bench_valid is not None and len(bench_valid) else None
 
     vol_all = ew_vol(X)
     out_schemes = {}
     for sch, label in SCHEMES.items():
         R = pd.Series(rets[sch], index=dates).dropna()
+        turn_s = pd.Series(turn[sch], index=dates)
+        if cmp_start is not None:
+            R = R[R.index >= cmp_start]
+            turn_s = turn_s[turn_s.index >= cmp_start]
         by_phase = {}
         for phase in PHASES:
             m = (hp == phase).reindex(R.index).fillna(False)
@@ -2199,7 +2214,7 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
             "playbook": playbook,
             "sleeve_mix": mix,
             "annual": ann,
-            "turnover": round(float(np.mean(turn[sch]) * 100), 1),
+            "turnover": round(float(turn_s.mean() * 100), 1),
             "wins_years": sum(1 for y, v in ann.items()
                               if y in bench_annual and v > bench_annual[y]),
             "n_years": len([y for y in ann if y in bench_annual]),
