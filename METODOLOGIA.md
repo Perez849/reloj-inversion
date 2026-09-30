@@ -623,12 +623,14 @@ mezcla ni un solo número con el otro, ni en la cartera ni en el backtest.
 high-yield (HYG), TIPS (yield sintético a 10 años y el ETF TIP), titulizaciones
 hipotecarias (el tipo hipotecario a 30 años como yield sintético y el ETF MBB),
 deuda emergente (EMB), municipales (MUB) y crédito Baa/Aaa (yields Moody's,
-sintéticos). Tres pares solapan la misma exposición económica medida por dos
-fuentes distintas — un yield FRED convertido a retorno sintético y el ETF real
-que mide, en esencia, lo mismo — y se resuelven con el mismo mecanismo
-`ASSET_OVERLAP` que ya separaba Semiconductores de Tecnología: hipotecario
-aprox./MBB, TIPS aprox./TIP, Baa aprox./LQD. Solo sigue en carrera el que
-muestre mejor ventaja de fase; nunca compiten los dos por el mismo hueco.
+sintéticos), más Liquidez (letras 3 meses) — ver más abajo por qué esta sí
+entra aquí aunque quede fuera del reloj de renta variable. Tres pares solapan
+la misma exposición económica medida por dos fuentes distintas — un yield FRED
+convertido a retorno sintético y el ETF real que mide, en esencia, lo mismo —
+y se resuelven con el mismo mecanismo `ASSET_OVERLAP` que ya separaba
+Semiconductores de Tecnología: hipotecario aprox./MBB, TIPS aprox./TIP, Baa
+aprox./LQD. Solo sigue en carrera el que muestre mejor ventaja de fase; nunca
+compiten los dos por el mismo hueco.
 
 **Benchmark.** El agregado de bonos de EE.UU. (AGG), con clase "Índice
 regional" — el mismo mecanismo que ya deja fuera de la selección al S&P 500 en
@@ -660,13 +662,41 @@ de fondo — tipos de interés y duración —, así que un tercer o cuarto acti
 añade una exposición nueva de verdad: solo diluye la apuesta de fase hacia la
 media del conjunto.
 
+**Por qué Liquidez sí entra aquí y no en renta variable.** En renta variable,
+"Liquidez (letras 3 meses)" queda fuera de la selección (`NOT_SELECTABLE`, ver
+7.2): su exceso sobre el tipo sin riesgo es el spread real, pero diminuto (de
+media 0,11 % anualizado, con 0,15 % de volatilidad) entre la letra a 3 meses de
+FRED y la letra a 1 mes de Ken French que se usa como tipo sin riesgo global —
+no una resta contra sí misma, pero sí casi. El problema no es que no tenga
+señal: es que con una volatilidad así de baja, frente a sectores de bolsa que
+mueven 15-20 % al año, el ratio rentabilidad/volatilidad se dispara y el
+reparto por inverso de volatilidad le da un peso desproporcionado — comprobado
+con datos reales, la cartera de renta variable acababa con una cuarta parte
+del dinero parado sin que la rentabilidad lo justificara.
+
+Frente a renta fija (4-7 % de volatilidad típica, no 15-20 %) el mismo
+mecanismo pesa mucho menos, y **probado con datos reales en vez de asumido por
+analogía**, no reproduce el problema: con el propio techo de 2, dejar que
+Liquidez compita por un hueco mejora el Sharpe en los cuatro esquemas de
+reparto a la vez (0,63→0,69, 0,60→0,68, 0,63→0,70, 0,62→0,71) y reduce la
+caída máxima con fuerza (p. ej. inverso de la volatilidad, −29,6 %→−15,2 %),
+con el CAGR prácticamente plano. Entra solo en Sobrecalentamiento — ocupando
+uno de los dos huecos, nunca desplazando a los otros activos en las tres fases
+restantes —, lo que además tiene sentido económico: es la fase en la que subir
+tipos presiona a la baja a toda la curva de renta fija a la vez, y un ancla de
+duración casi nula amortigua esa presión sin apenas coste de rentabilidad.
+También se comprobó que subir el techo a 3 o 4 con Liquidez ya elegible no
+ayuda — empeora en las mismas métricas que ya empeoraba sin ella —, así que el
+techo se queda en 2 y Liquidez compite en igualdad de condiciones con el resto
+del universo, sin trato especial.
+
 El resto del mecanismo es idéntico al de 7.2, reutilizando el mismo código con
 otros parámetros: la misma ventaja de fase contraída con James-Stein, el mismo
 desempate por rendimiento real sin contraer, los mismos cuatro esquemas de
 reparto calculados en paralelo, la misma tolerancia de retraso de publicación
 y el mismo guardián de plausibilidad. El laboratorio de 7.4 se repite también,
 con `k=2` (el techo real de este reloj, igual que 7.4 usa `k=5` porque es el
-techo real del otro) sobre el mismo universo de hasta 13 candidatos.
+techo real del otro) sobre el mismo universo de hasta 14 candidatos.
 
 ---
 

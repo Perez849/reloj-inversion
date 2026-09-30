@@ -1621,16 +1621,16 @@ SLEEVES = {
 # aparte que nunca se combina con el de arriba (ver docs/assets/app.js, clockMode).
 #
 # Techo de 2, igual que el suelo -- así que el bloque sostiene SIEMPRE los dos
-# activos de renta fija con mejor ventaja de fase, ni uno más -- verificado con el
-# propio backtest walk-forward sobre datos reales, probando cada techo entre 2 y 10
-# sobre las hasta 10 exposiciones únicas del universo (13 activos de clase "Renta
-# fija", 3 pares que se solapan vía ASSET_OVERLAP). El techo de 2 gana con claridad
-# en los 4 esquemas de reparto A LA VEZ y en las 5 métricas a la vez -- no es un
-# esquema concreto sacando ventaja por azar. Con datos reales, techo 2 frente a
-# techo 5 (referencia: el mismo techo que usa renta variable), esquema
-# Equiponderado: CAGR 4,01% frente a 3,14%, Sharpe 0,63 frente a 0,48, caída máxima
-# -27,7% frente a -31,6%, peor 12 meses -19,4% frente a -23,1% -- el mismo patrón,
-# sin excepción, en Inverso de la volatilidad, Por puesto y Mitad y mitad.
+# activos con mejor ventaja de fase, ni uno más -- verificado con el propio
+# backtest walk-forward sobre datos reales, probando cada techo entre 2 y 10 sobre
+# las hasta 10 exposiciones únicas del universo de clase "Renta fija" (13 activos,
+# 3 pares que se solapan vía ASSET_OVERLAP). El techo de 2 gana con claridad en los
+# 4 esquemas de reparto A LA VEZ y en las 5 métricas a la vez -- no es un esquema
+# concreto sacando ventaja por azar. Con datos reales, techo 2 frente a techo 5
+# (referencia: el mismo techo que usa renta variable), esquema Equiponderado: CAGR
+# 4,01% frente a 3,14%, Sharpe 0,63 frente a 0,48, caída máxima -27,7% frente a
+# -31,6%, peor 12 meses -19,4% frente a -23,1% -- el mismo patrón, sin excepción,
+# en Inverso de la volatilidad, Por puesto y Mitad y mitad.
 #
 # La diferencia con renta variable (techo 5, ver arriba) tiene una explicación
 # económica, no es a lo mejor porque sí: los sectores de bolsa son exposiciones
@@ -1641,8 +1641,22 @@ SLEEVES = {
 # nueva de verdad: solo diluye la apuesta de fase hacia la media del conjunto.
 # Suelo de 2 por el mismo motivo que en renta variable, no por lo que midió el
 # backtest: nunca una única posición, aunque puntúe mejor que cualquier otra.
+#
+# "Liquidez" SÍ entra en las clases del bloque -- a diferencia de renta variable,
+# donde queda fuera vía NOT_SELECTABLE (ver el comentario junto a esa constante,
+# más abajo, y por qué el motivo NO es el mismo aquí). Probado con datos reales,
+# con el propio techo de 2: dejar que Liquidez (letras 3m) compita por un hueco
+# mejora el Sharpe en los 4 esquemas a la vez (0,63->0,69, 0,60->0,68, 0,63->0,70,
+# 0,62->0,71) y reduce la caída máxima con fuerza (p.ej. Inverso de la volatilidad,
+# -29,6%->-15,2%), con el CAGR prácticamente plano. Entra solo en Sobrecalentamiento
+# (mitad del bloque, nunca desplaza a los dos activos en las otras tres fases) --
+# tiene sentido: es la fase en la que subir tipos presiona a la baja a toda la
+# curva a la vez, y un ancla de duración casi nula amortigua sin sacrificar
+# apenas rentabilidad. Comprobado también que NO reproduce el problema de renta
+# variable al subir el techo con Liquidez ya elegible (3 o 4): empeora en las
+# mismas métricas que ya empeoraba sin ella, así que el techo se queda en 2.
 SLEEVES_FI = {
-    "Renta fija": ({"Renta fija"}, 1.00, 1.00, 2, 2),
+    "Renta fija": ({"Renta fija", "Liquidez"}, 1.00, 1.00, 2, 2),
 }
 
 # Índices agregados: sirven de referencia, no de posición. Si entran en la selección
@@ -1651,13 +1665,28 @@ SLEEVES_FI = {
 # país sirven de referencia, no de posición. Si compiten con los sectores los barren
 # siempre, porque un índice diversificado tiene mejor rentabilidad por unidad de
 # riesgo que cualquier sector suelto, y entonces no hay rotación sectorial ninguna.
-# La liquidez se mide como exceso sobre la propia liquidez: su rentabilidad es cero
-# por construcción y su volatilidad casi cero. Al ordenar por rentabilidad entre
-# volatilidad, ese cociente se dispara y se cuela como primera posición; después el
-# reparto por inverso de volatilidad le da un peso enorme. La cartera acababa con un
-# cuarto del dinero parado y la volatilidad hundida. No es una posición: es la
-# unidad de medida.
-NOT_SELECTABLE = {"Otros sectores", "Liquidez (letras 3m)"}
+#
+# "Otros sectores" queda fuera de renta variable porque es un cajón de sastre, no
+# una exposición con entidad propia (ver FRENCH_49/SUBSECTOR_EXCLUDED_MIXED).
+#
+# "Liquidez (letras 3m)" queda fuera de renta variable, pero SÍ entra en renta fija
+# (ver SLEEVES_FI) -- el motivo no es que "no tenga señal", es que el mecanismo de
+# selección la trata mal cuando compite contra sectores de bolsa. Su exceso no es
+# una resta tautológica contra sí misma (una versión anterior de este comentario lo
+# decía así, impreciso): es FRED TB3MS/12 (letra a 3 meses) menos el tipo sin
+# riesgo global, que es el de Ken French a 1 mes -- un spread real entre dos
+# referencias de tipo a corto, diminuto (0,11% anualizado de media, 0,15% de
+# volatilidad) pero no exactamente cero. El problema es justo esa volatilidad
+# casi nula: al ordenar por rentabilidad entre volatilidad, ese cociente se
+# dispara frente a cualquier sector de bolsa (15-20% de volatilidad típica) y se
+# cuela como primera posición; el reparto por inverso de volatilidad, comprobado
+# con datos reales, le daba un peso enorme -- la cartera de renta variable acababa
+# con un cuarto del dinero parado y la volatilidad hundida muy por debajo de lo
+# que aporta en rentabilidad real. Frente a renta fija (4-7% de volatilidad
+# típica, no 15-20%) el mismo mecanismo pesa mucho menos y, comprobado con el
+# propio backtest (ver SLEEVES_FI), no reproduce ese problema: entra en un único
+# hueco de dos, en una única fase, y mejora el resultado en vez de acapararlo.
+NOT_SELECTABLE = {"Otros sectores"}
 
 # Suelo de volatilidad para el reparto y la ordenación. Sin él, cualquier activo
 # muy poco volátil acapara la cartera por el mismo mecanismo.
@@ -2439,7 +2468,8 @@ def main() -> None:
     # Nunca se combina con rot/lab -- son dos relojes independientes, ver app.js.
     rot_fi = rotation(X, phases, cls_map, probs_df, F, sleeves=SLEEVES_FI,
                       bench_name="Renta fija EE.UU. (mercado)", include_6040=False)
-    lab_fi = laboratory(X, phases, cls_map, k_pick=2, sleeve_defs={"Renta fija": {"Renta fija"}})
+    lab_fi = laboratory(X, phases, cls_map, k_pick=2,
+                        sleeve_defs={"Renta fija": {"Renta fija", "Liquidez"}})
     val = validation(df, F, phases)
     rec = recession_model(df, F.index)
     subsectors = subsector_analysis(phases)
