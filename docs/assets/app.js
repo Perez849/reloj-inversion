@@ -16,6 +16,38 @@ const INK = "#1B1810", INK_SOFT = "#5B5340", INK_FAINT = "#8C8268";
 const LINE = "rgba(27,24,16,.14)", LINE_SOFT = "rgba(27,24,16,.08)", LINE_STRONG = "rgba(27,24,16,.30)";
 const POS = "#3F6B52", NEG = "#9C4A3C";
 
+/* Ventanas del gráfico de evolución (#rotChart). "n" = nº de meses finales a
+   mostrar; null = todo el histórico; "ytd" = desde enero del año del último
+   dato disponible. */
+const CURVE_RANGES = [
+  { k: "1m", label: "1M", n: 1 },
+  { k: "6m", label: "6M", n: 6 },
+  { k: "ytd", label: "YTD", n: "ytd" },
+  { k: "1y", label: "1A", n: 12 },
+  { k: "3y", label: "3A", n: 36 },
+  { k: "5y", label: "5A", n: 60 },
+  { k: "max", label: "Máx.", n: null },
+];
+
+function sliceCurveRange(c, key) {
+  // El mes en curso puede llegar sin benchmark aún (algunas fuentes lo
+  // publican con más retraso que los activos de la cartera) — mostrarlo
+  // como un punto suelto con "b: null" congelaría el índice en una línea
+  // plana que no es su retorno real. Se recorta antes de aplicar la
+  // ventana, para que "1M" no sea justo ese mes a medias.
+  let end = c.length;
+  while (end > 0 && c[end - 1].b == null) end--;
+  c = c.slice(0, end);
+  if (!c.length) return c;
+  const r = CURVE_RANGES.find(x => x.k === key);
+  if (!r || r.n === null) return c;
+  if (r.n === "ytd") {
+    const yr = c[c.length - 1].d.slice(0, 4);
+    return c.filter(p => p.d.slice(0, 4) === yr);
+  }
+  return c.slice(-r.n);
+}
+
 const PHASE_HINT = {
   "Recuperación": "crecimiento sobre tendencia, inflación bajo tendencia",
   "Sobrecalentamiento": "crecimiento e inflación por encima de tendencia",
@@ -993,6 +1025,7 @@ function subsectorHTML(S, phase) {
 /* ------------------------------ backtest --------------------------------- */
 let pbPhase = null;
 let scheme = null;
+let curveRange = "max";
 
 function renderRotation() {
   const T = CLOCK_TXT[clockMode];
@@ -1138,6 +1171,9 @@ function renderRotation() {
       comisión más horquilla de compraventa — restarían del orden de
       ${fmtNum(S.turnover * 0.15 * 12 / 100, 2)} puntos al año.</p>
 
+    <div class="seg" id="curveRangeSeg" style="margin-bottom:10px">
+      ${CURVE_RANGES.map(x => `<button type="button" data-r="${x.k}" aria-pressed="${x.k === curveRange}">${x.label}</button>`).join("")}
+    </div>
     <div class="bt-chart" style="margin-bottom:24px">
       <svg id="rotChart" viewBox="0 0 900 340" role="img" aria-label="Evolución frente a ${T.benchShort}"></svg>
     </div>
@@ -1197,7 +1233,7 @@ function renderRotation() {
       ${pbPhase === D.current.phase ? "Esta es la fase vigente." : `La fase vigente es ${D.current.phase}.`}</p>
     ${clockMode === "eq" ? subsectorHTML(S, pbPhase) : ""}`;
 
-  drawCurve("#rotChart", S.curve || [], S.label, T.curveBenchLabel);
+  drawCurve("#rotChart", sliceCurveRange(S.curve || [], curveRange), S.label, T.curveBenchLabel);
   drawAnnual("#annChart", S.annual || {}, r.bench_annual || {}, T.curveBenchLabel);
   $("#schemeSeg").querySelectorAll("button").forEach(btn => {
     btn.onclick = () => { scheme = btn.dataset.s; renderRotation(); };
@@ -1205,23 +1241,35 @@ function renderRotation() {
   $("#phaseSeg").querySelectorAll("button").forEach(btn => {
     btn.onclick = () => { pbPhase = btn.dataset.p; renderRotation(); };
   });
+  $("#curveRangeSeg").querySelectorAll("button").forEach(btn => {
+    btn.onclick = () => { curveRange = btn.dataset.r; renderRotation(); };
+  });
 }
 
 function drawCurve(sel, c, labelA, labelB) {
   const svg = $(sel);
   if (!svg) return;
   svg.innerHTML = "";
-  const W = 900, H = 340, padL = 52, padR = 14, padT = 14, padB = 28;
-  if (c.length < 10) return;
+  // En ventanas cortas cabe la fecha completa (año-mes) bajo cada punto; en
+  // el histórico completo, solo el año, como siempre. La etiqueta del último
+  // punto es más ancha ("2026-08" que "2026") y queda centrada justo en el
+  // borde derecho, así que ese caso necesita más margen para no recortarse.
+  const shortWin = c.length <= 14;
+  const W = 900, H = 340, padL = 52, padR = shortWin ? 26 : 14, padT = 14, padB = 28;
+  if (!c.length) return;
+  // Arranca con un vértice base en 100 (el instante justo antes del primer
+  // mes mostrado): sin él, una ventana de 1-2 meses no tiene con qué trazar
+  // una línea — solo un punto suelto.
   let s = 100, b = 100;
-  const S = [], B = [];
+  const S = [s], B = [b];
   c.forEach(p => {
     s *= 1 + p.s / 100; S.push(s);
     if (p.b != null) { b *= 1 + p.b / 100; }
     B.push(b);
   });
+  const npts = S.length;
   const lo = Math.min(...S, ...B) * 0.95, hi = Math.max(...S, ...B) * 1.05;
-  const x = k => padL + (k / (c.length - 1)) * (W - padL - padR);
+  const x = k => padL + (k / (npts - 1)) * (W - padL - padR);
   const y = v => H - padB - ((Math.log(v) - Math.log(lo)) / (Math.log(hi) - Math.log(lo))) * (H - padT - padB);
 
   [1, 2, 5, 10, 20, 50].map(m => 100 * m).filter(v => v > lo && v < hi).forEach(v => {
@@ -1237,15 +1285,19 @@ function drawCurve(sel, c, labelA, labelB) {
   path(B, INK_FAINT, 1.3, 0.85);
   path(S, "#3F6B52", 1.9, 1);
 
-  const step = Math.ceil(c.length / 10);
+  const step = Math.max(1, Math.ceil(c.length / 10));
+  let lastLbl = null;
   c.forEach((p, k) => {
     if (k % step) return;
-    txt("text", { x: x(k), y: H - 8, fill: INK_FAINT, "text-anchor": "middle",
-      "font-family": "IBM Plex Mono, monospace", "font-size": 10 }, p.d.slice(0, 4), svg);
+    const lbl = shortWin ? p.d : p.d.slice(0, 4);
+    if (lbl === lastLbl) return; // ventanas de pocos años repetían el mismo año seguido
+    lastLbl = lbl;
+    txt("text", { x: x(k + 1), y: H - 8, fill: INK_FAINT, "text-anchor": "middle",
+      "font-family": "IBM Plex Mono, monospace", "font-size": 10 }, lbl, svg);
   });
-  [[labelA, "#3F6B52"], [labelB, INK_FAINT]].forEach(([t, col], n) => {
-    el("rect", { x: padL + n * 200, y: padT, width: 10, height: 3, fill: col }, svg);
-    txt("text", { x: padL + n * 200 + 16, y: padT + 4, fill: INK_SOFT,
+  [[labelA, "#3F6B52"], [labelB, INK_FAINT]].forEach(([t, col], i) => {
+    el("rect", { x: padL + i * 200, y: padT, width: 10, height: 3, fill: col }, svg);
+    txt("text", { x: padL + i * 200 + 16, y: padT + 4, fill: INK_SOFT,
       "font-family": "IBM Plex Mono, monospace", "font-size": 10.5 }, t, svg);
   });
 }
