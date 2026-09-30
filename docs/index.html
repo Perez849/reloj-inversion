@@ -88,12 +88,15 @@
       <div class="buy-inner">
         <div class="eyebrow">La respuesta</div>
         <h2>Qué comprar ahora</h2>
-        <p class="lede">100% renta variable de sectores, sin renta fija: el oro y las mineras de oro son
-          el único seguro no bursátil, y nunca superan el 20%. Selección walk-forward, con datos solo
-          hasta el mes anterior en cada fecha: en cada fase, qué sectores han pagado más de lo que pagan
-          de media. El reparto dentro de cada bloque y el punto de partida exactos están más abajo —
-          cambian con el dato, no están fijados aquí. Entre paréntesis, el ETF real
-          más parecido para ejecutarlo hoy.</p>
+        <div class="ctl" id="clockModeRow" style="margin:10px 0 16px">
+          <span>Analizar el reloj de:</span>
+          <div class="seg" id="clockModeSeg">
+            <button type="button" data-m="eq" aria-pressed="true">Renta variable</button>
+            <button type="button" data-m="fi" aria-pressed="false">Renta fija</button>
+          </div>
+        </div>
+        <p class="cap" id="clockModeNote" style="margin-bottom:14px"></p>
+        <p class="lede" id="buyLede"></p>
         <div class="buy-cols" id="buyCols"></div>
         <p class="buy-foot" id="buyFoot"></p>
       </div>

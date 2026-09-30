@@ -103,6 +103,7 @@ let trail = 36;
 let activeClass = "Todo";
 let onlySig = false;
 let playTimer = null;
+let clockMode = "eq";      // "eq" renta variable | "fi" renta fija — nunca combinados
 
 /* ------------------------------ utilidades ------------------------------ */
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -170,6 +171,7 @@ function render() {
   renderHero();
   renderOutlook();
   renderPlane();
+  wireClockToggle();
   renderBuy();
   renderIndicators();
   renderTimeline();
@@ -307,26 +309,125 @@ function renderOutlook() {
         adivinar a cara o cruz, 1,00 es perfecto, y ${fmtNum(rec.auc, 2)} está ${rec.auc >= 0.8 ? "cerca del extremo bueno" : rec.auc >= 0.65 ? "claramente por encima del azar, sin ser perfecto" : "solo algo por encima del azar"}.` : "No disponible."}</small></div>`;
 }
 
-/* ------------------------------ qué comprar ------------------------------ */
-const SLEEVE_ORDER = ["Renta variable", "Oro"];
+/* ------------------------- reloj: renta variable / renta fija ------------------------- */
+// Dos relojes completamente independientes, nunca combinados (a petición explícita): cada
+// uno con su propio universo, su propio benchmark y su propio backtest walk-forward, ya
+// separados en build_data.py (rotation()/laboratory() con sleeves/bench_name distintos).
+// clockMode decide solo qué mitad de los datos ya calculados se muestra — build_data.py
+// nunca mezcla las dos carteras en un mismo número.
+const CLOCK_TXT = {
+  eq: {
+    label: "Renta variable",
+    lede: `100% renta variable de sectores, sin renta fija: el oro y las mineras de oro son
+      el único seguro no bursátil, y nunca superan el 20%. Selección walk-forward, con datos solo
+      hasta el mes anterior en cada fecha: en cada fase, qué sectores han pagado más de lo que pagan
+      de media. El reparto dentro de cada bloque y el punto de partida exactos están más abajo —
+      cambian con el dato, no están fijados aquí. Entre paréntesis, el ETF real
+      más parecido para ejecutarlo hoy.`,
+    note: "",
+    buyFootIntro: `100% renta variable de sectores; el oro y las mineras de oro son el único seguro no
+      bursátil, hasta un 20% y solo cuando la fase lo justifica.`,
+    consensusEmptyWord: "sector u oro",
+    benchLabel: "S&amp;P 500 / renta variable EE.UU. 100%",
+    benchDt: "S&amp;P 500 / mercado",
+    benchShort: "S&amp;P 500",
+    title: "¿Bate al S&amp;P 500?",
+    intro: `Cartera 100% renta variable de sectores (más oro y mineras de oro como único
+      seguro no bursátil, hasta un 20%), solo de compras y sin apalancar. La fase decide qué
+      sectores ocupan la cartera y cuánto peso lleva el oro dentro de su banda. Los índices
+      agregados quedan fuera de la selección, así que esto es una apuesta por sectores, no el
+      S&amp;P 500 disfrazado — y la pregunta que responde esta sección es si esa apuesta
+      <b>compensó</b> frente a comprar el índice sin más.`,
+    assetWord: "sector",
+    assetWordPl: "sectores",
+    selectionWord: "de sectores y de oro",
+    insuranceClause: "el seguro de oro y ",
+    pureBenchWord: "la renta variable pura",
+    curveBenchLabel: "S&P 500 (mercado)",
+    show6040: true,
+  },
+  fi: {
+    label: "Renta fija",
+    lede: `100% renta fija: gobierno (Treasury a 2, 10 y 30 años), crédito investment-grade y
+      high-yield, TIPS, titulizaciones hipotecarias y deuda emergente — nunca renta variable ni
+      oro en este reloj. Selección walk-forward, con datos solo hasta el mes anterior en cada
+      fecha: en cada fase, qué instrumentos de renta fija han pagado más de lo que pagan de
+      media. Entre paréntesis, el ETF real (o la nota "aprox." cuando la fuente es un
+      rendimiento FRED convertido a retorno, ver metodología) más parecido para ejecutarlo hoy.`,
+    note: `Reloj independiente del de renta variable: universo, benchmark y backtest walk-forward
+      propios — nunca se combina con la cartera de acciones.`,
+    buyFootIntro: `100% renta fija: gobierno, crédito, TIPS, titulizaciones hipotecarias y deuda
+      emergente en un único bloque, sin renta variable ni oro en este reloj.`,
+    consensusEmptyWord: "activo de renta fija",
+    benchLabel: "Agregado de bonos EE.UU. (AGG) 100%",
+    benchDt: "AGG / mercado",
+    benchShort: "AGG",
+    title: "¿Bate al agregado de bonos (AGG)?",
+    intro: `Cartera 100% renta fija, solo de compras y sin apalancar, en un único bloque a banda
+      fija (100%): no hay renta variable ni oro en este reloj. El agregado de bonos EE.UU. (AGG)
+      queda fuera de la selección, como referencia — y la pregunta que responde esta sección es
+      si la rotación por fase <b>compensó</b> frente a comprar el agregado sin más.`,
+    assetWord: "activo de renta fija",
+    assetWordPl: "activos de renta fija",
+    selectionWord: "de activos de renta fija",
+    insuranceClause: "",
+    pureBenchWord: "el agregado de bonos puro",
+    curveBenchLabel: "AGG (mercado)",
+    show6040: false,
+  },
+};
 
+function bandTxt(band) {
+  const [lo, hi] = band || [];
+  if (lo == null) return "—";
+  return lo === hi ? `${lo}%` : `${lo}–${hi}%`;
+}
+
+function activeRotation() { return (clockMode === "fi" ? D.rotation_fi : D.rotation) || {}; }
+function activeLab() { return (clockMode === "fi" ? D.lab_fi : D.lab) || {}; }
+function activeConsensus() { return (clockMode === "fi" ? D.consensus_fi : D.consensus) || []; }
+
+function wireClockToggle() {
+  const seg = $("#clockModeSeg");
+  if (!seg) return;
+  seg.querySelectorAll("button").forEach(b => {
+    b.setAttribute("aria-pressed", String(b.dataset.m === clockMode));
+    b.onclick = () => {
+      if (clockMode === b.dataset.m) return;
+      clockMode = b.dataset.m;
+      scheme = null; pbPhase = null; labPhase = null; labSleeve = null;
+      seg.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+      renderBuy();
+      renderConsensus();
+      renderRotation();
+      renderLab();
+    };
+  });
+}
+
+/* ------------------------------ qué comprar ------------------------------ */
 function renderBuy() {
-  const host = $("#buyCols"), foot = $("#buyFoot");
-  const r = D.rotation || {};
+  const host = $("#buyCols"), foot = $("#buyFoot"), lede = $("#buyLede"), note = $("#clockModeNote");
+  const T = CLOCK_TXT[clockMode];
+  lede.innerHTML = T.lede;
+  note.innerHTML = T.note;
+  note.style.display = T.note ? "" : "none";
+  const r = activeRotation();
   if (!r.schemes) {
     host.innerHTML = `<div class="buy-col"><p class="buy-empty">
-      Los datos publicados no traen la sección de asignación. Ejecuta <code>scripts/build_data.py</code>
-      de nuevo.</p></div>`;
+      Los datos publicados no traen la sección de asignación de ${T.label.toLowerCase()}. Ejecuta
+      <code>scripts/build_data.py</code> de nuevo.</p></div>`;
     foot.innerHTML = "";
     return;
   }
-  const scheme = r.schemes[r.default] || Object.values(r.schemes)[0];
+  const scheme_ = r.schemes[r.default] || Object.values(r.schemes)[0];
   const c = D.current;
   const phase = c.phase;
-  const rows = scheme.playbook[phase] || [];
-  const mix = scheme.sleeve_mix?.[phase] || {};
+  const rows = scheme_.playbook[phase] || [];
+  const mix = scheme_.sleeve_mix?.[phase] || {};
+  const sleeveOrder = Object.keys(r.bands || {});
 
-  host.innerHTML = SLEEVE_ORDER.map(sl => {
+  host.innerHTML = sleeveOrder.map(sl => {
     const items = rows.filter(x => x.sleeve === sl);
     const wt = mix[sl];
     return `<div class="buy-col">
@@ -335,17 +436,17 @@ function renderBuy() {
         <div class="buy-item">
           <div><span class="nm">${x.name}</span><span class="tickers">${tickerChips(x.name) || `<span class="small-cap mono">${x.class}</span>`}</span></div>
           <span class="wt">${fmtNum(x.weight, 1)}%</span>
-        </div>`).join("") : `<p class="buy-empty">Sin exposición en esta fase (banda ${(r.bands?.[sl] || []).join("–")}%).</p>`}
+        </div>`).join("") : `<p class="buy-empty">Sin exposición en esta fase (banda ${bandTxt(r.bands?.[sl])}).</p>`}
     </div>`;
   }).join("");
 
-  const consensus = D.consensus || [];
+  const consensus = activeConsensus();
   const lowConf = c.confidence < 0.6 && consensus.length;
-  foot.innerHTML = `100% renta variable de sectores; el oro y las mineras de oro son el único seguro no
-    bursátil, hasta un 20% y solo cuando la fase lo justifica. Reparto <b>${scheme.label.toLowerCase()}</b>
+  const bandsTxt = sleeveOrder.map(sl => `${bandTxt(r.bands[sl])} ${sl.toLowerCase()}`).join(", ");
+  foot.innerHTML = `${T.buyFootIntro} Reparto <b>${scheme_.label.toLowerCase()}</b>
     dentro de cada bloque; el peso entre bloques se mueve según lo bien que puntúa cada uno en
-    <b>${phase}</b>, dentro de bandas fijadas de antemano (80–100% renta variable, 0–20% oro).
-    Fuente: rotación walk-forward desde ${(scheme.portfolio?.from || "").slice(0, 4) || "—"},
+    <b>${phase}</b>, dentro de bandas fijadas de antemano (${bandsTxt}).
+    Fuente: rotación walk-forward desde ${(scheme_.portfolio?.from || "").slice(0, 4) || "—"},
     sección «El backtest» más abajo.
     ${lowConf ? ` Con solo <b>${fmtPct(c.confidence)}</b> de margen sobre ${c.alt_phase}, conviene mirar
       también el bloque de «solapamiento» — lo que ha pagado en las dos fases candidatas a la vez.` : ""}`;
@@ -687,17 +788,18 @@ function drawMatrix() {
 /* -------------------------------- consenso ------------------------------ */
 function renderConsensus() {
   const host = $("#consensusBlock");
+  const T = CLOCK_TXT[clockMode];
   const c = D.current;
-  const list = D.consensus || [];
+  const list = activeConsensus();
   if (c.confidence >= 0.6 || !list.length) {
     host.innerHTML = `
       <div class="wrap">
         <div class="section-head">
-          <div class="eyebrow">Solapamiento</div>
+          <div class="eyebrow">Solapamiento · ${T.label}</div>
           <h2>Cartera de consenso</h2>
           <p class="cap">${c.confidence >= 0.6
             ? `La clasificación tiene ${fmtPct(c.confidence)} de margen: no hace falta cubrirse contra la fase alternativa. La columna de ${c.phase} de la matriz es suficiente.`
-            : `No hay ningún sector u oro con nota positiva y contrastada a la vez en ${c.phase} y en ${c.alt_phase}. Eso no cambia la cartera de «Qué comprar ahora» — sigue siendo la mejor estimación con los datos de hoy — solo significa que, en este caso, no hay ningún activo que además sirva de colchón si la fase resultara ser la otra candidata.`}</p>
+            : `No hay ningún ${T.consensusEmptyWord} con nota positiva y contrastada a la vez en ${c.phase} y en ${c.alt_phase}. Eso no cambia la cartera de «Qué comprar ahora» — sigue siendo la mejor estimación con los datos de hoy — solo significa que, en este caso, no hay ningún activo que además sirva de colchón si la fase resultara ser la otra candidata.`}</p>
         </div>
       </div>`;
     return;
@@ -705,7 +807,7 @@ function renderConsensus() {
   host.innerHTML = `
     <div class="wrap">
       <div class="section-head">
-        <div class="eyebrow">Solapamiento</div>
+        <div class="eyebrow">Solapamiento · ${T.label}</div>
         <h2>Lo que funciona en las dos fases candidatas</h2>
         <p class="cap">Con ${fmtPct(c.confidence)} de margen entre <b>${c.phase}</b> y <b>${c.alt_phase}</b>,
         estos activos tienen exceso positivo y contrastado en ambas: sobreviven a equivocarse de cuadrante.</p>
@@ -893,17 +995,18 @@ let pbPhase = null;
 let scheme = null;
 
 function renderRotation() {
-  const r = D.rotation || {};
+  const T = CLOCK_TXT[clockMode];
+  const r = activeRotation();
   if (!r.schemes) {
     $("#rotationBlock").innerHTML = `
       <div class="section-head">
-        <div class="eyebrow">El backtest</div>
+        <div class="eyebrow">El backtest · ${T.label}</div>
         <h2>La cartera, fase a fase</h2>
       </div>
       <div class="errbox" style="border-color:${PHASE_COLOR["Sobrecalentamiento"]};background:rgba(184,134,59,.07)">
         <h2>Los datos son de una versión anterior</h2>
         <p>Este panel espera los cuatro esquemas de reparto y el <code>data.json</code> publicado
-        ${r.portfolio ? "trae solo uno" : "no trae la sección de asignación"}. Sube el
+        ${r.portfolio ? "trae solo uno" : `no trae la sección de asignación de ${T.label.toLowerCase()}`}. Sube el
         <code>scripts/build_data.py</code> actual y vuelve a lanzar <b>Actualizar datos</b> en Actions.</p>
       </div>`;
     return;
@@ -915,6 +1018,8 @@ function renderRotation() {
   const b6040 = r.bench_6040 || {};
   const p = S.portfolio;
   const beatsMkt = p.cagr != null && mkt.cagr != null && p.cagr > mkt.cagr;
+  const mainSleeve = Object.keys(r.bands || {})[0];
+  const [cLo, cHi] = r.counts?.[mainSleeve] || [];
 
   const statRow = (name, s, extra, active) => `
     <tr style="${active ? "background:rgba(169,117,44,.07)" : ""}">
@@ -930,17 +1035,12 @@ function renderRotation() {
 
   $("#rotationBlock").innerHTML = `
     <div class="section-head">
-      <div class="eyebrow">El backtest</div>
-      <h2>¿Bate al S&amp;P 500? Fase a fase, desde ${(p.from || "").slice(0, 4) || "—"}</h2>
-      <p class="cap">Cartera 100% renta variable de sectores (más oro y mineras de oro como único
-        seguro no bursátil, hasta un 20%), solo de compras y sin apalancar. La fase decide qué
-        sectores ocupan la cartera y cuánto peso lleva el oro dentro de su banda. Los índices
-        agregados quedan fuera de la selección, así que esto es una apuesta por sectores, no el
-        S&amp;P 500 disfrazado — y la pregunta que responde esta sección es si esa apuesta
-        <b>compensó</b> frente a comprar el índice sin más.</p>
+      <div class="eyebrow">El backtest · ${T.label}</div>
+      <h2>${T.title} Fase a fase, desde ${(p.from || "").slice(0, 4) || "—"}</h2>
+      <p class="cap">${T.intro}</p>
       <p class="cap" style="margin-top:8px">Todos los números de esta sección son <b>exceso sobre
         letras del Tesoro a 3 meses</b>, no el retorno total del índice — es la convención estándar
-        para que el Sharpe signifique lo que dice significar. El S&amp;P 500 en términos brutos ha
+        para que el Sharpe signifique lo que dice significar. ${T.benchShort} en términos brutos ha
         rentado más que la cifra de abajo, aproximadamente el tipo de interés sin riesgo del
         periodo; la comparación entre cartera y mercado es igual de válida porque a los dos se les
         resta lo mismo. "Anual" es siempre <b>CAGR</b> (tasa de crecimiento anual compuesto): la
@@ -952,7 +1052,7 @@ function renderRotation() {
     <div class="outlook" style="margin-bottom:24px;border-color:${beatsMkt ? POS : PHASE_COLOR["Sobrecalentamiento"]}">
       <div class="item"><dt>Cartera de rotación</dt><dd style="color:${beatsMkt ? POS : "var(--ink)"}">${fmtNum(p.cagr, 1)}% anual*</dd>
         <small>Sharpe ${fmtNum(p.sharpe, 2)} · caída máxima ${fmtNum(p.maxdd, 1)}%</small></div>
-      <div class="item"><dt>S&amp;P 500 / mercado</dt><dd>${fmtNum(mkt.cagr, 1)}% anual*</dd>
+      <div class="item"><dt>${T.benchDt}</dt><dd>${fmtNum(mkt.cagr, 1)}% anual*</dd>
         <small>Sharpe ${fmtNum(mkt.sharpe, 2)} · caída máxima ${fmtNum(mkt.maxdd, 1)}%</small></div>
       <div class="item"><dt>Diferencia</dt><dd style="color:${beatsMkt ? POS : NEG}">${signed((p.cagr ?? 0) - (mkt.cagr ?? 0), 1)} pp/año</dd>
         <small>${beatsMkt ? "la rotación por fase bate al índice en rentabilidad, no solo en riesgo" : "el índice bate a la rotación en rentabilidad; mira el Sharpe y la caída máxima antes de descartarla"}</small></div>
@@ -962,15 +1062,17 @@ function renderRotation() {
     <p class="foot" style="margin-top:-14px;margin-bottom:20px">* Exceso anualizado sobre letras del Tesoro a 3 meses (ver nota arriba), no CAGR del índice en bruto. "Caída máxima" (maxDD): la mayor pérdida que habría sufrido quien entró justo en el peor pico y vendió justo en el peor valle posterior — el susto más grande que ha dado la estrategia en todo el periodo, no una pérdida típica.</p>
 
     <h3 style="font-family:var(--serif);font-size:17px;margin-bottom:4px">¿Y si el reparto interno cambia?</h3>
-    <p class="cap" style="margin-bottom:14px">La selección de sectores y de oro es idéntica en los cuatro
+    <p class="cap" style="margin-bottom:14px">La selección ${T.selectionWord} es idéntica en los cuatro
       esquemas — cuáles entran y con qué banda de peso lo decide solo la fase, sección de arriba. Lo único
       que cambia es cómo se reparte el dinero <i>entre</i> los ya elegidos, y ahí hay más de una forma
       razonable de hacerlo:</p>
     <ul class="cap" style="margin:0 0 14px 18px;padding:0">
-      <li><b>Equiponderado</b>: mismo peso para todos los sectores elegidos (si son 4, 25% cada uno) — no
+      <li><b>Equiponderado</b>: mismo peso para todos los ${T.assetWordPl} elegidos (${cHi
+          ? `si son ${cHi}, ${fmtNum(100 / cHi, 0)}% cada uno`
+          : "si son 4, 25% cada uno"}) — no
         apuesta por ninguno en particular dentro del grupo.</li>
-      <li><b>Inverso de la volatilidad</b>: más peso al sector que se mueve con menos vaivén, menos al más
-        errático — para que ningún sector por sí solo acapare el riesgo de la cartera.</li>
+      <li><b>Inverso de la volatilidad</b>: más peso al ${T.assetWord} que se mueve con menos vaivén, menos al más
+        errático — para que ningún ${T.assetWord} por sí solo acapare el riesgo de la cartera.</li>
       <li><b>Por puesto</b>: más peso al que mejor puntuó en la fase, menos al último de los elegidos —
         apuesta explícita por el orden del ranking, no solo por estar dentro de él.</li>
       <li><b>Mitad y mitad</b>: promedio de equiponderado e inverso de la volatilidad.</li>
@@ -989,43 +1091,46 @@ function renderRotation() {
           <th style="text-align:right" title="Rentabilidad anual dividida entre volatilidad anualizada: rentabilidad por unidad de riesgo asumido">Sharpe</th>
           <th style="text-align:right" title="Caída máxima (maxDD): la mayor pérdida de pico a valle en todo el periodo, no una pérdida típica">Caída máx.</th>
           <th style="text-align:right" title="El peor resultado de cualquier ventana de 12 meses consecutivos del periodo (no necesariamente un año natural: puede empezar en marzo y terminar en febrero) — más informativo que el peor año del calendario porque no depende de dónde caigan las fronteras de enero a diciembre">Peor 12 m.</th>
-          <th style="text-align:right" title="En cuántos de los años naturales del periodo la cartera terminó por delante del S&P 500, sobre el total de años con datos completos">Años ganados</th>
+          <th style="text-align:right" title="En cuántos de los años naturales del periodo la cartera terminó por delante de ${T.benchShort}, sobre el total de años con datos completos">Años ganados</th>
         </tr></thead>
         <tbody>
           ${Object.entries(r.schemes).map(([k, v]) =>
             statRow(v.label, v.portfolio, `${v.wins_years}/${v.n_years}`, k === scheme)).join("")}
-          <tr style="border-top:2px solid var(--line-strong)"><td class="asset" style="font-weight:600">S&amp;P 500 / renta variable EE.UU. 100%</td>
+          <tr style="border-top:2px solid var(--line-strong)"><td class="asset" style="font-weight:600">${T.benchLabel}</td>
             <td style="text-align:right;font-family:var(--mono);font-weight:600">${fmtNum(mkt.cagr, 1)}%</td>
             <td style="text-align:right;font-family:var(--mono)">${fmtNum(mkt.vol, 1)}%</td>
             <td style="text-align:right;font-family:var(--mono);font-weight:600">${fmtNum(mkt.sharpe, 2)}</td>
             <td style="text-align:right;font-family:var(--mono)">${fmtNum(mkt.maxdd, 1)}%</td>
             <td style="text-align:right;font-family:var(--mono)">${fmtNum(mkt.worst12, 1)}%</td>
             <td style="text-align:right;font-family:var(--mono);color:var(--ink-soft)">—</td></tr>
-          <tr><td class="asset" style="color:var(--ink-faint);font-size:12px">60/40 (referencia, sin peso en esta cartera)</td>
+          ${T.show6040 ? `<tr><td class="asset" style="color:var(--ink-faint);font-size:12px">60/40 (referencia, sin peso en esta cartera)</td>
             <td style="text-align:right;font-family:var(--mono);color:var(--ink-faint);font-size:12px">${fmtNum(b6040.cagr, 1)}%</td>
             <td style="text-align:right;font-family:var(--mono);color:var(--ink-faint);font-size:12px">${fmtNum(b6040.vol, 1)}%</td>
             <td style="text-align:right;font-family:var(--mono);color:var(--ink-faint);font-size:12px">${fmtNum(b6040.sharpe, 2)}</td>
             <td style="text-align:right;font-family:var(--mono);color:var(--ink-faint);font-size:12px">${fmtNum(b6040.maxdd, 1)}%</td>
             <td style="text-align:right;font-family:var(--mono);color:var(--ink-faint);font-size:12px">${fmtNum(b6040.worst12, 1)}%</td>
-            <td style="text-align:right;font-family:var(--mono);color:var(--ink-faint)">—</td></tr>
+            <td style="text-align:right;font-family:var(--mono);color:var(--ink-faint)">—</td></tr>` : ""}
         </tbody>
       </table>
     </div>
     <p class="foot" style="margin-bottom:14px">${beatsMkt && (p.sharpe ?? 0) > (mkt.sharpe ?? 0)
-      ? `Sin matices: en este histórico la rotación por sectores bate al S&amp;P 500 tanto en
+      ? `Sin matices: en este histórico la rotación por ${T.assetWordPl} bate a ${T.benchShort} tanto en
          rentabilidad como en Sharpe y en caída máxima, con menos volatilidad. No es "gana
          porque asume más riesgo": gana llevando <b>menos</b>.`
       : beatsMkt
         ? `Gana en rentabilidad, pero compara siempre el Sharpe antes de concluir que la selección de
-           sectores aporta: parte de la ventaja puede venir simplemente de llevar más riesgo.`
-        : `El S&amp;P 500 gana en rentabilidad en este histórico. Compara el Sharpe y la caída máxima
+           ${T.assetWordPl} aporta: parte de la ventaja puede venir simplemente de llevar más riesgo.`
+        : `${T.benchShort} gana en rentabilidad en este histórico. Compara el Sharpe y la caída máxima
            antes de descartar la rotación: llevar menos riesgo con rentabilidad parecida también
            es ganar, aunque no lo parezca mirando solo el número grande.`}</p>
     ${S.vol_check ? `<p class="foot" style="margin-bottom:10px">
       Control de riesgo: la cartera terminó con <b>${fmtNum(S.vol_check.cartera, 1)}%</b> de
-      volatilidad frente al <b>${fmtNum(S.vol_check.objetivo_mercado, 1)}%</b> de la renta variable pura
-      (${signed(S.vol_check.desvio, 1)} puntos) — el seguro de oro y la diversificación entre varios
-      sectores (entre 2 y 5 según la fase, nunca un número fijo), no un objetivo impuesto.</p>` : ""}
+      volatilidad frente al <b>${fmtNum(S.vol_check.objetivo_mercado, 1)}%</b> de ${T.pureBenchWord}
+      (${signed(S.vol_check.desvio, 1)} puntos) — ${T.insuranceClause}la diversificación entre varios
+      ${T.assetWordPl}${cLo != null
+        ? (cLo === cHi ? ` (siempre los ${cLo} con mejor ventaja de fase, nunca uno solo)`
+                       : ` (entre ${cLo} y ${cHi} según la fase, nunca un número fijo)`)
+        : ""}, no un objetivo impuesto.</p>` : ""}
     <p class="foot" style="margin-bottom:24px" title="Rotación = qué fracción de la cartera cambia de manos de un mes al siguiente. 20% no significa vender un quinto de las posiciones enteras: puede ser recortar un poco varias a la vez. A más rotación, más peso tienen los costes reales que este backtest no descuenta.">Rotación media de cartera: <b>${fmtNum(S.turnover, 1)}%</b>
       al mes — qué proporción del dinero cambia de sitio de un mes a otro, sea por vender del todo una
       posición o por ajustar el peso de las que se mantienen. Los costes de transacción no están
@@ -1034,14 +1139,14 @@ function renderRotation() {
       ${fmtNum(S.turnover * 0.15 * 12 / 100, 2)} puntos al año.</p>
 
     <div class="bt-chart" style="margin-bottom:24px">
-      <svg id="rotChart" viewBox="0 0 900 340" role="img" aria-label="Evolución frente al S&P 500"></svg>
+      <svg id="rotChart" viewBox="0 0 900 340" role="img" aria-label="Evolución frente a ${T.benchShort}"></svg>
     </div>
 
     <h3 style="font-family:var(--serif);font-size:17px;margin-bottom:10px">Año contra año</h3>
     <div class="bt-chart" style="margin-bottom:8px">
-      <svg id="annChart" viewBox="0 0 900 230" role="img" aria-label="Diferencia anual frente al S&P 500"></svg>
+      <svg id="annChart" viewBox="0 0 900 230" role="img" aria-label="Diferencia anual frente a ${T.benchShort}"></svg>
     </div>
-    <p class="foot" style="margin-bottom:28px">Barras verdes: años en que la cartera batió al S&amp;P 500.
+    <p class="foot" style="margin-bottom:28px">Barras verdes: años en que la cartera batió a ${T.benchShort}.
       Ganó <b>${S.wins_years} de ${S.n_years}</b> años.</p>
 
     <h3 style="font-family:var(--serif);font-size:17px;margin-bottom:4px">Dónde gana y dónde no</h3>
@@ -1069,7 +1174,7 @@ function renderRotation() {
     ${S.sleeve_mix?.[pbPhase] ? `<div class="outlook" style="margin:0 0 16px;padding:16px 20px">
       ${Object.entries(S.sleeve_mix[pbPhase]).map(([k, v]) => `
         <div class="item"><dt>${k}</dt><dd>${fmtNum(v, 0)}%</dd>
-        <small>banda ${(r.bands?.[k] || []).join("–")}%</small></div>`).join("")}
+        <small>banda ${bandTxt(r.bands?.[k])}</small></div>`).join("")}
     </div>` : ""}
     <div class="cons-grid">
       ${(() => {
@@ -1090,10 +1195,10 @@ function renderRotation() {
     <p class="foot">Reparto <b>${S.label.toLowerCase()}</b>. Las primas largo-corto (value, tamaño,
       momentum) quedan fuera: no se compran en una cartera solo larga.
       ${pbPhase === D.current.phase ? "Esta es la fase vigente." : `La fase vigente es ${D.current.phase}.`}</p>
-    ${subsectorHTML(S, pbPhase)}`;
+    ${clockMode === "eq" ? subsectorHTML(S, pbPhase) : ""}`;
 
-  drawCurve("#rotChart", S.curve || [], S.label, "S&P 500 (mercado)");
-  drawAnnual("#annChart", S.annual || {}, r.bench_annual || {});
+  drawCurve("#rotChart", S.curve || [], S.label, T.curveBenchLabel);
+  drawAnnual("#annChart", S.annual || {}, r.bench_annual || {}, T.curveBenchLabel);
   $("#schemeSeg").querySelectorAll("button").forEach(btn => {
     btn.onclick = () => { scheme = btn.dataset.s; renderRotation(); };
   });
@@ -1145,7 +1250,7 @@ function drawCurve(sel, c, labelA, labelB) {
   });
 }
 
-function drawAnnual(sel, ann, bench) {
+function drawAnnual(sel, ann, bench, benchLabel = "S&P 500") {
   const svg = $(sel);
   if (!svg) return;
   svg.innerHTML = "";
@@ -1170,7 +1275,7 @@ function drawAnnual(sel, ann, bench) {
     const r = el("rect", { x: x(i) - bw / 2, y: d >= 0 ? y(d) : y0,
       width: bw, height: Math.max(1, Math.abs(y(d) - y0)),
       fill: d >= 0 ? "#3F6B52" : "#9C4A3C", opacity: 0.9 }, svg);
-    txt("title", {}, `${yr}: cartera ${ann[yr].toFixed(1)}% · S&P 500 ${bench[yr].toFixed(1)}% · ${d >= 0 ? "+" : ""}${d.toFixed(1)} pp`, r);
+    txt("title", {}, `${yr}: cartera ${ann[yr].toFixed(1)}% · ${benchLabel} ${bench[yr].toFixed(1)}% · ${d >= 0 ? "+" : ""}${d.toFixed(1)} pp`, r);
     if (years.length <= 40 || i % Math.ceil(years.length / 30) === 0) {
       txt("text", { x: x(i), y: H - 10, fill: INK_FAINT, "text-anchor": "middle",
         "font-family": "IBM Plex Mono, monospace", "font-size": 8.5,
@@ -1181,7 +1286,7 @@ function drawAnnual(sel, ann, bench) {
 
 
 /* ------------------------------ laboratorio ----------------------------- */
-let labPhase = null, labSleeve = "Renta variable";
+let labPhase = null, labSleeve = null;
 
 function icVerdict(ic) {
   if (ic == null || Number.isNaN(ic)) return ["—", "var(--ink-soft)", "sin datos"];
@@ -1192,7 +1297,8 @@ function icVerdict(ic) {
 }
 
 function renderLab() {
-  const L = D.lab || {};
+  const T = CLOCK_TXT[clockMode];
+  const L = activeLab();
   const phases = D.phases.filter(p => L[p] && !L[p].skipped);
   if (!phases.length) { $("#labBlock").innerHTML = ""; return; }
   labPhase = phases.includes(labPhase) ? labPhase : (phases.includes(D.current.phase) ? D.current.phase : phases[0]);
@@ -1203,11 +1309,16 @@ function renderLab() {
   const noCombos = !S.n_combos;
   const [icTxt, icCol, icMsg] = icVerdict(S.rank_ic);
   const [aTxt, aCol, aMsg] = icVerdict(S.asset_ic);
+  const r = activeRotation();
+  const [cLo, cHi] = r.counts?.[labSleeve] || [];
+  const countsTxt = cLo == null ? "un tamaño fijo"
+    : cLo === cHi ? `siempre ${cLo}, nunca un tamaño distinto`
+    : `entre ${cLo} y ${cHi} según cuántos no muestren desventaja de fase, nunca un tamaño fijo`;
 
   $("#labBlock").innerHTML = `
     <div class="wrap">
       <div class="section-head">
-        <div class="eyebrow">Laboratorio</div>
+        <div class="eyebrow">Laboratorio · ${T.label}</div>
         <h2>Qué combinaciones funcionaron, y si siguieron funcionando</h2>
         <p class="cap">Para cada fase se evalúan <b>todas</b> las combinaciones posibles de
           ${S.k ?? 5} activos dentro del bloque — con ${S.universe?.length ?? "los"} candidatos en
@@ -1222,19 +1333,17 @@ function renderLab() {
           qué repetir este año.</p>
         <p class="cap" style="margin-top:8px">Tamaño fijo a propósito — evaluar "todas las
           combinaciones" solo es tratable con un número constante de piezas. La cartera real de «Qué
-          comprar ahora» no usa este número: elige entre 2 y 5 sectores según cuántos no muestren
-          desventaja de fase, nunca un tamaño fijo. Esta sección responde una pregunta distinta y más
-          simple: si lo
-          que ganaba antes seguía ganando después.</p>
+          comprar ahora» no usa este número: elige ${countsTxt}. Esta sección responde una pregunta
+          distinta y más simple: si lo que ganaba antes seguía ganando después.</p>
       </div>
 
       <div class="seg" id="labPhaseSeg" style="margin-bottom:10px">
         ${phases.map(p => `<button type="button" data-p="${p}" aria-pressed="${p === labPhase}"
           style="${p === labPhase ? `border-color:${PHASE_COLOR[p]};color:${PHASE_COLOR[p]}` : ""}">${p}</button>`).join("")}
       </div>
-      <div class="seg" id="labSleeveSeg" style="margin-bottom:18px">
+      ${sleeves.length > 1 ? `<div class="seg" id="labSleeveSeg" style="margin-bottom:18px">
         ${sleeves.map(x => `<button type="button" data-s="${x}" aria-pressed="${x === labSleeve}">${x}</button>`).join("")}
-      </div>
+      </div>` : ""}
 
       <div class="outlook" style="margin-bottom:20px">
         <div class="item"><dt>Persistencia de combinaciones</dt><dd style="color:${icCol}">${icTxt}</dd><small>${icMsg}</small></div>
@@ -1285,7 +1394,7 @@ function renderLab() {
     </div>`;
 
   $("#labPhaseSeg").querySelectorAll("button").forEach(b => { b.onclick = () => { labPhase = b.dataset.p; renderLab(); }; });
-  $("#labSleeveSeg").querySelectorAll("button").forEach(b => { b.onclick = () => { labSleeve = b.dataset.s; renderLab(); }; });
+  $("#labSleeveSeg")?.querySelectorAll("button").forEach(b => { b.onclick = () => { labSleeve = b.dataset.s; renderLab(); }; });
 }
 
 /* ------------------------------- validación ----------------------------- */
