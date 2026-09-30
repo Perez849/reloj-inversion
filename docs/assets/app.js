@@ -345,7 +345,6 @@ const CLOCK_TXT = {
     pureBenchWord: "la renta variable pura",
     curveBenchLabel: "S&P 500 (mercado)",
     show6040: true,
-    labWord: "sectores",
   },
   fi: {
     label: "Renta fija",
@@ -375,9 +374,14 @@ const CLOCK_TXT = {
     pureBenchWord: "el agregado de bonos puro",
     curveBenchLabel: "AGG (mercado)",
     show6040: false,
-    labWord: "activos de renta fija",
   },
 };
+
+function bandTxt(band) {
+  const [lo, hi] = band || [];
+  if (lo == null) return "—";
+  return lo === hi ? `${lo}%` : `${lo}–${hi}%`;
+}
 
 function activeRotation() { return (clockMode === "fi" ? D.rotation_fi : D.rotation) || {}; }
 function activeLab() { return (clockMode === "fi" ? D.lab_fi : D.lab) || {}; }
@@ -432,13 +436,13 @@ function renderBuy() {
         <div class="buy-item">
           <div><span class="nm">${x.name}</span><span class="tickers">${tickerChips(x.name) || `<span class="small-cap mono">${x.class}</span>`}</span></div>
           <span class="wt">${fmtNum(x.weight, 1)}%</span>
-        </div>`).join("") : `<p class="buy-empty">Sin exposición en esta fase (banda ${(r.bands?.[sl] || []).join("–")}%).</p>`}
+        </div>`).join("") : `<p class="buy-empty">Sin exposición en esta fase (banda ${bandTxt(r.bands?.[sl])}).</p>`}
     </div>`;
   }).join("");
 
   const consensus = activeConsensus();
   const lowConf = c.confidence < 0.6 && consensus.length;
-  const bandsTxt = sleeveOrder.map(sl => `${(r.bands[sl] || []).join("–")}% ${sl.toLowerCase()}`).join(", ");
+  const bandsTxt = sleeveOrder.map(sl => `${bandTxt(r.bands[sl])} ${sl.toLowerCase()}`).join(", ");
   foot.innerHTML = `${T.buyFootIntro} Reparto <b>${scheme_.label.toLowerCase()}</b>
     dentro de cada bloque; el peso entre bloques se mueve según lo bien que puntúa cada uno en
     <b>${phase}</b>, dentro de bandas fijadas de antemano (${bandsTxt}).
@@ -1063,7 +1067,9 @@ function renderRotation() {
       que cambia es cómo se reparte el dinero <i>entre</i> los ya elegidos, y ahí hay más de una forma
       razonable de hacerlo:</p>
     <ul class="cap" style="margin:0 0 14px 18px;padding:0">
-      <li><b>Equiponderado</b>: mismo peso para todos los ${T.assetWordPl} elegidos (si son 4, 25% cada uno) — no
+      <li><b>Equiponderado</b>: mismo peso para todos los ${T.assetWordPl} elegidos (${cHi
+          ? `si son ${cHi}, ${fmtNum(100 / cHi, 0)}% cada uno`
+          : "si son 4, 25% cada uno"}) — no
         apuesta por ninguno en particular dentro del grupo.</li>
       <li><b>Inverso de la volatilidad</b>: más peso al ${T.assetWord} que se mueve con menos vaivén, menos al más
         errático — para que ningún ${T.assetWord} por sí solo acapare el riesgo de la cartera.</li>
@@ -1168,7 +1174,7 @@ function renderRotation() {
     ${S.sleeve_mix?.[pbPhase] ? `<div class="outlook" style="margin:0 0 16px;padding:16px 20px">
       ${Object.entries(S.sleeve_mix[pbPhase]).map(([k, v]) => `
         <div class="item"><dt>${k}</dt><dd>${fmtNum(v, 0)}%</dd>
-        <small>banda ${(r.bands?.[k] || []).join("–")}%</small></div>`).join("")}
+        <small>banda ${bandTxt(r.bands?.[k])}</small></div>`).join("")}
     </div>` : ""}
     <div class="cons-grid">
       ${(() => {

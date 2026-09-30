@@ -610,6 +610,64 @@ Para cada fase y cada bloque (renta variable, oro):
 Esta sección no alimenta ninguna recomendación del panel: es una comprobación
 aparte de si el marco tiene memoria, no una fuente de la cartera de 7.2.
 
+### 7.5 El reloj de renta fija (paralelo, nunca combinado)
+
+El panel tiene **dos relojes independientes**, seleccionables con un desplegable
+encima de «Qué comprar ahora»: el de renta variable (7.1-7.4) y uno de renta fija
+con la misma estructura — «Qué comprar ahora», «El backtest» y «Laboratorio» —
+pero universo, benchmark y resultados propios. Nunca se combinan: activar uno no
+mezcla ni un solo número con el otro, ni en la cartera ni en el backtest.
+
+**Universo.** Los 13 activos de clase "Renta fija" que ya existen en el sistema
+(sección 2.2): Treasury a 2, 10 y 30 años, crédito investment-grade (LQD) y
+high-yield (HYG), TIPS (yield sintético a 10 años y el ETF TIP), titulizaciones
+hipotecarias (el tipo hipotecario a 30 años como yield sintético y el ETF MBB),
+deuda emergente (EMB), municipales (MUB) y crédito Baa/Aaa (yields Moody's,
+sintéticos). Tres pares solapan la misma exposición económica medida por dos
+fuentes distintas — un yield FRED convertido a retorno sintético y el ETF real
+que mide, en esencia, lo mismo — y se resuelven con el mismo mecanismo
+`ASSET_OVERLAP` que ya separaba Semiconductores de Tecnología: hipotecario
+aprox./MBB, TIPS aprox./TIP, Baa aprox./LQD. Solo sigue en carrera el que
+muestre mejor ventaja de fase; nunca compiten los dos por el mismo hueco.
+
+**Benchmark.** El agregado de bonos de EE.UU. (AGG), con clase "Índice
+regional" — el mismo mecanismo que ya deja fuera de la selección al S&P 500 en
+el reloj de renta variable: ningún bloque de `SLEEVES_FI` incluye esa clase,
+así que el benchmark nunca puede ser, por construcción, una posición de la
+cartera. La comparación primaria de «El backtest» es contra este agregado, no
+contra el S&P 500 ni contra un 60/40 (que no se publica en este reloj: no
+tiene sentido como referencia de una cartera ya 100 % renta fija).
+
+**La cartera implementable.** Un único bloque, banda fija al 100 % — no hay
+renta variable ni oro que compita por peso en este reloj. Dentro de él, el
+suelo es 2 (la misma razón que en renta variable: nunca una única posición,
+aunque puntúe mejor que cualquier otra) y el **techo también es 2**, así que
+el bloque sostiene siempre los dos activos de renta fija con mejor ventaja de
+fase, ni uno más. A diferencia del techo de renta variable (5 de 11, sección
+7.2), este número **sí se determinó por completo con el backtest**, no por
+una regla de diversificación mínima: probando cada techo entre 2 y 10 sobre
+las hasta 10 exposiciones únicas del universo moderno (2003-2026), el techo de
+2 gana con claridad en los cuatro esquemas de reparto a la vez y en las cinco
+métricas a la vez. Con datos reales, esquema equiponderado, techo 2 frente a
+techo 5: CAGR 4,01 % frente a 3,14 %, Sharpe 0,63 frente a 0,48, caída máxima
+−27,7 % frente a −31,6 %, peor 12 meses −19,4 % frente a −23,1 % — el mismo
+patrón, sin excepción, en inverso de la volatilidad, por puesto y mitad y
+mitad. La explicación no es azar: los sectores de bolsa son exposiciones
+económicas genuinamente distintas entre sí (Energía no se mueve como
+Tecnología), así que diversificar entre varios reduce riesgo idiosincrático
+real; casi todo el universo de renta fija, en cambio, comparte un único factor
+de fondo — tipos de interés y duración —, así que un tercer o cuarto activo no
+añade una exposición nueva de verdad: solo diluye la apuesta de fase hacia la
+media del conjunto.
+
+El resto del mecanismo es idéntico al de 7.2, reutilizando el mismo código con
+otros parámetros: la misma ventaja de fase contraída con James-Stein, el mismo
+desempate por rendimiento real sin contraer, los mismos cuatro esquemas de
+reparto calculados en paralelo, la misma tolerancia de retraso de publicación
+y el mismo guardián de plausibilidad. El laboratorio de 7.4 se repite también,
+con `k=2` (el techo real de este reloj, igual que 7.4 usa `k=5` porque es el
+techo real del otro) sobre el mismo universo de hasta 13 candidatos.
+
 ---
 
 ## 8. Validación
