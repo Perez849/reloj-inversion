@@ -1055,11 +1055,19 @@ TICKER_SUBSECTOR = {
     # "Financiero". American Express sí entra en Banca: a diferencia de Visa/MA,
     # concede crédito directamente y es una entidad bancaria regulada desde 2008.
     "JPM": "Banca", "BAC": "Banca", "WFC": "Banca", "C": "Banca", "AXP": "Banca",
-    "COF": "Banca", "BNY": "Banca", "USB": "Banca",
+    "COF": "Banca", "USB": "Banca",
     "BRK.B": "Seguros", "PGR": "Seguros", "CB": "Seguros",
     "GS": "Bróker y gestión de activos", "MS": "Bróker y gestión de activos",
     "SCHW": "Bróker y gestión de activos", "BLK": "Bróker y gestión de activos",
     "HOOD": "Bróker y gestión de activos",
+    # BNY (Bank of New York Mellon) estaba en Banca solo por el nombre -- el
+    # único de todo este bloque sin verificar contra su negocio real. BNY no
+    # toma depósitos ni presta como JPM/BAC/WFC/C/USB: su negocio es custodia
+    # de activos, compensación de valores y servicios a inversores
+    # institucionales -- "Asset Management & Custody Banks", no "Banks", en
+    # la clasificación GICS real. Encaja con BlackRock (gestión de activos),
+    # no con la banca comercial.
+    "BNY": "Bróker y gestión de activos",
     # Industria: Union Pacific y CSX son operadores ferroviarios (SIC 4011, "Trans"
     # -- Otros sectores), no fabricantes; Eaton, Trane, Vertiv, Johnson Controls y
     # Emerson son equipo eléctrico ("ElcEq", mixta y excluida); Uber es transporte,
@@ -2027,8 +2035,7 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
              bench_name: str = "Renta variable EE.UU. (mercado)",
              bd_name: str = "Treasury 10 años",
              include_6040: bool = True,
-             phase_sleeve_override: dict | None = None,
-             low_confidence_override: tuple | None = None) -> dict:
+             phase_sleeve_override: dict | None = None) -> dict:
     """Cartera solo larga, siempre invertida al 100 %, sin apalancar ni cortos.
     La fase decide qué activos ocupan cada bloque y cuánto pesa cada bloque dentro
     de sus bandas. Se calculan los cuatro esquemas de reparto en paralelo sobre
@@ -2185,18 +2192,12 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
                 mu = m_p * w_p if mu is None else mu.add(m_p * w_p, fill_value=0.0)
             if mu is None:
                 mu = means(hist, hph, sig)
-            pr_sorted = pr.sort_values(ascending=False)
-            margin = float(pr_sorted.iloc[0] - pr_sorted.iloc[1])
         else:
             mu = means(hist, hph, sig)
-            margin = None
         avail = list(X.loc[t].dropna().index)
         picks, scores = {}, {}
         for name, (classes, lo, hi, n_min, n_max) in sleeves.items():
-            if (low_confidence_override and name == "Renta variable"
-                    and margin is not None and margin < low_confidence_override[0]):
-                n_min, n_max = low_confidence_override[1], low_confidence_override[2]
-            elif phase_sleeve_override and (sig, name) in phase_sleeve_override:
+            if phase_sleeve_override and (sig, name) in phase_sleeve_override:
                 n_min, n_max = phase_sleeve_override[(sig, name)]
             picks[name], scores[name] = _sleeve_pick(
                 mu, vol, raw_phase, avail, classes, cls_map, n_min, n_max)
