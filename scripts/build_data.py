@@ -2039,8 +2039,7 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
              bench_name: str = "Renta variable EE.UU. (mercado)",
              bd_name: str = "Treasury 10 años",
              include_6040: bool = True,
-             phase_sleeve_override: dict | None = None,
-             sleeve_log: list | None = None) -> dict:
+             phase_sleeve_override: dict | None = None) -> dict:
     """Cartera solo larga, siempre invertida al 100 %, sin apalancar ni cortos.
     La fase decide qué activos ocupan cada bloque y cuánto pesa cada bloque dentro
     de sus bandas. Se calculan los cuatro esquemas de reparto en paralelo sobre
@@ -2208,10 +2207,6 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
                 mu, vol, raw_phase, avail, classes, cls_map, n_min, n_max)
         if not any(picks.values()):
             continue
-        if sleeve_log is not None:
-            budgets_log = _sleeve_weights(scores, sleeves)
-            sleeve_log.append({"d": t.strftime("%Y-%m"), "sig": sig,
-                                "picks": dict(picks), "budgets": dict(budgets_log)})
 
         for sch in SCHEMES:
             inner = {name: _weights(top, vol, sch).to_dict()
