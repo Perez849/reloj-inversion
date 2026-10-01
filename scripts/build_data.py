@@ -2270,6 +2270,8 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
             avail = list(X.columns[X.tail(4).notna().any()])
             picks, scores = {}, {}
             for sl, (classes, lo, hi, n_min, n_max) in sleeves.items():
+                if phase_sleeve_override and (phase, sl) in phase_sleeve_override:
+                    n_min, n_max = phase_sleeve_override[(phase, sl)]
                 picks[sl], scores[sl] = _sleeve_pick(
                     mu, vol_all, raw_phase, avail, classes, cls_map, n_min, n_max)
             inner_pb = {sl: _weights(top, vol_all, sch).to_dict()
