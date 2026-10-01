@@ -57,8 +57,13 @@ def maxdd_date(curve):
     return worst_d, round(worst * 100, 1)
 
 
-def summarize(name, rot):
-    sch = rot["default"]
+def summarize(name, rot, sch=None):
+    # OJO: rot["default"] es el esquema de MAYOR CAGR, y ESE ESQUEMA CAMBIA
+    # entre variantes -- comparar "el Sharpe del default" entre dos rotation()
+    # distintas mezcla el efecto de la variante con el efecto de qué esquema
+    # ganó por CAGR. Se fija un esquema explícito para comparar lo mismo
+    # contra lo mismo.
+    sch = sch or rot["default"]
     S = rot["schemes"][sch]
     p = S["portfolio"]
     bench = rot["bench_annual"]
@@ -97,28 +102,48 @@ def summarize(name, rot):
     return p["sharpe"], p["cagr"]
 
 
+def edge_2009(rot, sch, phase="Estanflación"):
+    S = rot["schemes"][sch]
+    hist_by_d = {d.strftime("%Y-%m"): pp for d, pp in zip(F.index, phases)}
+    s = b = n = 0.0
+    for pt in S["curve"]:
+        if pt["d"] < "2009-01" or pt["b"] is None:
+            continue
+        if hist_by_d.get(pt["d"]) != phase:
+            continue
+        s += pt["s"]; b += pt["b"]; n += 1
+    return (s - b) / n if n else None
+
+
+def compare_schemes(name, rot_base, rot_var):
+    print(f"--- {name}: comparación esquema a esquema (NO el 'default', que cambia) ---")
+    for sch in rot_base["schemes"]:
+        Sb, Sv = rot_base["schemes"][sch]["portfolio"], rot_var["schemes"][sch]["portfolio"]
+        eb, ev = edge_2009(rot_base, sch), edge_2009(rot_var, sch)
+        print(f"  {rot_base['schemes'][sch]['label']:<24} Sharpe {Sb['sharpe']} -> {Sv['sharpe']}  "
+              f"CAGR {Sb['cagr']}% -> {Sv['cagr']}%  MaxDD {Sb['maxdd']}% -> {Sv['maxdd']}%  "
+              f"edge Estanf.09+ {eb:+.2f} -> {ev:+.2f}pp/mes")
+    print()
+
+
 rot_base = bd.rotation(X, phases, cls_map, probs_df, F)
 summarize("BASE (producción actual)", rot_base)
 
-# Ronda 1 (A/B/C: diversificar más) empeoró todo. Ronda 2 encontró que lo
-# contrario -- concentrar a 2 fijos en vez de 2-5 -- mejora TODO: Sharpe,
-# CAGR, edge de Estanflación entero y desde 2009, años ganados desde 2009.
-# Ronda 3: ¿es un efecto específico de Estanflación, o concentrar más ayuda
-# en general (y debería tocar el n_max global, no solo esta fase)? Y ¿2 es
-# realmente el óptimo, o 3 es igual de bueno con menos riesgo de MaxDD?
-# Confirmación final: I descartó que fuera un efecto general (empeora el
-# Sharpe global, 0.62). D y H (Estanflación a 2 o 3 fijos) son casi
-# idénticos y ambos claramente mejores que BASE. Candidata real a
-# implementar: banda (2,3) -- no fija, igual que las demás fases, solo más
-# estrecha que la actual (2,5) -- dejando que el propio mecanismo decida
-# entre 2 y 3 según cuántos puntúen positivo.
+# Rondas 1-3: A/B/C (diversificar) empeoraron todo. D/H (concentrar
+# Estanflación a 2 o 3 fijos) parecían mejorar mucho el Sharpe -- pero esa
+# comparación usaba rot["default"] (el esquema de mayor CAGR), que CAMBIA
+# de esquema entre variantes: parte de esa "mejora" podía ser solo el
+# cambio de qué esquema gana, no una mejora real del mismo esquema. Esta
+# ronda repite D, H y J comparando los 4 esquemas uno a uno contra BASE.
+rot_d = bd.rotation(X, phases, cls_map, probs_df, F,
+                     phase_sleeve_override={("Estanflación", "Renta variable"): (2, 2)})
+rot_h = bd.rotation(X, phases, cls_map, probs_df, F,
+                     phase_sleeve_override={("Estanflación", "Renta variable"): (3, 3)})
 rot_j = bd.rotation(X, phases, cls_map, probs_df, F,
                      phase_sleeve_override={("Estanflación", "Renta variable"): (2, 3)})
-summarize("VARIANTE J (candidata final): Estanflación banda (2,3), no fija", rot_j)
-for sch in rot_j["schemes"]:
-    Sj = rot_j["schemes"][sch]
-    Sb = rot_base["schemes"][sch]
-    print(f"    {rot_j['schemes'][sch]['label']:<24} Sharpe {Sb['portfolio']['sharpe']} -> {Sj['portfolio']['sharpe']}  "
-          f"MaxDD {Sb['portfolio']['maxdd']}% -> {Sj['portfolio']['maxdd']}%")
+
+compare_schemes("D: Estanflación 2 fijos", rot_base, rot_d)
+compare_schemes("H: Estanflación 3 fijos", rot_base, rot_h)
+compare_schemes("J: Estanflación banda (2,3)", rot_base, rot_j)
 
 print(f"Total: {time.time()-t0:.0f}s")
