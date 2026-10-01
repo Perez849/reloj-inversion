@@ -2039,8 +2039,7 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
              bench_name: str = "Renta variable EE.UU. (mercado)",
              bd_name: str = "Treasury 10 años",
              include_6040: bool = True,
-             phase_sleeve_override: dict | None = None,
-             dispersion_override: tuple | None = None) -> dict:
+             phase_sleeve_override: dict | None = None) -> dict:
     """Cartera solo larga, siempre invertida al 100 %, sin apalancar ni cortos.
     La fase decide qué activos ocupan cada bloque y cuánto pesa cada bloque dentro
     de sus bandas. Se calculan los cuatro esquemas de reparto en paralelo sobre
@@ -2173,8 +2172,6 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
     turn = {k: [] for k in SCHEMES}
     prev = {k: {} for k in SCHEMES}
     dates, held = [], []
-    eq_cols = [c for c in X.columns if cls_map.get(c) == "Renta variable"]
-    disp_hist: list[float] = []
 
     for k in range(min_train, len(common)):
         t = common[k]
@@ -2184,15 +2181,6 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
         sub_sig = hist[hph == sig]
         raw_phase = (_wmean(sub_sig, _ew(sub_sig, hist.index[-1])) if not sub_sig.empty
                      else _wmean(hist, _ew(hist, hist.index[-1])))
-        # Dispersión transversal: cuánto se diferencian los sectores ENTRE SÍ en
-        # los últimos 6 meses (no su volatilidad individual). Solo con datos ya
-        # conocidos (hist), comparada contra su propio histórico expansivo hasta
-        # ese punto -- nunca mirando hacia delante.
-        disp = None
-        if len(eq_cols) >= 4:
-            sector_6m = hist[eq_cols].tail(6).mean()
-            if sector_6m.notna().sum() >= 4:
-                disp = float(sector_6m.std())
         if probs is not None and t in probs.index:
             # Mezcla por probabilidad: cuando la clasificación es dudosa —y ahora
             # mismo lo es, con dos fases al 38 % y al 37 %— apostar el 100 % a la
@@ -2211,18 +2199,12 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
         else:
             mu = means(hist, hph, sig)
         avail = list(X.loc[t].dropna().index)
-        low_disp = (dispersion_override and disp is not None and len(disp_hist) >= 24
-                    and (sum(1 for x in disp_hist if x < disp) / len(disp_hist)) < dispersion_override[0])
         picks, scores = {}, {}
         for name, (classes, lo, hi, n_min, n_max) in sleeves.items():
-            if low_disp and name == "Renta variable":
-                n_min, n_max = dispersion_override[1], dispersion_override[2]
-            elif phase_sleeve_override and (sig, name) in phase_sleeve_override:
+            if phase_sleeve_override and (sig, name) in phase_sleeve_override:
                 n_min, n_max = phase_sleeve_override[(sig, name)]
             picks[name], scores[name] = _sleeve_pick(
                 mu, vol, raw_phase, avail, classes, cls_map, n_min, n_max)
-        if disp is not None:
-            disp_hist.append(disp)
         if not any(picks.values()):
             continue
 
