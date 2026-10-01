@@ -269,6 +269,15 @@ function renderHero() {
 
   $("#phaseName").textContent = c.phase_long;
   $("#phaseName").style.color = color;
+  // Con el margen por debajo de 30 puntos la fase "principal" es, en la
+  // práctica, casi una moneda al aire frente a la segunda — un aviso de
+  // 13px bajo un titular de hasta 64px pasaba desapercibido (ver
+  // METODOLOGIA.md, la propia fase actual en el momento de escribir esto
+  // tenía 4,4 puntos de margen). El aviso va pegado al titular, no perdido
+  // más abajo entre las estadísticas.
+  $("#phaseTie").innerHTML = c.confidence < 0.3
+    ? `⚠ Margen de solo <b>${fmtPct(c.confidence)}</b> sobre ${probs[1][0]} (${fmtPct(probs[0][1], 1)} vs ${fmtPct(probs[1][1], 1)}) — casi un empate`
+    : "";
   $("#phaseWindow").textContent =
     `${n} ${n === 1 ? "mes" : "meses"} seguidos en esta fase · ${PHASE_HINT[c.phase]} · dato de ${label(c.date)}`;
   $("#phaseWhy").innerHTML = phaseWhyText(c);
