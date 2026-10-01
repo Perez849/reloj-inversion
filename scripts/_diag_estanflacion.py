@@ -42,6 +42,21 @@ probs_df = pd.DataFrame(prob_rows).T.shift(1)
 print(f"Datos listos en {time.time()-t0:.0f}s. Lanzando las 4 rotaciones…\n")
 
 
+def maxdd_date(curve):
+    """Fecha (año-mes) en la que se tocó el peor valle tras el pico anterior."""
+    s = 100.0
+    peak, peak_d = 100.0, None
+    worst, worst_d = 0.0, None
+    for p in curve:
+        s *= 1 + p["s"] / 100
+        if s > peak:
+            peak, peak_d = s, p["d"]
+        dd = s / peak - 1
+        if dd < worst:
+            worst, worst_d = dd, p["d"]
+    return worst_d, round(worst * 100, 1)
+
+
 def summarize(name, rot):
     sch = rot["default"]
     S = rot["schemes"][sch]
@@ -49,6 +64,7 @@ def summarize(name, rot):
     bench = rot["bench_annual"]
     ann = S["annual"]
     curve = S["curve"]
+    dd_d, dd_v = maxdd_date(curve)
     hist_by_d = {h["d"]: h["p"] for h in
                  [{"d": d.strftime("%Y-%m"), "p": pp} for d, pp in zip(F.index, phases)]}
     # edge específico en meses de Estanflación, y desde 2009
@@ -71,7 +87,7 @@ def summarize(name, rot):
         cum_a *= (1 + ann[y] / 100)
         cum_b *= (1 + bench[y] / 100)
     print(f"=== {name} (esquema por defecto: {sch}) ===")
-    print(f"  Histórico completo -> Sharpe {p['sharpe']} · CAGR {p['cagr']}% · MaxDD {p['maxdd']}%")
+    print(f"  Histórico completo -> Sharpe {p['sharpe']} · CAGR {p['cagr']}% · MaxDD {p['maxdd']}% (en {dd_d}, recalculado {dd_v}%)")
     s, b, n = agg.get("Estanflación", [0, 0, 0])
     print(f"  Estanflación (todo el histórico, n={n}): cartera {s/n if n else 0:.2f}%/mes vs mercado {b/n if n else 0:.2f}%/mes  edge {(s-b)/n if n else 0:+.2f}pp/mes")
     s9, b9, n9 = agg2009.get("Estanflación", [0, 0, 0])
@@ -84,36 +100,35 @@ def summarize(name, rot):
 rot_base = bd.rotation(X, phases, cls_map, probs_df, F)
 summarize("BASE (producción actual)", rot_base)
 
-rot_a = bd.rotation(X, phases, cls_map, probs_df, F,
-                     phase_sleeve_override={("Estanflación", "Renta variable"): (99, 99)})
-summarize("VARIANTE A: Estanflación = todo el universo (sin apuesta de sector)", rot_a)
-
-rot_b = bd.rotation(X, phases, cls_map, probs_df, F,
-                     phase_sleeve_override={("Estanflación", "Renta variable"): (7, 7)})
-summarize("VARIANTE B: Estanflación = banda ancha (7 de ~14, apuesta suave)", rot_b)
-
-# Variante C: igual que A pero también en Recuperación, la otra fase con IC
-# negativo (-0.18) detectado en el laboratorio -- por si el problema no es
-# solo de Estanflación.
-rot_c = bd.rotation(X, phases, cls_map, probs_df, F,
-                     phase_sleeve_override={
-                         ("Estanflación", "Renta variable"): (99, 99),
-                         ("Recuperación", "Renta variable"): (99, 99),
-                     })
-summarize("VARIANTE C: A + también Recuperación a universo completo", rot_c)
-
-# A/B/C (diversificar más) empeoraron todo lo medido. Se prueba lo contrario
-# (concentrar más) y una señal distinta (momentum, no condicionada a fase).
+# Ronda 1 (A/B/C: diversificar más) empeoró todo. Ronda 2 encontró que lo
+# contrario -- concentrar a 2 fijos en vez de 2-5 -- mejora TODO: Sharpe,
+# CAGR, edge de Estanflación entero y desde 2009, años ganados desde 2009.
+# Ronda 3: ¿es un efecto específico de Estanflación, o concentrar más ayuda
+# en general (y debería tocar el n_max global, no solo esta fase)? Y ¿2 es
+# realmente el óptimo, o 3 es igual de bueno con menos riesgo de MaxDD?
 rot_d = bd.rotation(X, phases, cls_map, probs_df, F,
                      phase_sleeve_override={("Estanflación", "Renta variable"): (2, 2)})
-summarize("VARIANTE D: Estanflación concentrada al mínimo (2 fijos, no 2-5)", rot_d)
+summarize("VARIANTE D: Estanflación concentrada a 2 fijos (ya probada, referencia)", rot_d)
 
-rot_e = bd.rotation(X, phases, cls_map, probs_df, F,
-                     momentum_phases={"Estanflación"}, momentum_window=6)
-summarize("VARIANTE E: Estanflación por momentum puro (media 6m, no por fase)", rot_e)
+rot_h = bd.rotation(X, phases, cls_map, probs_df, F,
+                     phase_sleeve_override={("Estanflación", "Renta variable"): (3, 3)})
+summarize("VARIANTE H: Estanflación a 3 fijos (afinar entre 2 y la banda 2-5 actual)", rot_h)
 
-rot_f = bd.rotation(X, phases, cls_map, probs_df, F,
-                     momentum_phases={"Estanflación"}, momentum_window=12)
-summarize("VARIANTE F: igual que E pero ventana de 12 meses", rot_f)
+rot_g = bd.rotation(X, phases, cls_map, probs_df, F,
+                     phase_sleeve_override={
+                         ("Recuperación", "Renta variable"): (2, 2),
+                         ("Sobrecalentamiento", "Renta variable"): (2, 2),
+                         ("Estanflación", "Renta variable"): (2, 2),
+                         ("Reflación", "Renta variable"): (2, 2),
+                     })
+summarize("VARIANTE G: 2 fijos en LAS CUATRO fases (¿es general o solo Estanflación?)", rot_g)
+
+rot_i = bd.rotation(X, phases, cls_map, probs_df, F,
+                     phase_sleeve_override={
+                         ("Recuperación", "Renta variable"): (2, 2),
+                         ("Sobrecalentamiento", "Renta variable"): (2, 2),
+                         ("Reflación", "Renta variable"): (2, 2),
+                     })
+summarize("VARIANTE I: 2 fijos en las OTRAS tres fases, Estanflación sin tocar (2-5)", rot_i)
 
 print(f"Total: {time.time()-t0:.0f}s")
