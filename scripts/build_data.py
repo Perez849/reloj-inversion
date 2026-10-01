@@ -1037,6 +1037,10 @@ TICKER_SUBSECTOR = {
     "MRK": "Farmacéuticas", "AMGN": "Farmacéuticas", "GILD": "Farmacéuticas",
     "PFE": "Farmacéuticas", "VRTX": "Farmacéuticas", "BMY": "Farmacéuticas",
     "REGN": "Farmacéuticas",
+    # Moderna fabrica y vende fármacos aprobados (vacunas de ARNm): mismo SIC
+    # 2836 ("Biological products") que el resto de este bloque, no un caso
+    # aparte por ser "biotech" en el lenguaje común.
+    "MRNA": "Farmacéuticas",
     "UNH": "Servicios de salud", "CVS": "Servicios de salud", "ELV": "Servicios de salud",
     "TMO": "Equipos médicos", "ABT": "Equipos médicos", "ISRG": "Equipos médicos",
     "DHR": "Equipos médicos", "MDT": "Equipos médicos", "SYK": "Equipos médicos",
@@ -2035,7 +2039,8 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
              bench_name: str = "Renta variable EE.UU. (mercado)",
              bd_name: str = "Treasury 10 años",
              include_6040: bool = True,
-             phase_sleeve_override: dict | None = None) -> dict:
+             phase_sleeve_override: dict | None = None,
+             holdings_log: list | None = None) -> dict:
     """Cartera solo larga, siempre invertida al 100 %, sin apalancar ni cortos.
     La fase decide qué activos ocupan cada bloque y cuánto pesa cada bloque dentro
     de sus bandas. Se calculan los cuatro esquemas de reparto en paralelo sobre
@@ -2203,6 +2208,8 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
                 mu, vol, raw_phase, avail, classes, cls_map, n_min, n_max)
         if not any(picks.values()):
             continue
+        if holdings_log is not None:
+            holdings_log.append({"d": t.strftime("%Y-%m"), "sig": sig, "picks": dict(picks)})
 
         for sch in SCHEMES:
             inner = {name: _weights(top, vol, sch).to_dict()
