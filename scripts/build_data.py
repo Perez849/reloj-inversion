@@ -2027,7 +2027,8 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
              bench_name: str = "Renta variable EE.UU. (mercado)",
              bd_name: str = "Treasury 10 años",
              include_6040: bool = True,
-             phase_sleeve_override: dict | None = None) -> dict:
+             phase_sleeve_override: dict | None = None,
+             low_confidence_override: tuple | None = None) -> dict:
     """Cartera solo larga, siempre invertida al 100 %, sin apalancar ni cortos.
     La fase decide qué activos ocupan cada bloque y cuánto pesa cada bloque dentro
     de sus bandas. Se calculan los cuatro esquemas de reparto en paralelo sobre
@@ -2184,12 +2185,18 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
                 mu = m_p * w_p if mu is None else mu.add(m_p * w_p, fill_value=0.0)
             if mu is None:
                 mu = means(hist, hph, sig)
+            pr_sorted = pr.sort_values(ascending=False)
+            margin = float(pr_sorted.iloc[0] - pr_sorted.iloc[1])
         else:
             mu = means(hist, hph, sig)
+            margin = None
         avail = list(X.loc[t].dropna().index)
         picks, scores = {}, {}
         for name, (classes, lo, hi, n_min, n_max) in sleeves.items():
-            if phase_sleeve_override and (sig, name) in phase_sleeve_override:
+            if (low_confidence_override and name == "Renta variable"
+                    and margin is not None and margin < low_confidence_override[0]):
+                n_min, n_max = low_confidence_override[1], low_confidence_override[2]
+            elif phase_sleeve_override and (sig, name) in phase_sleeve_override:
                 n_min, n_max = phase_sleeve_override[(sig, name)]
             picks[name], scores[name] = _sleeve_pick(
                 mu, vol, raw_phase, avail, classes, cls_map, n_min, n_max)
