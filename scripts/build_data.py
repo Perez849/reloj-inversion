@@ -1614,6 +1614,8 @@ SLEEVES = {
     # el número de años individuales que baten al S&P 500 (unos 2 de 47 menos en la
     # mayoría de esquemas): concentrar en menos nombres da más rentabilidad total a
     # cambio de alguna caída interanual más marcada — un cambio real, no ruido.
+    # Excepción: en Estanflación el techo real es 3, no 5 (ver
+    # ESTANFLACION_OVERRIDE más abajo, aplicado en la llamada a rotation()).
     "Renta variable": ({"Renta variable"}, 0.80, 1.00, 2, 5),
     # Oro físico y mineras de oro, las dos únicas exposiciones de la clase
     # "Oro" (ver FRENCH_49 y MARKET). Sin suelo: puede quedarse en 0, 1 o 2
@@ -1621,6 +1623,54 @@ SLEEVES = {
     # supera a la renta variable en peso (banda 0-20%).
     "Oro": ({"Oro"}, 0.00, 0.20, 0, 2),
 }
+
+# Excepción al techo de 5 de SLEEVES, solo para Estanflación (ver rotation(),
+# parámetro phase_sleeve_override). Origen: un usuario señaló, con razón, que
+# la cartera de renta variable llevaba demasiados años perdiendo contra el
+# S&P 500 desde 2009 y pidió investigarlo en vez de aceptar la explicación
+# fácil de "la diversificación cuesta rentabilidad en mercados alcistas
+# concentrados". El propio laboratorio (ver lab["Estanflación"]["sleeves"]
+# ["Renta variable"]) ya medía la causa: persistencia NEGATIVA entre la
+# primera y segunda mitad cronológica de la fase (rank_ic -0,27, asset_ic
+# -0,44) -- la ÚNICA de las 4 fases donde "lo que fue mejor en esta fase
+# antes" predice lo CONTRARIO de lo que pasa después, no simplemente "sin
+# relación". Las otras tres fases muestran persistencia POSITIVA real
+# (Sobrecalentamiento +0,51, Reflación +0,30) o débil (Recuperación -0,18,
+# dentro de ruido) -- el problema es específico de Estanflación, no un fallo
+# general del método de selección.
+#
+# Probado con datos reales, en este orden:
+#   1. Diversificar MÁS en Estanflación (todo el universo, o una banda ancha
+#      de 7): empeora todo lo medible -- Sharpe, CAGR, caída máxima, Y el
+#      propio edge de Estanflación desde 2009 (-0,16pp/mes de partida a
+#      -0,25/-0,30pp/mes). Diluir hacia sectores de peor "information ratio"
+#      (ventaja/volatilidad) no sustituye tener razón, empeora las cosas.
+#   2. Reemplazar la ventaja condicionada a la fase por momentum puro (media
+#      simple de los últimos 6 o 12 meses, sin condicionar a qué fase fue
+#      cada uno): la peor de todas las variantes probadas (Sharpe 0,64,
+#      caída máxima -44,6%, edge -0,47pp/mes) -- el momentum no sustituye a
+#      la señal de fase aquí.
+#   3. CONCENTRAR más (lo contrario de 1): 2 o 3 sectores fijos en vez de la
+#      banda 2-5 normal. Aislado con un control (2 fijos en las OTRAS tres
+#      fases, dejando Estanflación intacta: el Sharpe EMPEORA a 0,62 -- el
+#      efecto no es general, es específico de concentrar esta fase). 3 fijos
+#      es la variante ganadora: mejora el Sharpe en los 4 esquemas de
+#      reparto a la vez (aunque modesto, +0,01 a +0,02 -- no es una bala de
+#      plata) y reduce el edge de Estanflación desde 2009 a menos de la
+#      mitad en los 4 esquemas (-0,16/-0,18/-0,27/-0,17 -> -0,04/-0,07/
+#      -0,13/-0,06 pp/mes). El coste real: caída máxima histórica algo peor
+#      en los 4 esquemas (del orden de 1 a 3 puntos) -- pero ocurre en
+#      1982-07 (Volcker), no en el periodo reciente que motivó la pregunta.
+#      Una banda (2,3), dejando que el propio mecanismo eligiera entre 2 y 3
+#      según cuántos puntuaran positivo, quedó peor que fijarlo siempre a 3
+#      -- alternar mes a mes entre 2 y 3 nombres no capturaba lo bueno de
+#      ninguno de los dos extremos.
+#
+# Esto NO convierte Estanflación en una fase ganadora -- sigue sin batir al
+# mercado ahí (edge aún negativo) -- pero reduce sustancialmente cuánto
+# pierde, con el mismo nivel de riesgo. Ver METODOLOGIA.md para la versión
+# larga.
+ESTANFLACION_OVERRIDE = {("Estanflación", "Renta variable"): (3, 3)}
 
 # Reloj de renta fija (ver rotation()/laboratory() con sleeves=SLEEVES_FI): un único
 # bloque, banda fija al 100% -- no compite con renta variable ni oro, es un reloj
@@ -1977,9 +2027,7 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
              bench_name: str = "Renta variable EE.UU. (mercado)",
              bd_name: str = "Treasury 10 años",
              include_6040: bool = True,
-             phase_sleeve_override: dict | None = None,
-             momentum_phases: set | None = None,
-             momentum_window: int = 6) -> dict:
+             phase_sleeve_override: dict | None = None) -> dict:
     """Cartera solo larga, siempre invertida al 100 %, sin apalancar ni cortos.
     La fase decide qué activos ocupan cada bloque y cuánto pesa cada bloque dentro
     de sus bandas. Se calculan los cuatro esquemas de reparto en paralelo sobre
@@ -1997,7 +2045,11 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
     la cartera de renta variable + oro; se pasan valores distintos para reutilizar el
     mismo motor de backtest con otro conjunto de bloques (ver SLEEVES_FI, el reloj de
     renta fija). `include_6040=False` omite el 60/40 de contexto, que no tiene sentido
-    como referencia de una cartera que ya es 100% renta fija."""
+    como referencia de una cartera que ya es 100% renta fija.
+
+    `phase_sleeve_override`: suelo/techo de un bloque PARA UNA FASE CONCRETA, distinto
+    del de `sleeves` (ver ESTANFLACION_OVERRIDE más abajo y por qué Estanflación tiene
+    uno propio)."""
     print("7. Rotación por fase (4 esquemas de reparto)…")
     common = X.dropna(how="all").index.intersection(phases.dropna().index)
     X = X.loc[common]
@@ -2134,13 +2186,6 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
                 mu = means(hist, hph, sig)
         else:
             mu = means(hist, hph, sig)
-        if momentum_phases and sig in momentum_phases:
-            # Sustituye la ventaja condicionada a la fase por el momentum puro
-            # (media simple de los últimos `momentum_window` meses, sin
-            # condicionar a qué fase fue cada uno): prueba de si, cuando la
-            # persistencia dentro de la fase es negativa (ver laboratorio),
-            # una señal de tendencia reciente -no fase- hace mejor trabajo.
-            mu = hist.iloc[-momentum_window:].mean()
         avail = list(X.loc[t].dropna().index)
         picks, scores = {}, {}
         for name, (classes, lo, hi, n_min, n_max) in sleeves.items():
@@ -2515,7 +2560,8 @@ def main() -> None:
     for d, gg, ii in zip(F.index, F["growth"], F["inflation"]):
         prob_rows[d] = phase_probs(float(gg), float(ii), sg, si)
     probs_df = pd.DataFrame(prob_rows).T.shift(1)
-    rot = rotation(X, phases, cls_map, probs_df, F)
+    rot = rotation(X, phases, cls_map, probs_df, F,
+                   phase_sleeve_override=ESTANFLACION_OVERRIDE)
     lab = laboratory(X, phases, cls_map)
     # Reloj de renta fija: mismo motor, otro conjunto de bloques (ver SLEEVES_FI) y
     # otro benchmark (el agregado de bonos, no el S&P 500). include_6040=False: un

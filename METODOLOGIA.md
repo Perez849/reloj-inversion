@@ -552,7 +552,7 @@ explícita, no un hallazgo del backtest. En el mes *t*:
 | Regla | Motivo |
 |---|---|
 | Bandas 80-100 % renta variable, 0-20 % oro | Nunca sin renta variable; el oro es un seguro táctico, no puede superar a la renta variable en peso |
-| Entre 2 y 5 sectores, nunca fijo | Un único sector sobre una cartera 100 % invertida es un riesgo idiosincrático que nadie pidió. El techo bajó de 7 a 5 tras comprobar con el propio backtest que concentrarse en los cinco con mejor ventaja de fase —dejando fuera a los más débiles aunque también puntúen positivo— rinde mejor que diversificar hasta 7: CAGR +0,25 a +0,29 puntos en los 4 esquemas de reparto, Sharpe igual o mejor, caída máxima casi idéntica; el único coste es 1-2 años menos, de 47, batiendo al S&P 500. Dentro de ese rango, manda la fase: cuantos puntúen positivo de verdad, ni uno más para rellenar cupo |
+| Entre 2 y 5 sectores, nunca fijo (2-3 en Estanflación, ver 7.4) | Un único sector sobre una cartera 100 % invertida es un riesgo idiosincrático que nadie pidió. El techo bajó de 7 a 5 tras comprobar con el propio backtest que concentrarse en los cinco con mejor ventaja de fase —dejando fuera a los más débiles aunque también puntúen positivo— rinde mejor que diversificar hasta 7: CAGR +0,25 a +0,29 puntos en los 4 esquemas de reparto, Sharpe igual o mejor, caída máxima casi idéntica; el único coste es 1-2 años menos, de 47, batiendo al S&P 500. Dentro de ese rango, manda la fase: cuantos puntúen positivo de verdad, ni uno más para rellenar cupo. Estanflación es la excepción: techo fijo en 3, no 5 — ver 7.4 |
 | Índices agregados excluidos de la selección | S&P total, EAFE, emergentes y small caps copan la selección si se les deja, y desaparece la rotación sectorial. Siguen en la matriz como referencia |
 | Series no invertibles excluidas | PPI y WTI spot no se pueden mantener en cartera |
 | "Consumo duradero" (Durbl) excluido del todo | Ken French lo separa de "Consumo discrecional" (Shops) como industria propia, con su propia serie de retornos, pero no existe un ETF sectorial real que trackee bienes duraderos aparte del consumo discrecional — el mapeo real caía en el mismo IYC/XLY que "Consumo discrecional". Con los dos como sectores independientes, la cartera podía recomendar ambos a la vez en la misma fase: dos nombres, dos líneas en "qué comprar ahora", **la misma orden de compra**. Se descarta la industria entera de la fuente en vez de parchear la selección, porque el problema no es la selección — es que ese sector no tiene una forma real de comprarse aparte |
@@ -608,7 +608,53 @@ Para cada fase y cada bloque (renta variable, oro):
    historia pasada equivale a tirar una moneda.
 
 Esta sección no alimenta ninguna recomendación del panel: es una comprobación
-aparte de si el marco tiene memoria, no una fuente de la cartera de 7.2.
+aparte de si el marco tiene memoria, no una fuente directa de la cartera de
+7.2. Pero sí sirvió para diagnosticar un problema real que 7.2 tuvo que
+resolver — el único caso, por ahora, en que esta comprobación encontró algo
+y la cartera cambió a raíz de ello.
+
+**Por qué Estanflación tiene un techo distinto (3, no 5).** Un usuario señaló
+que la cartera de renta variable llevaba demasiados años perdiendo contra el
+S&P 500 desde 2009 y pidió investigarlo, en vez de aceptar la explicación
+fácil de "la diversificación cuesta rentabilidad en un mercado alcista
+concentrado". El laboratorio de esta sección ya tenía la causa medida:
+Estanflación es la única de las cuatro fases con persistencia claramente
+**negativa** entre su primera y segunda mitad cronológica (rank_ic -0,27,
+asset_ic -0,44) — lo que mejor rindió antes tiende a rendir peor después, no
+simplemente "sin relación". Sobrecalentamiento (+0,51) y Reflación (+0,30)
+muestran persistencia real; Recuperación (-0,18) está dentro de ruido.
+Estanflación es el único caso franco.
+
+Probado con el propio motor de selección (no con 7.4, que no decide nada),
+en este orden:
+
+1. **Diversificar más** en Estanflación (todo el universo de ~14 sectores, o
+   una banda ancha de 7): empeora todo lo medible — Sharpe, CAGR, caída
+   máxima, y el propio desfase frente al mercado en esa fase desde 2009 (de
+   -0,16 a -0,25/-0,30 puntos porcentuales al mes). Diluir hacia sectores de
+   peor ventaja por volatilidad no sustituye acertar, empeora las cosas.
+2. **Momentum puro** (media de los últimos 6 o 12 meses, sin condicionar a la
+   fase) en vez de la ventaja de fase: la peor variante probada — Sharpe
+   0,64, caída máxima -44,6 %, el desfase se dispara a -0,47 puntos.
+3. **Concentrar más** (lo contrario de 1): 2 o 3 sectores fijos, no la banda
+   2-5 normal. Aislado con un control — 2 fijos en las *otras* tres fases,
+   dejando Estanflación intacta: el Sharpe global empeora (0,62), así que el
+   efecto no es general, es específico de concentrar Estanflación. El
+   resultado, comparando esquema a esquema (no el que más CAGR da en cada
+   variante, que cambia y puede confundir la comparación): 3 fijos mejora el
+   Sharpe en los 4 esquemas de reparto a la vez, aunque modesto (+0,01 a
+   +0,02), y reduce el desfase de Estanflación desde 2009 a menos de la
+   mitad en los 4 esquemas (de -0,16/-0,18/-0,27/-0,17 a -0,04/-0,07/-0,13/
+   -0,06 puntos al mes). El coste real es una caída máxima histórica algo
+   peor en los 4 esquemas — pero ocurre en julio de 1982 (Volcker), no en el
+   tramo reciente que motivó la pregunta. Una banda (2,3) que dejara decidir
+   al propio mecanismo cada mes, en vez de fijarlo siempre a 3, quedó peor
+   que cualquiera de los dos extremos puros — alternar entre 2 y 3 nombres
+   mes a mes no capturaba lo bueno de ninguno.
+
+Esto no convierte Estanflación en una fase ganadora — la cartera sigue sin
+batir al mercado ahí, el desfase sigue siendo negativo — pero reduce
+sustancialmente cuánto pierde, con el mismo nivel de riesgo aproximado.
 
 ### 7.5 El reloj de renta fija (paralelo, nunca combinado)
 
