@@ -1977,7 +1977,9 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
              bench_name: str = "Renta variable EE.UU. (mercado)",
              bd_name: str = "Treasury 10 años",
              include_6040: bool = True,
-             phase_sleeve_override: dict | None = None) -> dict:
+             phase_sleeve_override: dict | None = None,
+             momentum_phases: set | None = None,
+             momentum_window: int = 6) -> dict:
     """Cartera solo larga, siempre invertida al 100 %, sin apalancar ni cortos.
     La fase decide qué activos ocupan cada bloque y cuánto pesa cada bloque dentro
     de sus bandas. Se calculan los cuatro esquemas de reparto en paralelo sobre
@@ -2132,6 +2134,13 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
                 mu = means(hist, hph, sig)
         else:
             mu = means(hist, hph, sig)
+        if momentum_phases and sig in momentum_phases:
+            # Sustituye la ventaja condicionada a la fase por el momentum puro
+            # (media simple de los últimos `momentum_window` meses, sin
+            # condicionar a qué fase fue cada uno): prueba de si, cuando la
+            # persistencia dentro de la fase es negativa (ver laboratorio),
+            # una señal de tendencia reciente -no fase- hace mejor trabajo.
+            mu = hist.iloc[-momentum_window:].mean()
         avail = list(X.loc[t].dropna().index)
         picks, scores = {}, {}
         for name, (classes, lo, hi, n_min, n_max) in sleeves.items():

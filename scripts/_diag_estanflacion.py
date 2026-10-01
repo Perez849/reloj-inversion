@@ -102,4 +102,18 @@ rot_c = bd.rotation(X, phases, cls_map, probs_df, F,
                      })
 summarize("VARIANTE C: A + también Recuperación a universo completo", rot_c)
 
+# A/B/C (diversificar más) empeoraron todo lo medido. Se prueba lo contrario
+# (concentrar más) y una señal distinta (momentum, no condicionada a fase).
+rot_d = bd.rotation(X, phases, cls_map, probs_df, F,
+                     phase_sleeve_override={("Estanflación", "Renta variable"): (2, 2)})
+summarize("VARIANTE D: Estanflación concentrada al mínimo (2 fijos, no 2-5)", rot_d)
+
+rot_e = bd.rotation(X, phases, cls_map, probs_df, F,
+                     momentum_phases={"Estanflación"}, momentum_window=6)
+summarize("VARIANTE E: Estanflación por momentum puro (media 6m, no por fase)", rot_e)
+
+rot_f = bd.rotation(X, phases, cls_map, probs_df, F,
+                     momentum_phases={"Estanflación"}, momentum_window=12)
+summarize("VARIANTE F: igual que E pero ventana de 12 meses", rot_f)
+
 print(f"Total: {time.time()-t0:.0f}s")
