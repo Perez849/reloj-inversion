@@ -106,29 +106,19 @@ summarize("BASE (producción actual)", rot_base)
 # Ronda 3: ¿es un efecto específico de Estanflación, o concentrar más ayuda
 # en general (y debería tocar el n_max global, no solo esta fase)? Y ¿2 es
 # realmente el óptimo, o 3 es igual de bueno con menos riesgo de MaxDD?
-rot_d = bd.rotation(X, phases, cls_map, probs_df, F,
-                     phase_sleeve_override={("Estanflación", "Renta variable"): (2, 2)})
-summarize("VARIANTE D: Estanflación concentrada a 2 fijos (ya probada, referencia)", rot_d)
-
-rot_h = bd.rotation(X, phases, cls_map, probs_df, F,
-                     phase_sleeve_override={("Estanflación", "Renta variable"): (3, 3)})
-summarize("VARIANTE H: Estanflación a 3 fijos (afinar entre 2 y la banda 2-5 actual)", rot_h)
-
-rot_g = bd.rotation(X, phases, cls_map, probs_df, F,
-                     phase_sleeve_override={
-                         ("Recuperación", "Renta variable"): (2, 2),
-                         ("Sobrecalentamiento", "Renta variable"): (2, 2),
-                         ("Estanflación", "Renta variable"): (2, 2),
-                         ("Reflación", "Renta variable"): (2, 2),
-                     })
-summarize("VARIANTE G: 2 fijos en LAS CUATRO fases (¿es general o solo Estanflación?)", rot_g)
-
-rot_i = bd.rotation(X, phases, cls_map, probs_df, F,
-                     phase_sleeve_override={
-                         ("Recuperación", "Renta variable"): (2, 2),
-                         ("Sobrecalentamiento", "Renta variable"): (2, 2),
-                         ("Reflación", "Renta variable"): (2, 2),
-                     })
-summarize("VARIANTE I: 2 fijos en las OTRAS tres fases, Estanflación sin tocar (2-5)", rot_i)
+# Confirmación final: I descartó que fuera un efecto general (empeora el
+# Sharpe global, 0.62). D y H (Estanflación a 2 o 3 fijos) son casi
+# idénticos y ambos claramente mejores que BASE. Candidata real a
+# implementar: banda (2,3) -- no fija, igual que las demás fases, solo más
+# estrecha que la actual (2,5) -- dejando que el propio mecanismo decida
+# entre 2 y 3 según cuántos puntúen positivo.
+rot_j = bd.rotation(X, phases, cls_map, probs_df, F,
+                     phase_sleeve_override={("Estanflación", "Renta variable"): (2, 3)})
+summarize("VARIANTE J (candidata final): Estanflación banda (2,3), no fija", rot_j)
+for sch in rot_j["schemes"]:
+    Sj = rot_j["schemes"][sch]
+    Sb = rot_base["schemes"][sch]
+    print(f"    {rot_j['schemes'][sch]['label']:<24} Sharpe {Sb['portfolio']['sharpe']} -> {Sj['portfolio']['sharpe']}  "
+          f"MaxDD {Sb['portfolio']['maxdd']}% -> {Sj['portfolio']['maxdd']}%")
 
 print(f"Total: {time.time()-t0:.0f}s")
