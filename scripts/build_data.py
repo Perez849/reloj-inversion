@@ -347,6 +347,167 @@ def fill_tail(X: pd.DataFrame, limit: int = TAIL_FILL_M) -> pd.DataFrame:
     return out
 
 
+# ======================================================================================
+# 3b. Ampliación del panel: más series candidatas para el PCA
+# ======================================================================================
+# Pregunta: ¿cuánta de la variación conjunta de cada bloque recoge su primer
+# componente, y mejora con más series? Se descargan candidatas con historia larga y
+# se eligen por selección hacia delante: entra la que más sube la varianza explicada
+# del primer componente del bloque, siempre que (a) tenga signo y correlación
+# coherentes con el factor ya existente (|r| >= 0,30; si r < 0 se invierte) y (b) la
+# mejora sea de al menos MIN_GAIN. Es selección sobre una MEDIDA DE AJUSTE DEL
+# FACTOR, no sobre rentabilidades de activos, así que no mete sesgo de anticipación
+# en las carteras; sí es selección con la misma muestra, y se declara en el payload.
+CAND_MIN_OBS = 360
+CAND_MIN_ABS_R = 0.30
+CAND_MIN_GAIN = 0.005
+CAND_MAX_PER_BLOCK = 8
+
+CANDIDATES: list[Series] = [
+    # crecimiento
+    Series("USPRIV", "Nóminas privadas", "growth", "ratio_yoy", 1),
+    Series("UNRATE", "Tasa de paro", "growth", "d12", 1, invert=True),
+    Series("CCSA", "Peticiones continuadas", "growth", "yoy", 0, invert=True),
+    Series("DSPIC96", "Renta disponible real", "growth", "yoy", 1),
+    Series("PCEC96", "Consumo real", "growth", "yoy", 2),
+    Series("TOTALSA", "Ventas de vehículos", "growth", "yoy", 1),
+    Series("DGORDER", "Pedidos de bienes duraderos", "growth", "yoy", 2),
+    Series("AMTMNO", "Pedidos nuevos manufactura", "growth", "yoy", 2),
+    Series("CUMFNS", "Capacidad en manufactura", "growth", "d12", 1),
+    Series("MANEMP", "Empleo en manufactura", "growth", "yoy", 1),
+    Series("USCONS", "Empleo en construcción", "growth", "yoy", 1),
+    Series("IPMAN", "Producción manufacturera", "growth", "yoy", 1),
+    Series("IPCONGD", "Producción de bienes de consumo", "growth", "yoy", 1),
+    Series("RSAFS", "Ventas minoristas nominales", "growth", "yoy", 1),
+    Series("CE16OV", "Empleo (encuesta de hogares)", "growth", "yoy", 1),
+    # inflación
+    Series("PCEPI", "PCE general", "inflation", "yoy", 2),
+    Series("CPIUFDSL", "IPC alimentos", "inflation", "yoy", 1),
+    Series("CUSR0000SAS", "IPC servicios", "inflation", "yoy", 1),
+    Series("CUSR0000SAH1", "IPC vivienda", "inflation", "yoy", 1),
+    Series("CPIENGSL", "IPC energía", "inflation", "yoy", 1),
+    Series("CPIMEDSL", "IPC sanidad", "inflation", "yoy", 1),
+    Series("MICH", "Expectativas de inflación (Michigan)", "inflation", "lvl", 0),
+    Series("GASREGW", "Gasolina", "inflation", "yoy_log", 0),
+    Series("IR", "Precios de importación", "inflation", "yoy", 1),
+    Series("WPSFD49207", "Precios de producción, demanda final", "inflation", "yoy", 1),
+    # adelantados
+    Series("M2SL", "Dinero M2", "leading", "yoy", 1),
+    Series("BUSLOANS", "Préstamos comerciales", "leading", "yoy", 1),
+    Series("STLFSI4", "Estrés financiero (St. Louis)", "leading", "lvl", 0, invert=True),
+    Series("NEWORDER", "Pedidos de bienes de capital", "leading", "yoy", 2),
+    Series("T10Y3M", "Curva 10a-3m (como adelantado)", "leading", "lvl", 0),
+    Series("MORTGAGE30US", "Hipoteca a 30 años", "leading", "d12", 0, invert=True),
+    Series("AWOTMAN", "Horas extra manufactura", "leading", "lvl", 1),
+]
+
+
+def fetch_candidates(df: pd.DataFrame):
+    """Descarga las candidatas que aún no están en el panel. Si una falla, se avisa y
+    se sigue (nombres de series no verificables desde el entorno de desarrollo)."""
+    print("1b. Descargando series candidatas para ampliar el PCA…")
+    add, meta = {}, {}
+    for spec in CANDIDATES:
+        sid = spec.fred_id
+        if sid in df.columns:
+            continue
+        s, err = fred_series(sid)
+        if s is None:
+            warn(f"candidata {sid}: {str(err)[:80]}")
+            continue
+        m = to_monthly(s)
+        m.index = m.index.to_period("M").to_timestamp("M")
+        add[sid] = m
+        meta[sid] = {"last_obs": str(s.index[-1].date())}
+    if add:
+        df = df.join(pd.DataFrame(add), how="outer")
+    print(f"  ✓ {len(add)} candidatas descargadas")
+    return df, meta
+
+
+def _z_spec(spec: Series, raw: pd.Series) -> pd.Series:
+    if spec.transform != "lvl":
+        raw = raw.interpolate(limit=2, limit_area="inside")
+    x = transform(raw, spec.transform)
+    if spec.invert:
+        x = -x
+    return rolling_z(x).shift(spec.lag_m)
+
+
+def select_candidates(df: pd.DataFrame) -> dict:
+    """Amplía SERIES in situ con las candidatas elegidas y devuelve el informe."""
+    print("2a. Selección de series candidatas (varianza explicada del PC1)…")
+    report = {"blocks": {}, "params": {"min_abs_r": CAND_MIN_ABS_R, "min_gain": CAND_MIN_GAIN,
+                                       "min_obs": CAND_MIN_OBS, "max_per_block": CAND_MAX_PER_BLOCK}}
+    panel_end = df.index[-1]
+    base_specs = [sp for sp in SERIES if sp.fred_id in df.columns]
+    chosen_all = []
+    for block in ("growth", "inflation", "leading"):
+        base = [sp for sp in base_specs if sp.block == block]
+        zb = {}
+        for sp in base:
+            lv = df[sp.fred_id].last_valid_index()
+            if lv is not None and ((panel_end.year - lv.year) * 12 + panel_end.month - lv.month) > STALE_MAX_M:
+                continue
+            zb[sp.fred_id] = _z_spec(sp, df[sp.fred_id])
+        if len(zb) < 3:
+            continue
+        Zb = pd.DataFrame(zb)
+        f0, d0, _, _ = first_pc(Zb)
+        var0 = d0["explained_var"]
+        pool = {}
+        rejected = []
+        for sp in [c for c in CANDIDATES if c.block == block and c.fred_id in df.columns]:
+            lv = df[sp.fred_id].last_valid_index()
+            if lv is None or ((panel_end.year - lv.year) * 12 + panel_end.month - lv.month) > STALE_MAX_M:
+                rejected.append({"id": sp.fred_id, "why": "sin dato reciente"})
+                continue
+            z = _z_spec(sp, df[sp.fred_id])
+            if int(z.notna().sum()) < CAND_MIN_OBS:
+                rejected.append({"id": sp.fred_id, "why": f"historia corta ({int(z.notna().sum())} meses)"})
+                continue
+            r = z.corr(f0.reindex(z.index))
+            if r != r or abs(r) < CAND_MIN_ABS_R:
+                rejected.append({"id": sp.fred_id, "why": f"correlación baja con el factor ({r:+.2f})"})
+                continue
+            if r < 0:
+                sp = Series(sp.fred_id, sp.name, sp.block, sp.transform, sp.lag_m,
+                            not sp.invert, sp.note)
+                z = -z
+            pool[sp.fred_id] = (sp, z, float(abs(r)))
+        cur = Zb.copy()
+        cur_var = var0
+        picked = []
+        while pool and len(picked) < CAND_MAX_PER_BLOCK:
+            best = None
+            for sid, (sp, z, r) in pool.items():
+                try:
+                    _, dd, _, _ = first_pc(pd.concat([cur, z.rename(sid)], axis=1))
+                except Exception:
+                    continue
+                v = dd["explained_var"]
+                if best is None or v > best[1]:
+                    best = (sid, v)
+            if best is None or best[1] - cur_var < CAND_MIN_GAIN:
+                break
+            sid = best[0]
+            sp, z, r = pool.pop(sid)
+            cur = pd.concat([cur, z.rename(sid)], axis=1)
+            picked.append({"id": sid, "name": sp.name, "gain_pp": round((best[1] - cur_var) * 100, 1),
+                           "r": round(r, 2), "invert": sp.invert})
+            chosen_all.append(sp)
+            cur_var = best[1]
+        for sid, (sp, z, r) in pool.items():
+            rejected.append({"id": sid, "why": "no mejora la varianza explicada"})
+        report["blocks"][block] = {
+            "n_base": len(zb), "var_base": round(var0, 3), "var_final": round(cur_var, 3),
+            "added": picked, "rejected": rejected,
+        }
+        print(f"  ✓ {block:<10} {var0:.1%} → {cur_var:.1%} con {len(picked)} series nuevas")
+    SERIES.extend(chosen_all)
+    return report
+
+
 def build_blocks(df: pd.DataFrame):
     print("2. Transformando y estandarizando…")
     zs, info = {}, {}
@@ -1107,8 +1268,8 @@ def fetch_extended():
     return (pd.DataFrame(rets) if rets else pd.DataFrame()), meta, log
 
 
-def extended_analysis(phases: pd.Series):
-    X, meta, log = fetch_extended()
+def extended_analysis(phases: pd.Series, fetched=None):
+    X, meta, log = fetched if fetched is not None else fetch_extended()
     if X.empty:
         return {"assets": [], "meta": {"log": log, "cells": 0}}
     rows, stats = conditional_stats(
@@ -1780,6 +1941,94 @@ def now_edge(X: pd.DataFrame, probs_df: pd.DataFrame, p_now: dict, meta: dict):
     return {"assets": rows, "meta": {"p_now": {k: round(float(v), 3) for k, v in p_now.items()},
                                      "p_mean": {k: round(float(v), 3) for k, v in pbar.items()},
                                      "min_train": NOW_MIN_TRAIN, "counts": cnt}}
+
+
+
+# ======================================================================================
+# 7b. Test del universo: ¿mejoran la cartera los activos nuevos?
+# ======================================================================================
+UNI_GROUPS = {
+    "Biotecnología": lambda m: [n for n, v in m.items() if v["class"] == "Biotecnología"],
+    "Small caps (20% menores)": lambda m: [n for n in m if n.startswith("Small caps")],
+    "Regiones (French)": lambda m: [n for n, v in m.items() if v["class"] == "Región (ext.)"],
+    "China": lambda m: [n for n, v in m.items() if v["class"] == "China"],
+    "Japón (ETF)": lambda m: [n for n, v in m.items() if v["class"] == "Japón"],
+}
+UNI_MIN_DSHARPE = 0.01
+UNI_MIN_SCHEMES = 3
+
+
+def _scheme_metrics(rot: dict) -> dict:
+    out = {}
+    for sch, d in (rot.get("schemes") or {}).items():
+        pf = d.get("portfolio") or {}
+        out[sch] = {k: pf.get(k) for k in ("cagr", "sharpe", "maxdd")}
+    return out
+
+
+def universe_test(X, ameta, Xe, emeta, phases, probs_df, F):
+    """Cada grupo de activos nuevos se prueba solo, sumado al bloque de renta variable
+    de la cartera walk-forward, y se compara con la cartera base en los cuatro
+    esquemas de reparto. Se adopta el grupo si mejora el Sharpe en al menos
+    UNI_MIN_SCHEMES de 4 esquemas (>= UNI_MIN_DSHARPE) SIN bajar el CAGR en esos
+    mismos esquemas. Después se comprueba la unión de los adoptados contra la base;
+    si no mejora igual, no se adopta ninguno. Es selección con la misma muestra del
+    backtest (se declara): mejora observada, no garantía fuera de muestra."""
+    print("5e. Test del universo ampliado (cartera con y sin los activos nuevos)…")
+    res = {"groups": {}, "adopted": [], "final_check": None}
+    if Xe is None or Xe.empty:
+        return X, ameta, res
+    cls_map = {k: v.get("class", "Otros") for k, v in ameta.items()}
+    base = _scheme_metrics(rotation(X, phases, cls_map, probs_df, F,
+                                    phase_sleeve_override=ESTANFLACION_OVERRIDE))
+    res["base"] = base
+    if not base:
+        return X, ameta, res
+
+    def better(var):
+        wins = 0
+        for sch, b in base.items():
+            v = var.get(sch) or {}
+            if None in (b.get("sharpe"), v.get("sharpe"), b.get("cagr"), v.get("cagr")):
+                continue
+            if v["sharpe"] - b["sharpe"] >= UNI_MIN_DSHARPE and v["cagr"] >= b["cagr"] - 0.02:
+                wins += 1
+        return wins
+
+    def run(cols):
+        X2 = X.join(Xe[cols], how="outer")
+        c2 = {**cls_map, **{c: "Renta variable" for c in cols}}
+        return _scheme_metrics(rotation(X2, phases, c2, probs_df, F,
+                                        phase_sleeve_override=ESTANFLACION_OVERRIDE))
+
+    adopt = []
+    for g, pick in UNI_GROUPS.items():
+        cols = [c for c in pick(emeta) if c in Xe.columns]
+        if not cols:
+            continue
+        var = run(cols)
+        w = better(var)
+        res["groups"][g] = {"cols": cols, "wins": w, "schemes": var,
+                            "adopted": w >= UNI_MIN_SCHEMES}
+        print(f"  · {g:<26} mejora en {w}/4 esquemas")
+        if w >= UNI_MIN_SCHEMES:
+            adopt += cols
+    if adopt:
+        var = run(adopt)
+        w = better(var)
+        res["final_check"] = {"cols": adopt, "wins": w, "schemes": var}
+        if w < UNI_MIN_SCHEMES:
+            print("  · la unión no mejora a la base: no se adopta ninguno")
+            adopt = []
+    res["adopted"] = adopt
+    if adopt:
+        X = X.join(Xe[adopt], how="outer")
+        ameta = {**ameta, **{c: {**emeta[c], "class": "Renta variable"} for c in adopt}}
+        for a, b in (("Biotecnología equiponderada (XBI)", "Biotecnología (IBB)"),
+                     ("Biotecnología (IBB)", "Salud")):
+            ASSET_OVERLAP.setdefault(a, b)
+        print(f"  ✓ adoptados en la cartera: {adopt}")
+    return X, ameta, res
 
 
 def subsector_analysis(phases: pd.Series):
@@ -2899,6 +3148,13 @@ def validation(df, F, phases):
 def main() -> None:
     t0 = time.time()
     df, raw_meta = fetch_macro()
+    try:
+        df, cand_meta = fetch_candidates(df)
+        raw_meta.update(cand_meta)
+        pca_research = select_candidates(df)
+    except Exception as exc:  # la ampliación es opcional: nunca debe tumbar el modelo
+        warn(f"ampliación del PCA omitida: {exc}")
+        pca_research = {"error": str(exc)}
     Z, ind_info = build_blocks(df)
     F, pca = build_factors(Z)
     F = F.dropna(subset=["growth", "inflation"])
@@ -2913,15 +3169,22 @@ def main() -> None:
     conf = rank[0][1] - rank[1][1]
 
     X, ameta = fetch_assets(df)
-    assets, astats = conditional_stats(X, phases, ameta)
-    bt = backtest(X, phases)
-    cls_map = {k: v.get("class", "Otros") for k, v in ameta.items()}
     # Probabilidad de cada fase en cada mes, con la misma fórmula que el panel usa
     # para el mes actual. Se desplaza un mes: en t solo se conoce la de t-1.
     prob_rows = {}
     for d, gg, ii in zip(F.index, F["growth"], F["inflation"]):
         prob_rows[d] = phase_probs(float(gg), float(ii), sg, si)
     probs_df = pd.DataFrame(prob_rows).T.shift(1)
+    # Activos nuevos: se prueban y, si mejoran la cartera, se incorporan al universo.
+    Xe, emeta, elog = fetch_extended()
+    try:
+        X, ameta, universe = universe_test(X, ameta, Xe, emeta, phases, probs_df, F)
+    except Exception as exc:
+        warn(f"test del universo omitido: {exc}")
+        universe = {"error": str(exc), "adopted": []}
+    assets, astats = conditional_stats(X, phases, ameta)
+    bt = backtest(X, phases)
+    cls_map = {k: v.get("class", "Otros") for k, v in ameta.items()}
     rot = rotation(X, phases, cls_map, probs_df, F,
                    phase_sleeve_override=ESTANFLACION_OVERRIDE)
     lab = laboratory(X, phases, cls_map)
@@ -2937,7 +3200,7 @@ def main() -> None:
     rec = recession_model(df, F.index)
     subsectors = subsector_analysis(phases)
     holdings = fetch_holdings()
-    extended = extended_analysis(phases)
+    extended = extended_analysis(phases, (Xe, emeta, elog))
     now = now_edge(X, probs_df, probs, ameta)
 
     p1, p2 = rank[0][0], rank[1][0]
@@ -3036,7 +3299,7 @@ def main() -> None:
         "backtest": bt, "rotation": rot, "lab": lab,
         "rotation_fi": rot_fi, "lab_fi": lab_fi,
         "validation": val, "subsectors": subsectors, "holdings": holdings,
-        "extended": extended, "now_edge": now,
+        "extended": extended, "universe": universe, "now_edge": now, "pca_research": pca_research,
         "phases": PHASES, "phase_long": PHASE_LONG,
     }
 

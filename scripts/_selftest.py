@@ -177,10 +177,16 @@ ext = d["extended"]
 assert ext["assets"], "familia extendida vacía"
 names = {a["name"] for a in ext["assets"]}
 assert "Japón (French)" in names and "Biotecnología (IBB)" in names
-assert not (names & {a["name"] for a in d["assets"]}), "la familia extendida contamina la principal"
+assert not ((names & {a["name"] for a in d["assets"]}) - set(d["universe"]["adopted"])), "la familia extendida contamina la principal sin pasar el test"
 print("extendida:", sorted(names), "| fiabilidad:", ext["meta"]["reliability"])
 
 ne = d["now_edge"]
 assert ne["assets"], "contraste ahora vacío"
 assert all(a["reliability"] in ("Fuerte", "Moderada", "Débil", "Sin señal") for a in ne["assets"])
 print("ahora:", ne["meta"]["counts"], "| top:", [(a["name"], a["now_ann"], a["reliability"]) for a in ne["assets"][:3]])
+
+uni = d["universe"]
+assert "groups" in uni and "adopted" in uni, "falta el test del universo"
+assert "pca_research" in d and d["pca_research"].get("blocks"), "falta el informe del PCA"
+print("universo:", {g: v["wins"] for g, v in uni["groups"].items()}, "| adoptados:", uni["adopted"])
+print("pca:", {b: (v["var_base"], v["var_final"]) for b, v in d["pca_research"]["blocks"].items()})

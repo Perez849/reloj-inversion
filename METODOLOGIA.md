@@ -863,3 +863,7 @@ backtest, la rotación, el laboratorio y el consenso. Los nombres de archivo de 
 verificar desde el entorno de desarrollo; si fallan, se anotan en `extended.meta.log`.
 
 **Contraste «ahora»** (`now_edge`): exceso mensual ~ constante + probabilidades de fase del mes anterior (una fase omitida), covarianza HAC. Se contrasta p_hoy − p̄ (un solo contraste por activo, BH entre activos). Validación fuera de muestra con ventana creciente desde 180 meses: R² OOS frente a la media creciente y Clark-West. Fuerte exige |t| ≥ 1,96, q ≤ 0,10, R² OOS > 0 y CW t ≥ 1,28.
+
+**Ampliación del PCA** (`select_candidates`): 31 series FRED candidatas (empleo privado, paro, pedidos, consumo, componentes del IPC, M2, préstamos, estrés financiero…). Selección hacia delante por varianza explicada del PC1 de cada bloque, con |r| ≥ 0,30 frente al factor existente (se invierte si r < 0), ≥ 360 meses de historia y mejora ≥ 0,5 pp; máximo 8 por bloque. Es selección sobre el ajuste del factor, no sobre rentabilidades. El informe (`pca_research`) lista añadidas y rechazadas con el motivo.
+
+**Test del universo** (`universe_test`): cada grupo de activos nuevos (biotecnología, small caps, regiones French, China, Japón ETF) se suma al bloque de renta variable de la rotación walk-forward y se compara con la base en los cuatro esquemas. Se incorpora si mejora el Sharpe ≥ 0,01 en ≥ 3 de 4 esquemas sin bajar el CAGR; la unión de los adoptados se vuelve a comprobar. Selección en muestra: mejora observada, no garantía.

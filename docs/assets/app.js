@@ -210,6 +210,8 @@ function render() {
   renderMatrix();
   renderRobustness();
   renderConsensus();
+  renderPcaResearch();
+  renderUniverse();
   renderRotation();
   renderLab();
   renderValidation();
@@ -641,6 +643,27 @@ function renderIndicators() {
       ${rows.map(indRow).join("")}`;
     host.appendChild(box);
   }
+}
+
+function renderPcaResearch() {
+  const r = D.pca_research;
+  const host = $("#pcaResearch");
+  if (!r || !r.blocks) { host.innerHTML = ""; return; }
+  const T = {growth: "Crecimiento", inflation: "Inflación", leading: "Adelantados"};
+  host.innerHTML = `<b>¿Más series explican más?</b> Se probaron series candidatas y solo entran las que suben la varianza explicada
+    del primer componente (con signo y correlación coherentes). ` + Object.entries(r.blocks).map(([b, v]) =>
+    `<br><b>${T[b] || b}</b>: ${fmtPct(v.var_base, 0)} → <b>${fmtPct(v.var_final, 0)}</b>` +
+    (v.added.length ? ` con ${v.added.map(x => `${x.name} (+${x.gain_pp} pp)`).join(", ")}` : " (ninguna candidata mejora)")).join("");
+}
+
+function renderUniverse() {
+  const u = D.universe;
+  const host = $("#universeBlock");
+  if (!u || !u.groups) { host.innerHTML = ""; return; }
+  const rows = Object.entries(u.groups).map(([g, v]) => `<br><b>${g}</b>: mejora el Sharpe de la cartera en ${v.wins}/4 esquemas de reparto → ${v.adopted ? "<b>incorporado</b>" : "no incorporado"}`).join("");
+  host.innerHTML = `<b>¿Mejoran los activos nuevos la cartera?</b> Cada grupo se suma al bloque de renta variable y se compara con la cartera base
+    (se incorpora si sube el Sharpe ≥ 0,01 en al menos 3 de 4 esquemas sin bajar el CAGR). Selección hecha sobre la misma muestra del backtest:
+    es mejora observada, no garantía.${rows}`;
 }
 
 function indRow(i) {
