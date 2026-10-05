@@ -425,23 +425,35 @@ def fetch_candidates(df: pd.DataFrame):
     return df, meta
 
 
+def _patch_recent_holes(raw: pd.Series, transform_kind: str) -> pd.Series:
+    """Interpola huecos interiores de hasta 2 meses SOLO en los últimos 36 meses
+    (cierre del Gobierno de otoño de 2025). En la historia lejana no se toca: hay
+    series trimestrales o irregulares antiguas (p. ej. UMCSENT antes de 1978) y
+    rellenarlas cambiaría las fases pasadas y, con ellas, el backtest."""
+    if transform_kind == "lvl":
+        return raw
+    cut = raw.index[-1] - pd.DateOffset(months=36)
+    filled = raw.interpolate(limit=2, limit_area="inside")
+    return raw.where(raw.index <= cut, filled)
+
+
 def _z_spec(spec: Series, raw: pd.Series) -> pd.Series:
-    if spec.transform != "lvl":
-        raw = raw.interpolate(limit=2, limit_area="inside")
+    raw = _patch_recent_holes(raw, spec.transform)
     x = transform(raw, spec.transform)
     if spec.invert:
         x = -x
     return rolling_z(x).shift(spec.lag_m)
 
 
-def select_candidates(df: pd.DataFrame) -> dict:
-    """Amplía SERIES in situ con las candidatas elegidas y devuelve el informe."""
+def select_candidates(df: pd.DataFrame):
+    """Devuelve (informe, {bloque: [Series elegidas]}). NO toca SERIES: la decisión de
+    adoptarlas se toma después con el backtest (ver choose_pca_variant)."""
     print("2a. Selección de series candidatas (varianza explicada del PC1)…")
     report = {"blocks": {}, "params": {"min_abs_r": CAND_MIN_ABS_R, "min_gain": CAND_MIN_GAIN,
                                        "min_obs": CAND_MIN_OBS, "max_per_block": CAND_MAX_PER_BLOCK}}
     panel_end = df.index[-1]
     base_specs = [sp for sp in SERIES if sp.fred_id in df.columns]
-    chosen_all = []
+    picks_by_block: dict[str, list] = {}
     for block in ("growth", "inflation", "leading"):
         base = [sp for sp in base_specs if sp.block == block]
         zb = {}
@@ -495,7 +507,7 @@ def select_candidates(df: pd.DataFrame) -> dict:
             cur = pd.concat([cur, z.rename(sid)], axis=1)
             picked.append({"id": sid, "name": sp.name, "gain_pp": round((best[1] - cur_var) * 100, 1),
                            "r": round(r, 2), "invert": sp.invert})
-            chosen_all.append(sp)
+            picks_by_block.setdefault(block, []).append(sp)
             cur_var = best[1]
         for sid, (sp, z, r) in pool.items():
             rejected.append({"id": sid, "why": "no mejora la varianza explicada"})
@@ -504,8 +516,7 @@ def select_candidates(df: pd.DataFrame) -> dict:
             "added": picked, "rejected": rejected,
         }
         print(f"  ✓ {block:<10} {var0:.1%} → {cur_var:.1%} con {len(picked)} series nuevas")
-    SERIES.extend(chosen_all)
-    return report
+    return report, picks_by_block
 
 
 def build_blocks(df: pd.DataFrame):
@@ -527,8 +538,7 @@ def build_blocks(df: pd.DataFrame):
         # Huecos interiores de publicación (p. ej. el IPC de octubre de 2025, que no
         # se publicó por el cierre del Gobierno): se interpolan hasta 2 meses seguidos.
         # Sin esto, un solo mes ausente deja sin valor la transformación interanual.
-        if spec.transform != "lvl":
-            raw = raw.interpolate(limit=2, limit_area="inside")
+        raw = _patch_recent_holes(raw, spec.transform)
         x = transform(raw, spec.transform)
         if spec.fred_id in ("CPIAUCSL", "RRSFS", "CPILFESL"):
             DEBUG_TAILS[spec.fred_id] = {
@@ -3145,36 +3155,106 @@ def validation(df, F, phases):
 # 9. Ensamblado
 # ======================================================================================
 
-def main() -> None:
-    t0 = time.time()
-    df, raw_meta = fetch_macro()
-    try:
-        df, cand_meta = fetch_candidates(df)
-        raw_meta.update(cand_meta)
-        pca_research = select_candidates(df)
-    except Exception as exc:  # la ampliación es opcional: nunca debe tumbar el modelo
-        warn(f"ampliación del PCA omitida: {exc}")
-        pca_research = {"error": str(exc)}
+def _factor_model(df: pd.DataFrame) -> dict:
     Z, ind_info = build_blocks(df)
     F, pca = build_factors(Z)
     F = F.dropna(subset=["growth", "inflation"])
-
     phases = pd.Series([classify(a, b) for a, b in zip(F["growth"], F["inflation"])],
                        index=F.index, name="phase")
     sg = float(F["growth"].diff(HORIZON_M).std())
     si = float(F["inflation"].diff(HORIZON_M).std())
+    # Probabilidad de cada fase en cada mes; se desplaza un mes: en t solo se conoce t-1.
+    prob_rows = {d: phase_probs(float(a), float(b), sg, si)
+                 for d, a, b in zip(F.index, F["growth"], F["inflation"])}
+    probs_df = pd.DataFrame(prob_rows).T.shift(1)
+    return {"Z": Z, "ind_info": ind_info, "F": F, "pca": pca, "phases": phases,
+            "sg": sg, "si": si, "probs_df": probs_df}
+
+
+def choose_pca_variant(df, X, ameta, picks_by_block: dict, report: dict):
+    """Más series explican más varianza, pero eso NO garantiza un reloj más útil. Se
+    prueban las combinaciones (base, +crecimiento, +inflación, +ambas) con la cartera
+    walk-forward y se adopta la que mejora el Sharpe >= UNI_MIN_DSHARPE en al menos
+    3 de 4 esquemas sin bajar el CAGR más de 0,05 puntos; si ninguna, se queda la base.
+    Los bloques «leading» no alimentan la fase y se adoptan si mejoran su varianza."""
+    base_series = list(SERIES)
+    cls_map = {k: v.get("class", "Otros") for k, v in ameta.items()}
+    variants = {"base": []}
+    g, i = picks_by_block.get("growth", []), picks_by_block.get("inflation", [])
+    if g:
+        variants["crecimiento"] = g
+    if i:
+        variants["inflación"] = i
+    if g and i:
+        variants["ambas"] = g + i
+    results, models = {}, {}
+    for name, extra in variants.items():
+        SERIES[:] = base_series + extra
+        m = _factor_model(df)
+        models[name] = m
+        results[name] = _scheme_metrics(rotation(
+            X, m["phases"], cls_map, m["probs_df"], m["F"],
+            phase_sleeve_override=ESTANFLACION_OVERRIDE))
+    base = results["base"]
+    best, best_key = "base", None
+    for name, res in results.items():
+        if name == "base":
+            continue
+        wins = 0
+        for sch, b in base.items():
+            v = res.get(sch) or {}
+            if None in (b.get("sharpe"), v.get("sharpe"), b.get("cagr"), v.get("cagr")):
+                continue
+            if v["sharpe"] - b["sharpe"] >= UNI_MIN_DSHARPE and v["cagr"] >= b["cagr"] - 0.05:
+                wins += 1
+        mean_sh = float(np.mean([v["sharpe"] for v in res.values() if v.get("sharpe") is not None] or [0]))
+        report.setdefault("variants", {})[name] = {"wins": wins, "schemes": res}
+        if wins >= UNI_MIN_SCHEMES and (best_key is None or (wins, mean_sh) > best_key):
+            best, best_key = name, (wins, mean_sh)
+    report.setdefault("variants", {})["base"] = {"schemes": base}
+    report["adopted_variant"] = best
+    # leading: no afecta a la fase; se adopta si sube la varianza (informativo)
+    SERIES[:] = base_series + variants[best]
+    m = models[best]
+    if best == "base" and picks_by_block.get("leading"):
+        SERIES.extend(picks_by_block["leading"])
+        m = _factor_model(df)
+        report["leading_adopted"] = [sp.fred_id for sp in picks_by_block["leading"]]
+    print(f"  ✓ variante de PCA adoptada: {best} "
+          f"({', '.join(f'{k}: {v.get('wins', '-')}/4' for k, v in report['variants'].items())})")
+    return m
+
+
+def main() -> None:
+    t0 = time.time()
+    df, raw_meta = fetch_macro()
+    X, ameta = fetch_assets(df)
+    pca_research, picks = {"error": "no ejecutado"}, {}
+    try:
+        df, cand_meta = fetch_candidates(df)
+        raw_meta.update(cand_meta)
+        pca_research, picks = select_candidates(df)
+    except Exception as exc:  # la ampliación es opcional: nunca debe tumbar el modelo
+        warn(f"ampliación del PCA omitida: {exc}")
+        pca_research = {"error": str(exc)}
+    model = None
+    base_series_snapshot = list(SERIES)
+    if picks:
+        try:
+            model = choose_pca_variant(df, X, ameta, picks, pca_research)
+        except Exception as exc:
+            warn(f"elección de variante de PCA omitida: {exc}")
+            pca_research["error"] = str(exc)
+            SERIES[:] = base_series_snapshot
+    if model is None:
+        model = _factor_model(df)
+    Z, ind_info, F, pca = model["Z"], model["ind_info"], model["F"], model["pca"]
+    phases, sg, si, probs_df = model["phases"], model["sg"], model["si"], model["probs_df"]
     g, i = float(F["growth"].iloc[-1]), float(F["inflation"].iloc[-1])
     probs = phase_probs(g, i, sg, si)
     rank = sorted(probs.items(), key=lambda kv: kv[1], reverse=True)
     conf = rank[0][1] - rank[1][1]
 
-    X, ameta = fetch_assets(df)
-    # Probabilidad de cada fase en cada mes, con la misma fórmula que el panel usa
-    # para el mes actual. Se desplaza un mes: en t solo se conoce la de t-1.
-    prob_rows = {}
-    for d, gg, ii in zip(F.index, F["growth"], F["inflation"]):
-        prob_rows[d] = phase_probs(float(gg), float(ii), sg, si)
-    probs_df = pd.DataFrame(prob_rows).T.shift(1)
     # Activos nuevos: se prueban y, si mejoran la cartera, se incorporan al universo.
     Xe, emeta, elog = fetch_extended()
     try:

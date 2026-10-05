@@ -190,3 +190,6 @@ assert "groups" in uni and "adopted" in uni, "falta el test del universo"
 assert "pca_research" in d and d["pca_research"].get("blocks"), "falta el informe del PCA"
 print("universo:", {g: v["wins"] for g, v in uni["groups"].items()}, "| adoptados:", uni["adopted"])
 print("pca:", {b: (v["var_base"], v["var_final"]) for b, v in d["pca_research"]["blocks"].items()})
+
+assert d["pca_research"].get("adopted_variant") in ("base", "crecimiento", "inflación", "ambas"), "falta la variante de PCA"
+print("variante PCA:", d["pca_research"]["adopted_variant"], {k: v.get("wins") for k, v in d["pca_research"]["variants"].items()})
