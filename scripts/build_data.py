@@ -3220,8 +3220,8 @@ def choose_pca_variant(df, X, ameta, picks_by_block: dict, report: dict):
         SERIES.extend(picks_by_block["leading"])
         m = _factor_model(df)
         report["leading_adopted"] = [sp.fred_id for sp in picks_by_block["leading"]]
-    print(f"  ✓ variante de PCA adoptada: {best} "
-          f"({', '.join(f'{k}: {v.get('wins', '-')}/4' for k, v in report['variants'].items())})")
+    resumen = ", ".join("%s: %s/4" % (k, v.get("wins", "-")) for k, v in report["variants"].items())
+    print(f"  ✓ variante de PCA adoptada: {best} ({resumen})")
     return m
 
 
