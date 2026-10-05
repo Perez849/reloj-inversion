@@ -212,6 +212,7 @@ function render() {
   renderConsensus();
   renderPcaResearch();
   renderTactical();
+  renderSatellite();
   renderUniverse();
   renderRotation();
   renderLab();
@@ -447,6 +448,7 @@ function wireClockToggle() {
       seg.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
       renderBuy();
       renderConsensus();
+      renderSatellite();
       renderRotation();
       renderLab();
     };
@@ -668,6 +670,29 @@ function renderTactical() {
       ${neg.length ? `<div class="tac-h">Mejor evitar</div><ul>${neg.map(r => line(r, false)).join("")}</ul>` : ""}
       ${!pos.length && !neg.length ? `<p class="small-cap">Ningún activo nuevo con evidencia moderada o fuerte en esta fase.</p>` : ""}</div>`;
   }).join("");
+}
+
+function renderSatellite() {
+  const host = $("#satBody");
+  if (!host) return;
+  const s = D.satellite;
+  if (!s || !s.rotation || clockMode !== "eq") { host.innerHTML = ""; return; }
+  const c = D.current;
+  const sch = s.rotation.schemes[s.rotation.default] || Object.values(s.rotation.schemes)[0];
+  const rows = (sch.playbook?.[c.phase] || []).filter(x => x.sleeve === "Satélite táctico");
+  const mix = sch.sleeve_mix?.[c.phase]?.["Satélite táctico"];
+  const mb = s.base?.[s.rotation.default] || {}, ms = s.with_satellite?.[s.rotation.default] || {};
+  const dlt = (k, f = 2) => (ms[k] != null && mb[k] != null) ? signed(ms[k] - mb[k], f) : "—";
+  const figs = `Cartera con satélite frente a sin él (reparto ${sch.label?.toLowerCase() || ""}): CAGR ${fmtNum(ms.cagr, 2)}% vs ${fmtNum(mb.cagr, 2)}% (${dlt("cagr")} pp),
+    Sharpe ${fmtNum(ms.sharpe, 2)} vs ${fmtNum(mb.sharpe, 2)} (${dlt("sharpe")}), caída máxima ${fmtNum(ms.maxdd, 1)}% vs ${fmtNum(mb.maxdd, 1)}%.
+    Mejora el Sharpe en ${s.wins}/4 esquemas de reparto.`;
+  const body = rows.length
+    ? rows.map(x => `<div class="buy-item"><div><span class="nm">${x.name}</span><span class="tickers"><span class="small-cap mono">${x.class}</span></span></div><span class="wt">${fmtNum(x.weight, 1)}%</span></div>`).join("")
+    : `<p class="buy-empty">En <b>${c.phase}</b> ningún activo nuevo tiene ventaja suficiente: el satélite queda a 0% (banda 0-15%).</p>`;
+  if (s.adopted) { host.innerHTML = `<p class="buy-foot">Satélite táctico incorporado arriba. ${figs}</p>`; return; }
+  host.innerHTML = `<div class="buy-col sat"><h4><span>Satélite táctico · ${s.adopted ? "incorporado" : "opcional"}</span><span>${mix != null ? fmtNum(mix, 0) + "%" : "0%"}</span></h4>${body}
+    <p class="buy-foot">${s.adopted ? "Forma parte de la cartera de arriba." : "NO forma parte de la cartera de arriba: no cumple el criterio de mejora (≥ 3 de 4 esquemas), se ofrece como opción."}
+    ${figs}</p></div>`;
 }
 
 function renderPcaResearch() {

@@ -2041,6 +2041,55 @@ def universe_test(X, ameta, Xe, emeta, phases, probs_df, F):
     return X, ameta, res
 
 
+
+# Satélite táctico: un bloque más de la rotación, con banda propia, para los activos
+# nuevos con evidencia por fase. Se usa el MISMO motor walk-forward (misma selección
+# por ventaja de fase contraída, mismos esquemas de reparto), así que las cifras son
+# comparables con la cartera base. Banda 0-15% y 0-2 nombres: nunca obligatorio.
+SAT_MIN_SCHEMES = 3
+SAT_CLASSES = {"Biotecnología", "Tamaño (ext.)", "Región (ext.)", "China", "Japón"}
+
+
+def satellite_test(X, Xe, emeta, ameta, phases, probs_df, F, rot_base):
+    """Compara la cartera base con la cartera con satélite. Devuelve (rot_final, info).
+    Se adopta (rot_final = con satélite) si mejora el Sharpe >= UNI_MIN_DSHARPE en al
+    menos UNI_MIN_SCHEMES de 4 esquemas sin bajar el CAGR más de 0,05 puntos. Si no,
+    rot_final = base y el satélite se publica como opcional con sus cifras."""
+    print("7c. Satélite táctico (bloque de activos nuevos con banda 0-15%)…")
+    info = {"adopted": False, "bands": "0-15%", "assets": []}
+    if Xe is None or Xe.empty:
+        return rot_base, info
+    cols = [c for c in Xe.columns if c not in X.columns and emeta[c]["class"] in SAT_CLASSES]
+    if not cols:
+        return rot_base, info
+    X2 = X.join(Xe[cols], how="outer")
+    cls2 = {k: v.get("class", "Otros") for k, v in ameta.items()}
+    cls2.update({c: emeta[c]["class"] for c in cols})
+    sleeves_sat = {**SLEEVES, "Satélite táctico": (SAT_CLASSES, 0.00, 0.15, 0, 2)}
+    rot_sat = rotation(X2, phases, cls2, probs_df, F, sleeves=sleeves_sat,
+                       phase_sleeve_override=ESTANFLACION_OVERRIDE)
+    if not rot_sat.get("schemes"):
+        return rot_base, info
+    mb, ms = _scheme_metrics(rot_base), _scheme_metrics(rot_sat)
+    wins = 0
+    for sch, b in mb.items():
+        v = ms.get(sch) or {}
+        if None in (b.get("sharpe"), v.get("sharpe"), b.get("cagr"), v.get("cagr")):
+            continue
+        if v["sharpe"] - b["sharpe"] >= UNI_MIN_DSHARPE and v["cagr"] >= b["cagr"] - 0.05:
+            wins += 1
+    info.update({"assets": cols, "wins": wins, "base": mb, "with_satellite": ms,
+                 "adopted": wins >= SAT_MIN_SCHEMES, "playbook_default": rot_sat.get("default")})
+    # el playbook del satélite se publica siempre, para poder mostrarlo como opción
+    keep = ("label", "portfolio", "by_phase", "playbook", "sleeve_mix")
+    info["rotation"] = {"default": rot_sat.get("default"), "bands": rot_sat.get("bands"),
+                        "schemes": {k: {kk: v.get(kk) for kk in keep}
+                                    for k, v in rot_sat["schemes"].items()}}
+    print(f"  ✓ satélite: mejora en {wins}/4 esquemas → "
+          f"{'incorporado a «Qué comprar»' if info['adopted'] else 'queda como opción'}")
+    return (rot_sat if info["adopted"] else rot_base), info
+
+
 def subsector_analysis(phases: pd.Series):
     """Análisis COMPLEMENTARIO (sección 8b): qué subsector, dentro de cada uno de
     los sectores que ya usa la cartera principal, ha pagado más en cada fase. Usa
@@ -3267,6 +3316,11 @@ def main() -> None:
     cls_map = {k: v.get("class", "Otros") for k, v in ameta.items()}
     rot = rotation(X, phases, cls_map, probs_df, F,
                    phase_sleeve_override=ESTANFLACION_OVERRIDE)
+    try:
+        rot, satellite = satellite_test(X, Xe, emeta, ameta, phases, probs_df, F, rot)
+    except Exception as exc:
+        warn(f"satélite táctico omitido: {exc}")
+        satellite = {"error": str(exc), "adopted": False}
     lab = laboratory(X, phases, cls_map)
     # Reloj de renta fija: mismo motor, otro conjunto de bloques (ver SLEEVES_FI) y
     # otro benchmark (el agregado de bonos, no el S&P 500). include_6040=False: un
@@ -3379,7 +3433,7 @@ def main() -> None:
         "backtest": bt, "rotation": rot, "lab": lab,
         "rotation_fi": rot_fi, "lab_fi": lab_fi,
         "validation": val, "subsectors": subsectors, "holdings": holdings,
-        "extended": extended, "universe": universe, "now_edge": now, "pca_research": pca_research,
+        "extended": extended, "universe": universe, "satellite": satellite, "now_edge": now, "pca_research": pca_research,
         "phases": PHASES, "phase_long": PHASE_LONG,
     }
 

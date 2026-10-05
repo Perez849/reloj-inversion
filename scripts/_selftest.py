@@ -112,6 +112,7 @@ bd.fred_series = fred_ragged
 bd.french_zip = fake_french
 bd.stooq_monthly = fake_stooq
 bd.yahoo_monthly = fake_yahoo
+bd.UNI_MIN_SCHEMES = 5   # que el test del universo no adopte nada y el satélite sí se ejecute
 bd.main()
 
 d = json.load(open("/tmp/test_data.json", encoding="utf-8"))
@@ -193,3 +194,13 @@ print("pca:", {b: (v["var_base"], v["var_final"]) for b, v in d["pca_research"][
 
 assert d["pca_research"].get("adopted_variant") in ("base", "crecimiento", "inflación", "ambas"), "falta la variante de PCA"
 print("variante PCA:", d["pca_research"]["adopted_variant"], {k: v.get("wins") for k, v in d["pca_research"]["variants"].items()})
+
+sat = d["satellite"]
+assert "adopted" in sat and (sat.get("error") is None), f"satélite roto: {sat.get('error')}"
+print("satélite:", sat.get("wins"), sat["adopted"], sat.get("assets"))
+if sat["adopted"]:
+    assert "Satélite táctico" in d["rotation"]["bands"], "satélite adoptado pero sin banda"
+assert sat.get("assets"), "el satélite no se ejecutó"
+assert sat.get("rotation", {}).get("schemes"), "satélite sin rotación"
+pb = next(iter(sat["rotation"]["schemes"].values()))["playbook"]
+print("satélite playbook:", {ph: [(x["name"], x["weight"]) for x in rows if x["sleeve"] == "Satélite táctico"] for ph, rows in pb.items()})
