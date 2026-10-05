@@ -1667,6 +1667,101 @@ def conditional_stats(X: pd.DataFrame, phases: pd.Series, meta: dict,
                   "reliability": rel_counts}
 
 
+# ======================================================================================
+# 6b. Contraste "ahora": regresión sobre las probabilidades de fase
+# ======================================================================================
+# La matriz de evidencia clasifica cada mes en UNA fase y promedia, tirando la
+# información de cuánto de cada fase hay. Aquí se regresa el exceso de retorno del
+# mes t sobre las probabilidades de fase conocidas en t-1 (la misma `probs_df`
+# desplazada que usa la rotación) y se contrasta una sola cosa: ¿la predicción de HOY,
+# p_hoy, difiere de la media histórica p̄? Es un contraste único por activo con toda la
+# muestra, bastante más potente que 4 medias condicionadas con ~100 meses cada una.
+# Validación fuera de muestra: ventana creciente desde NOW_MIN_TRAIN meses, R² OOS frente
+# a la media creciente y estadístico de Clark-West (modelos anidados).
+NOW_MIN_TRAIN = 180
+
+
+def _hac_cov(Xm: np.ndarray, e: np.ndarray, lags: int = 3) -> np.ndarray:
+    n, k = Xm.shape
+    XtXi = np.linalg.pinv(Xm.T @ Xm)
+    u = Xm * e[:, None]
+    S = u.T @ u
+    for l in range(1, min(lags, n - 1) + 1):
+        w = 1 - l / (lags + 1)
+        G = u[l:].T @ u[:-l]
+        S += w * (G + G.T)
+    return XtXi @ S @ XtXi
+
+
+def now_edge(X: pd.DataFrame, probs_df: pd.DataFrame, p_now: dict, meta: dict):
+    print("5d. Contraste «ahora» (regresión sobre probabilidades de fase)…")
+    P = probs_df[PHASES].dropna()
+    keep = PHASES[1:]          # se omite la primera fase para evitar colinealidad
+    pbar = P.mean()
+    c = np.array([p_now[k] - pbar[k] for k in keep])
+    rows, pv = [], []
+    for col in X.columns:
+        y = X[col].dropna()
+        idx = y.index.intersection(P.index)
+        if len(idx) < max(MIN_MONTHS, 96):
+            continue
+        y, Pm = y.loc[idx].values, P.loc[idx, keep].values
+        Xm = np.column_stack([np.ones(len(idx)), Pm])
+        beta = np.linalg.lstsq(Xm, y, rcond=None)[0]
+        e = y - Xm @ beta
+        V = _hac_cov(Xm, e)
+        cc = np.concatenate([[0.0], c])
+        est = float(cc @ beta)
+        se = float(math.sqrt(max(cc @ V @ cc, 1e-12)))
+        t = est / se
+        # fuera de muestra
+        oos = {"r2": None, "cw_t": None, "hit": None, "n": 0}
+        n = len(y)
+        if n > NOW_MIN_TRAIN + 36:
+            f_m, f_b, act = [], [], []
+            for i in range(NOW_MIN_TRAIN, n):
+                b = np.linalg.lstsq(Xm[:i], y[:i], rcond=None)[0]
+                f_m.append(float(Xm[i] @ b))
+                f_b.append(float(y[:i].mean()))
+                act.append(float(y[i]))
+            f_m, f_b, act = map(np.array, (f_m, f_b, act))
+            sse_m, sse_b = ((act - f_m) ** 2).sum(), ((act - f_b) ** 2).sum()
+            adj = (act - f_b) * (f_m - f_b)       # Clark-West
+            _, _, cw_t = newey_west(adj)
+            dev_m, dev_b = f_m - f_b, act - f_b
+            oos = {"r2": round(float(1 - sse_m / sse_b), 4) if sse_b > 0 else None,
+                   "cw_t": round(float(cw_t), 2) if cw_t == cw_t else None,
+                   "hit": round(float((np.sign(dev_m) == np.sign(dev_b)).mean()), 3),
+                   "n": int(len(act))}
+        rows.append({"name": col, "class": meta.get(col, {}).get("class", "Otros"),
+                     "now_ann": round(est * 12, 2), "se_ann": round(se * 12, 2),
+                     "t": round(float(t), 2), "n": int(n), "oos": oos})
+        pv.append(two_sided_p(t))
+    qs = benjamini_hochberg(pv)
+    for r, q in zip(rows, qs):
+        r["q"] = round(q, 3) if q == q else None
+        o = r["oos"]
+        oos_ok = (o["r2"] is not None and o["r2"] > 0 and o["cw_t"] is not None
+                  and o["cw_t"] >= 1.28)
+        t_ok = abs(r["t"]) >= 1.96
+        fdr = r["q"] is not None and r["q"] <= 0.10
+        if t_ok and fdr and oos_ok:
+            r["reliability"] = "Fuerte"
+        elif t_ok and (fdr or oos_ok):
+            r["reliability"] = "Moderada"
+        elif abs(r["t"]) >= 1.28:
+            r["reliability"] = "Débil"
+        else:
+            r["reliability"] = "Sin señal"
+    rows.sort(key=lambda r: -r["now_ann"])
+    cnt = {k: sum(1 for r in rows if r["reliability"] == k)
+           for k in ("Fuerte", "Moderada", "Débil", "Sin señal")}
+    print(f"  ✓ {len(rows)} activos · fiabilidad {cnt}")
+    return {"assets": rows, "meta": {"p_now": {k: round(float(v), 3) for k, v in p_now.items()},
+                                     "p_mean": {k: round(float(v), 3) for k, v in pbar.items()},
+                                     "min_train": NOW_MIN_TRAIN, "counts": cnt}}
+
+
 def subsector_analysis(phases: pd.Series):
     """Análisis COMPLEMENTARIO (sección 8b): qué subsector, dentro de cada uno de
     los sectores que ya usa la cartera principal, ha pagado más en cada fase. Usa
@@ -2823,6 +2918,7 @@ def main() -> None:
     subsectors = subsector_analysis(phases)
     holdings = fetch_holdings()
     extended = extended_analysis(phases)
+    now = now_edge(X, probs_df, probs, ameta)
 
     p1, p2 = rank[0][0], rank[1][0]
 
@@ -2920,7 +3016,7 @@ def main() -> None:
         "backtest": bt, "rotation": rot, "lab": lab,
         "rotation_fi": rot_fi, "lab_fi": lab_fi,
         "validation": val, "subsectors": subsectors, "holdings": holdings,
-        "extended": extended,
+        "extended": extended, "now_edge": now,
         "phases": PHASES, "phase_long": PHASE_LONG,
     }
 

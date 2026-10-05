@@ -861,3 +861,5 @@ a Fuerte: solo más historia o más activos independientes la sostienen.
 small caps (cartera Lo 20), y ETF IBB, XBI, MCHI, FXI, EWJ. Familia de contrastes propia, fuera del
 backtest, la rotación, el laboratorio y el consenso. Los nombres de archivo de French no se han podido
 verificar desde el entorno de desarrollo; si fallan, se anotan en `extended.meta.log`.
+
+**Contraste «ahora»** (`now_edge`): exceso mensual ~ constante + probabilidades de fase del mes anterior (una fase omitida), covarianza HAC. Se contrasta p_hoy − p̄ (un solo contraste por activo, BH entre activos). Validación fuera de muestra con ventana creciente desde 180 meses: R² OOS frente a la media creciente y Clark-West. Fuerte exige |t| ≥ 1,96, q ≤ 0,10, R² OOS > 0 y CW t ≥ 1,28.

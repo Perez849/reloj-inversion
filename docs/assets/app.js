@@ -819,6 +819,7 @@ function drawMatrix() {
 
   $("#matrix").innerHTML = head + `<tbody>${body}</tbody>`;
   drawExtended();
+  drawNow();
   $("#matrixFoot").innerHTML = `
     <b>Etiqueta F / M / D</b> junto a la nota = fiabilidad <b>Fuerte / Moderada / Débil</b>. Fuerte exige
     nota ++ o +++, FDR ≤ 0,10, mismo signo en las dos mitades de la muestra, mismo signo usando la fase
@@ -833,6 +834,23 @@ function drawMatrix() {
     adicional &nbsp;·&nbsp; <b>+ / -</b> menor al 20% — indicativo, no concluyente &nbsp;·&nbsp;
     <b>0</b> no se puede distinguir de su propia media, con la muestra disponible hoy — no significa que
     "no haya efecto", significa que con estos datos no se puede afirmar que lo haya.`;
+}
+
+function drawNow() {
+  const ne = D.now_edge;
+  const rows = ne?.assets || [];
+  if (!rows.length) { $("#nowTable").innerHTML = ""; $("#nowFoot").textContent = "Sin contraste «ahora» en esta ejecución."; return; }
+  const body = rows.filter(r => r.reliability !== "Sin señal").map(r => `<tr>
+    <td class="asset">${r.name}<small>${r.class}</small></td>
+    <td class="cell" style="background:${diverging(r.now_ann, 12)}"><span class="g" style="color:${r.now_ann >= 0 ? POS : NEG}">${signed(r.now_ann, 1)}</span></td>
+    <td class="cell"><span class="rel rel-${r.reliability}">${r.reliability}</span></td>
+    <td style="font-family:var(--mono)" title="t=${fmtNum(r.t, 2)} · q=${r.q != null ? fmtNum(r.q, 3) : "—"}">${r.oos.r2 != null ? "R² OOS " + fmtNum(r.oos.r2 * 100, 1) + "%" : "—"}</td></tr>`).join("");
+  $("#nowTable").innerHTML = `<thead><tr><th>Activo</th><th>Exceso anual esperado hoy vs su media (pp)</th><th>Fiabilidad</th><th>Fuera de muestra</th></tr></thead><tbody>${body || `<tr><td colspan="4">Ningún activo supera el umbral hoy.</td></tr>`}</tbody>`;
+  const c = ne.meta.counts;
+  $("#nowFoot").innerHTML = `Se regresa el exceso de retorno mensual sobre las probabilidades de fase conocidas el mes anterior y se contrasta
+    si la mezcla de HOY difiere de la media histórica. Es un único contraste por activo con toda la muestra (más potente que
+    cuatro medias por fase). <b>Fuerte</b> = |t| ≥ 1,96, FDR ≤ 0,10 y mejora fuera de muestra (ventana creciente, Clark-West t ≥ 1,28, R² OOS > 0).
+    Hoy: ${c.Fuerte} fuertes, ${c.Moderada} moderadas, ${c.Débil} débiles, ${c["Sin señal"]} sin señal (ocultas).`;
 }
 
 function drawExtended() {

@@ -177,3 +177,8 @@ names = {a["name"] for a in ext["assets"]}
 assert "Japón (French)" in names and "Biotecnología (IBB)" in names
 assert not (names & {a["name"] for a in d["assets"]}), "la familia extendida contamina la principal"
 print("extendida:", sorted(names), "| fiabilidad:", ext["meta"]["reliability"])
+
+ne = d["now_edge"]
+assert ne["assets"], "contraste ahora vacío"
+assert all(a["reliability"] in ("Fuerte", "Moderada", "Débil", "Sin señal") for a in ne["assets"])
+print("ahora:", ne["meta"]["counts"], "| top:", [(a["name"], a["now_ann"], a["reliability"]) for a in ne["assets"][:3]])
