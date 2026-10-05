@@ -311,13 +311,56 @@ def rolling_z(s: pd.Series, window: int = ROLL_WINDOW_M) -> pd.Series:
     return ((s - med) / scale).clip(-4, 4)
 
 
+# Una serie cuya última observación queda a más de seis meses del final del panel
+# está descontinuada o rota (caso real: USSLIND, último dato en febrero de 2020).
+# Dejarla dentro del PCA hace que la definición del factor cambie en silencio en el
+# punto en que desaparece, y le da carga al factor con un valor que ya no existe.
+STALE_MAX_M = 6
+
+# Borde irregular. Las series macro se publican con retrasos distintos, así que en
+# el último mes del panel suelen estar al día solo unas pocas. El factor se calcula
+# como media ponderada de las series DISPONIBLES, de modo que con una sola serie
+# viva (octubre de 2026: solo las nóminas, 9% del peso de crecimiento) el último
+# punto es esa serie y nada más: el crecimiento saltó de -0,04 a -1,06 en un mes sin
+# que ningún otro dato cambiara. Se hace lo estándar en nowcasting: arrastrar el
+# último z conocido de cada serie hasta TAIL_FILL_M meses y exigir que, tras eso,
+# la cobertura de peso del bloque sea al menos MIN_TAIL_COVERAGE. Las filas finales
+# que no lleguen se descartan y la lectura "actual" retrocede al último mes fiable.
+TAIL_FILL_M = 2
+MIN_TAIL_COVERAGE = 0.80
+FULL_FRESH_COVERAGE = 0.90   # "mes completo": casi todo el peso con dato nuevo
+
+
+def fill_tail(X: pd.DataFrame, limit: int = TAIL_FILL_M) -> pd.DataFrame:
+    """Arrastra el último valor SOLO por el final de cada columna, hasta `limit`
+    meses. No toca huecos interiores ni alarga series que terminaron hace tiempo."""
+    out = X.copy()
+    for c in out.columns:
+        last = out[c].last_valid_index()
+        if last is None:
+            continue
+        pos = out.index.get_loc(last)
+        tail = out.index[pos + 1: pos + 1 + limit]
+        if len(tail):
+            out.loc[tail, c] = out.at[last, c]
+    return out
+
+
 def build_blocks(df: pd.DataFrame):
     print("2. Transformando y estandarizando…")
     zs, info = {}, {}
+    panel_end = df.index[-1]
     for spec in SERIES:
         if spec.fred_id not in df.columns:
             warn(f"serie ausente del panel: {spec.fred_id} ({spec.name})")
             continue
+        lv = df[spec.fred_id].last_valid_index()
+        if lv is not None:
+            gap = (panel_end.year - lv.year) * 12 + (panel_end.month - lv.month)
+            if gap > STALE_MAX_M:
+                warn(f"{spec.fred_id} ({spec.name}) excluida del PCA: última observación "
+                     f"{lv.strftime('%Y-%m')}, {gap} meses antes del final del panel")
+                continue
         x = transform(df[spec.fred_id], spec.transform)
         if spec.invert:
             x = -x
@@ -351,8 +394,14 @@ def first_pc(Z: pd.DataFrame):
     W = pd.Series(vecs[:, 0], index=list(X.columns))
     explained = float(vals[0] / vals.sum())
 
-    num = X.mul(W, axis=1).sum(axis=1, min_count=1)
-    den = X.notna().mul(W.abs(), axis=1).sum(axis=1)
+    # Proyección con arrastre del final (ver TAIL_FILL_M). Los pesos W salen de la
+    # muestra con datos reales; el arrastre solo afecta a cómo se evalúa el borde.
+    Xp = fill_tail(X)
+    total = float(W.abs().sum())
+    num = Xp.mul(W, axis=1).sum(axis=1, min_count=1)
+    den = Xp.notna().mul(W.abs(), axis=1).sum(axis=1)
+    cov_filled = den / total
+    cov_fresh = X.notna().mul(W.abs(), axis=1).sum(axis=1) / total
     f = (num / den.replace(0, np.nan)).dropna()
 
     simple = X.mean(axis=1).reindex(f.index)
@@ -364,25 +413,64 @@ def first_pc(Z: pd.DataFrame):
         "explained_var": round(explained, 3),
         "loadings": {c: round(float(v), 3) for c, v in W.items()},
         "coherence": round(float(coh), 3),
-    }
+    }, cov_filled.reindex(f.index), cov_fresh.reindex(f.index)
 
 
 def build_factors(Z: pd.DataFrame):
     print("3. Extrayendo factores (PCA)…")
-    out, diag = {}, {}
+    out, diag, cov_f, cov_r = {}, {}, {}, {}
     for block in ("growth", "inflation", "leading"):
         cols = [s.fred_id for s in SERIES if s.block == block and s.fred_id in Z.columns]
         if len(cols) < 2:
             warn(f"bloque {block} con muy pocas series")
             continue
-        f, d = first_pc(Z[cols])
+        f, d, cf, cr = first_pc(Z[cols])
         out[block], diag[block] = f, d
+        cov_f[block], cov_r[block] = cf, cr
         print(f"  ✓ {block:<10} {len(cols)} series · varianza {d['explained_var']:.0%}"
               f" · coherencia {d['coherence']:+.2f}")
         if d["explained_var"] < 0.40:
             warn(f"bloque {block}: el primer componente solo explica "
                  f"{d['explained_var']:.0%} de la varianza")
-    return pd.DataFrame(out).dropna(how="all"), diag
+    F = pd.DataFrame(out).dropna(how="all")
+
+    # Recorte del borde: se descartan las filas finales en que los dos ejes que
+    # deciden la fase (crecimiento e inflación) no tienen cobertura suficiente.
+    dropped = 0
+    while len(F) > 1:
+        d0 = F.index[-1]
+        cg = float(cov_f["growth"].get(d0, 0.0)) if "growth" in cov_f else 0.0
+        ci = float(cov_f["inflation"].get(d0, 0.0)) if "inflation" in cov_f else 0.0
+        if min(cg, ci) >= MIN_TAIL_COVERAGE:
+            break
+        F = F.iloc[:-1]
+        dropped += 1
+    if dropped:
+        warn(f"borde irregular: se descartaron {dropped} mes(es) finales con cobertura "
+             f"< {MIN_TAIL_COVERAGE:.0%} del peso en crecimiento o inflación")
+
+    d0 = F.index[-1]
+    fresh = {b: float(cov_r[b].get(d0, 0.0)) for b in ("growth", "inflation") if b in cov_r}
+    filled = {b: float(cov_f[b].get(d0, 0.0)) for b in ("growth", "inflation") if b in cov_f}
+    # último mes con casi todo el peso actualizado (la lectura sin arrastre)
+    last_full = None
+    for d in reversed(list(F.index)):
+        if all(float(cov_r[b].get(d, 0.0)) >= FULL_FRESH_COVERAGE for b in ("growth", "inflation")):
+            last_full = d
+            break
+    diag["_edge"] = {
+        "date": d0.strftime("%Y-%m"),
+        "fresh": {k: round(v, 3) for k, v in fresh.items()},
+        "coverage": {k: round(v, 3) for k, v in filled.items()},
+        "nowcast": bool(min(fresh.values()) < FULL_FRESH_COVERAGE) if fresh else False,
+        "last_full_month": last_full.strftime("%Y-%m") if last_full is not None else None,
+        "rows_dropped": dropped,
+    }
+    e = diag["_edge"]
+    print(f"  ✓ lectura de {e['date']} · peso con dato nuevo {e['fresh']} · "
+          f"cobertura con arrastre {e['coverage']}"
+          + (f" · último mes completo {e['last_full_month']}" if e["nowcast"] else ""))
+    return F, diag
 
 
 # ======================================================================================
@@ -920,6 +1008,94 @@ def fetch_assets(df: pd.DataFrame):
     return X, meta
 
 
+# Familia EXTENDIDA: más activos para aclarar Japón, China, biotech y small caps.
+# Es una familia de contrastes aparte (su propio control de falsos descubrimientos) y
+# NO entra en backtest, rotación, laboratorio ni consenso: así el historial publicado
+# no cambia y un fallo de descarga aquí no puede tocar la cartera. Las descargas son
+# opcionales: si una falla se anota en meta.extended_log y se sigue.
+EXT_FRENCH_REGIONS = {
+    "Japón (French)": "Japan_3_Factors_CSV.zip",
+    "Europa (French)": "Europe_3_Factors_CSV.zip",
+    "Asia-Pacífico ex Japón (French)": "Asia_Pacific_ex_Japan_3_Factors_CSV.zip",
+    "Norteamérica (French)": "North_America_3_Factors_CSV.zip",
+}
+EXT_ETFS = {  # etiqueta: (símbolo Yahoo, ticker Stooq, clase, nota)
+    "Biotecnología (IBB)": ("IBB", "ibb.us", "Biotecnología", "ETF; historia desde 2001"),
+    "Biotecnología equiponderada (XBI)": ("XBI", "xbi.us", "Biotecnología", "ETF; desde 2006"),
+    "China (MCHI)": ("MCHI", "mchi.us", "China", "ETF; desde 2011: muestra corta"),
+    "China large caps (FXI)": ("FXI", "fxi.us", "China", "ETF; desde 2004"),
+    "Japón (EWJ)": ("EWJ", "ewj.us", "Japón", "ETF; desde 1996"),
+}
+
+
+def fetch_extended():
+    """Devuelve (X, meta, log) con excesos mensuales sobre el tipo libre de riesgo."""
+    log, rets, meta = [], {}, {}
+    ff, _ = french_zip(FRENCH_BASE + "F-F_Research_Data_Factors_CSV.zip", "factores (ext)")
+    rf = ff["RF"] if ff is not None and "RF" in ff.columns else None
+
+    def ok(name, ser, cls, src, note=""):
+        s = ser.dropna() if ser is not None else None
+        if s is None or s.size < MIN_MONTHS:
+            log.append({"name": name, "source": src, "status": "descartado",
+                        "detail": "sin datos suficientes" if s is None else f"{s.size} meses"})
+            return
+        if float(s.abs().max()) > 150 or float(s.mean()) > 8:
+            log.append({"name": name, "source": src, "status": "descartado",
+                        "detail": "retornos implausibles"})
+            return
+        rets[name] = s
+        meta[name] = {"class": cls, "source": src, "note": note}
+        log.append({"name": name, "source": src, "status": "ok", "detail": f"{s.size} meses"})
+
+    for lab, fname in EXT_FRENCH_REGIONS.items():
+        d, e = french_zip(FRENCH_BASE + fname, lab)
+        if d is None:
+            log.append({"name": lab, "source": "Ken French (regional)", "status": "fallo",
+                        "detail": str(e)[:160]})
+            continue
+        col = next((c for c in d.columns if "Mkt" in c), None)
+        ok(lab, d[col] if col else None, "Región (ext.)", "Ken French (regional)",
+           "exceso de mercado, 3 factores")
+    me, e = french_zip(FRENCH_BASE + "Portfolios_Formed_on_ME_CSV.zip", "small caps (ext)")
+    if me is None or rf is None:
+        log.append({"name": "Small caps EE.UU. (20% menores)", "source": "Ken French (tamaño)",
+                    "status": "fallo", "detail": str(e)[:160] if me is None else "sin RF"})
+    else:
+        c20 = next((c for c in me.columns if c.strip() == "Lo 20"), None)
+        ok("Small caps EE.UU. (20% menores)",
+           (me[c20] - rf.reindex(me.index).ffill()) if c20 else None,
+           "Tamaño (ext.)", "Ken French (tamaño)", "cartera Lo 20 ponderada por valor")
+    t0 = time.time()
+    for lab, (ysym, stick, cls, note) in EXT_ETFS.items():
+        if time.time() - t0 > OPTIONAL_BUDGET_S:
+            log.append({"name": lab, "source": "mercado", "status": "omitido",
+                        "detail": "presupuesto de tiempo agotado"})
+            continue
+        r, e1 = yahoo_monthly(ysym)
+        src = f"Yahoo / {ysym}"
+        if r is None:
+            r, e2 = stooq_monthly(stick)
+            src = f"Stooq / {stick}"
+            if r is None:
+                log.append({"name": lab, "source": src, "status": "fallo",
+                            "detail": f"yahoo: {e1} | stooq: {e2}"[:200]})
+                continue
+        if rf is not None:
+            r = r - rf.reindex(r.index).ffill().fillna(0.0)
+        ok(lab, r, cls, src, note)
+    return (pd.DataFrame(rets) if rets else pd.DataFrame()), meta, log
+
+
+def extended_analysis(phases: pd.Series):
+    X, meta, log = fetch_extended()
+    if X.empty:
+        return {"assets": [], "meta": {"log": log, "cells": 0}}
+    rows, stats = conditional_stats(
+        X, phases, meta, label="5c. Familia extendida (aparte, no altera la cartera)…")
+    return {"assets": rows, "meta": {"log": log, **stats}}
+
+
 def fetch_subsectors():
     """Universo de subsectores para el análisis COMPLEMENTARIO (sección 8b): las
     industrias de las 49 de Ken French que caen limpias dentro de un sector ya usado
@@ -1369,6 +1545,53 @@ def shrink(mu: dict, se: dict, grand: float) -> dict:
     return out
 
 
+RELIAB_MIN_N_STRONG = 60
+RELIAB_MIN_N = 36
+
+
+def _cell_checks(s: pd.Series, ph: pd.Series, phase: str, grand: float,
+                 rel_full: float) -> dict:
+    """Tres comprobaciones independientes del contraste principal.
+    - split: el signo del exceso sobre la media se repite en las dos mitades del
+      tiempo (no depende de una sola época).
+    - lag: con la fase desplazada un mes (lo que realmente se sabría) el signo se
+      mantiene. Si solo funciona con la fase contemporánea, no es accionable.
+    - n: observaciones suficientes."""
+    sub = s[ph == phase]
+    sg = np.sign(rel_full)
+    out = {"n": int(sub.size)}
+    if sub.size >= 8:
+        h = sub.size // 2
+        a, b = sub.iloc[:h].mean() - grand, sub.iloc[h:].mean() - grand
+        out["split"] = bool(np.sign(a) == sg and np.sign(b) == sg)
+    else:
+        out["split"] = False
+    lagged = ph.shift(1).reindex(s.index)
+    sl = s[lagged == phase]
+    out["lag"] = bool(sl.size >= 12 and np.sign(sl.mean() - grand) == sg)
+    return out
+
+
+def reliability_label(d: dict) -> str:
+    """Fuerte / Moderada / Débil / Sin señal. Es una etiqueta de fiabilidad
+    ESTADÍSTICA de la casilla, no una predicción: Fuerte exige t robusta, control
+    de falsos descubrimientos, estabilidad temporal, utilidad con la fase conocida
+    con retraso y muestra amplia."""
+    g = str(d.get("grade", "0"))
+    if g in ("0", "s/d") or not g:
+        return "Sin señal"
+    c = d.get("checks") or {}
+    q = d.get("q")
+    fdr = q is not None and q <= 0.10
+    if (len(g) >= 2 and fdr and c.get("split") and c.get("lag")
+            and c.get("n", 0) >= RELIAB_MIN_N_STRONG):
+        return "Fuerte"
+    if (len(g) >= 2 and c.get("split") and c.get("n", 0) >= RELIAB_MIN_N
+            and (fdr or c.get("lag"))):
+        return "Moderada"
+    return "Débil"
+
+
 def conditional_stats(X: pd.DataFrame, phases: pd.Series, meta: dict,
                        label: str = "5. Estimando retornos condicionales…"):
     print(label)
@@ -1405,6 +1628,7 @@ def conditional_stats(X: pd.DataFrame, phases: pd.Series, meta: dict,
                 "hit": round(float((sub.values > 0).mean()), 3),
                 "n": int(sub.size),
                 "vol": round(float(sub.std() * math.sqrt(12)), 2),
+                "checks": _cell_checks(s, ph, phase, grand, float(mu - grand)),
             }
             cells.append((col, phase, two_sided_p(t)))
         sh = shrink(mu_d, se_d, grand)
@@ -1424,14 +1648,23 @@ def conditional_stats(X: pd.DataFrame, phases: pd.Series, meta: dict,
             q = qmap.get((e["id"], phase), float("nan"))
             d["q"] = round(q, 3) if q == q else None
             d["grade"] = grade_from_t(d["t"], q)
+            d["reliability"] = reliability_label(d)
 
+    for e in rows:
+        for d in e["phases"].values():
+            d.setdefault("reliability", "Sin señal")
     graded = sum(1 for e in rows for d in e["phases"].values()
                  if d.get("grade") not in (None, "0", "s/d"))
     fdr = sum(1 for e in rows for d in e["phases"].values()
               if d.get("q") is not None and d["q"] <= 0.10)
     print(f"  ✓ {len(rows)} activos · {len(cells)} casillas · {graded} con nota · "
           f"{fdr} robustas al control de falsos descubrimientos")
-    return rows, {"cells": len(cells), "graded": graded, "fdr_survivors": fdr}
+    rel_counts = {k: sum(1 for e in rows for d in e["phases"].values()
+                        if d.get("reliability") == k)
+                  for k in ("Fuerte", "Moderada", "Débil", "Sin señal")}
+    print(f"  ✓ fiabilidad por casilla: {rel_counts}")
+    return rows, {"cells": len(cells), "graded": graded, "fdr_survivors": fdr,
+                  "reliability": rel_counts}
 
 
 def subsector_analysis(phases: pd.Series):
@@ -2589,6 +2822,7 @@ def main() -> None:
     rec = recession_model(df, F.index)
     subsectors = subsector_analysis(phases)
     holdings = fetch_holdings()
+    extended = extended_analysis(phases)
 
     p1, p2 = rank[0][0], rank[1][0]
 
@@ -2669,6 +2903,9 @@ def main() -> None:
             "sigma_g": round(sg, 3), "sigma_i": round(si, 3), "horizon_m": HORIZON_M,
             "probs": {k: round(v, 4) for k, v in probs.items()},
             "confidence": round(conf, 4),
+            # Fuerza de la lectura de fase: Fuerte >= 0,6; Moderada 0,3-0,6; Débil < 0,3.
+            "call_strength": ("Fuerte" if conf >= 0.6 else "Moderada" if conf >= 0.3 else "Débil"),
+            "edge": pca.get("_edge"),
             "momentum": {
                 "growth_3m": round(float(F["growth"].iloc[-1] - F["growth"].iloc[-4]), 3)
                              if len(F) > 4 else None,
@@ -2683,6 +2920,7 @@ def main() -> None:
         "backtest": bt, "rotation": rot, "lab": lab,
         "rotation_fi": rot_fi, "lab_fi": lab_fi,
         "validation": val, "subsectors": subsectors, "holdings": holdings,
+        "extended": extended,
         "phases": PHASES, "phase_long": PHASE_LONG,
     }
 

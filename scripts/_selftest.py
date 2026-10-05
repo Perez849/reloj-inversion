@@ -60,6 +60,8 @@ def fake_french(url, hint=""):
         cols = list(bd.FRENCH_49) + list(bd.SUBSECTOR_MAP)
     elif "12_Industry" in url:
         cols = list(bd.FRENCH_IND)
+    elif "Portfolios_Formed_on_ME" in url:
+        cols = ["Lo 20", "Qnt 2"]
     elif "Factors" in url:
         cols = ["Mkt-RF", "SMB", "HML", "RF"]
     else:
@@ -75,7 +77,7 @@ def fake_french(url, hint=""):
 
 
 def fake_yahoo(sym):
-    if sym in ("MUB", "MBB", "BTC-USD"):
+    if sym in ("MUB", "MBB", "BTC-USD", "MCHI"):
         return None, "429 Too Many Requests (simulado)"
     n = len(IDX_M) if sym not in ("HYG", "LQD", "TIP") else 240
     idx = IDX_M[-n:]
@@ -90,7 +92,21 @@ def fake_stooq(ticker):
                      index=IDX_M), None
 
 
-bd.fred_series = lambda sid: (synth(sid), None) if synth(sid) is not None else (None, "sintetico")
+def fred_ragged(sid):
+    """Reproduce el borde irregular real: nóminas con 2 meses más que el resto y
+    USSLIND descontinuada en 2020-02."""
+    s = synth(sid)
+    if s is None:
+        return None, "sintetico"
+    if sid == "PAYEMS":
+        ext = pd.date_range(s.index[-1], periods=3, freq="ME")[1:]
+        s = pd.concat([s, pd.Series([s.iloc[-1] * 0.97, s.iloc[-1] * 0.94], index=ext)])
+    if sid == "USSLIND":
+        s = s[s.index <= "2020-02-29"]
+    return s, None
+
+
+bd.fred_series = fred_ragged
 bd.french_zip = fake_french
 bd.stooq_monthly = fake_stooq
 bd.yahoo_monthly = fake_yahoo
@@ -137,3 +153,27 @@ for sector, byphase in sub["por_sector"].items():
         anns = [it["ann"] for it in items]
         assert anns == sorted(anns, reverse=True), f"{sector}/{phase} no viene ordenado"
 print("subsectores:", sub["meta"], "| sectores con desglose:", sorted(sub["por_sector"]))
+
+# --- borde irregular: un solo dato adelantado no puede definir la lectura actual ---
+cur = d["current"]
+assert cur["edge"] is not None and "coverage" in cur["edge"], "falta info de borde"
+# con arrastre de 2 meses la cobertura es alta, pero debe marcarse como estimación
+assert cur["edge"]["nowcast"] is True, "borde con series arrastradas sin marcar como nowcast"
+assert min(cur["edge"]["fresh"].values()) < 0.5, "el dato fresco no debería dominar"
+assert min(cur["edge"]["coverage"].values()) >= bd.MIN_TAIL_COVERAGE
+assert abs(cur["growth"]) < 3, "crecimiento extremo: borde irregular sin corregir"
+assert cur["call_strength"] in ("Fuerte", "Moderada", "Débil")
+assert not any(i["id"] == "USSLIND" for i in d["indicators"]) or \
+    "USSLIND" in " ".join(d["meta"]["warnings"]), "USSLIND descontinuada sin avisar"
+assert "USSLIND" not in d["pca"]["growth"]["loadings"], "USSLIND sigue en el PCA"
+assert d["asset_stats"]["reliability"], "faltan etiquetas de fiabilidad"
+assert all("reliability" in x for a in d["assets"] for x in a["phases"].values())
+print("fiabilidad:", d["asset_stats"]["reliability"])
+print("borde:", cur["edge"], "| fuerza:", cur["call_strength"])
+
+ext = d["extended"]
+assert ext["assets"], "familia extendida vacía"
+names = {a["name"] for a in ext["assets"]}
+assert "Japón (French)" in names and "Biotecnología (IBB)" in names
+assert not (names & {a["name"] for a in d["assets"]}), "la familia extendida contamina la principal"
+print("extendida:", sorted(names), "| fiabilidad:", ext["meta"]["reliability"])

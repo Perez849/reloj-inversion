@@ -288,7 +288,11 @@ function renderHero() {
       <span class="conf-bar"><i style="width:${(v * 100).toFixed(1)}%;background:${PHASE_COLOR[p]}"></i></span>
       <span class="conf-val">${fmtPct(v, 1)}</span>
     </div>`).join("");
-  $("#confNote").innerHTML = `<b>${fmtPct(c.confidence)}</b> de margen sobre ${c.alt_phase}. ${confidenceText(c)}`;
+  const edge = c.edge || {};
+  const edgeNote = edge.nowcast
+    ? ` <br><small>Estimación provisional: el último mes tiene solo ${fmtPct(Math.min(...Object.values(edge.fresh || {0: 0})), 0)} del peso con dato nuevo y el resto se arrastra del mes anterior (último mes completo: ${edge.last_full_month ? label(edge.last_full_month) : "—"}).</small>`
+    : "";
+  $("#confNote").innerHTML = `Señal de fase: <b>${c.call_strength || "—"}</b> · <b>${fmtPct(c.confidence)}</b> de margen sobre ${c.alt_phase}. ${confidenceText(c)}${edgeNote}`;
 
   $("#heroStats").innerHTML = [
     ["Impulso crecimiento 3m", signed(c.momentum?.growth_3m, 2) + " σ"],
@@ -800,12 +804,13 @@ function drawMatrix() {
           d.rel_shrunk != null ? `contraído hacia cero: ${signed(d.rel_shrunk, 1)} pp — versión más prudente del exceso, encogida en proporción a lo poco fiable que es la muestra (pocos meses o mucho vaivén encogen más), para no dejarse impresionar por una racha corta` : null,
           `t=${fmtNum(d.t, 2)}: el exceso dividido por su propio margen de error — por debajo de ±2 aproximadamente, no se puede descartar que sea puro azar`,
           d.q != null ? `q=${fmtNum(d.q, 3)}: la probabilidad de que esta casilla en concreto sea un falso positivo, YA corregida por examinar decenas de casillas a la vez (sin esa corrección, el p-valor sin ajustar sería menor y parecería más fiable de lo que es)` : null,
+          d.reliability ? `FIABILIDAD ${String(d.reliability).toUpperCase()}${d.checks ? ` (estable en las dos mitades: ${d.checks.split ? "sí" : "no"}; funciona con la fase conocida con un mes de retraso: ${d.checks.lag ? "sí" : "no"})` : ""}` : null,
           `${d.n} meses de esta fase en la muestra · acertó signo (subió cuando "suele subir") el ${fmtPct(d.hit, 0)} de esos meses`,
         ].filter(Boolean).join(" · ");
         body += `<td class="cell ${p === cur ? "active" : ""} ${sig ? "" : "dim"}"
             style="background:${col}"
             title="${tCell}">
-            <span class="g" style="color:${sig ? txtCol : INK_FAINT}">${d.grade}</span>
+            <span class="g" style="color:${sig ? txtCol : INK_FAINT}">${d.grade}</span>${sig && d.reliability ? `<span class="rel rel-${d.reliability}" title="Fiabilidad: ${d.reliability}">${d.reliability[0]}</span>` : ""}
             <span class="r">${signed(d.rel, 1)}</span></td>`;
       }
       body += `<td style="text-align:right;font-family:var(--mono);color:${INK_SOFT}">${fmtNum(a.uncond_ann, 1)}%</td></tr>`;
@@ -813,7 +818,11 @@ function drawMatrix() {
   }
 
   $("#matrix").innerHTML = head + `<tbody>${body}</tbody>`;
+  drawExtended();
   $("#matrixFoot").innerHTML = `
+    <b>Etiqueta F / M / D</b> junto a la nota = fiabilidad <b>Fuerte / Moderada / Débil</b>. Fuerte exige
+    nota ++ o +++, FDR ≤ 0,10, mismo signo en las dos mitades de la muestra, mismo signo usando la fase
+    conocida con un mes de retraso y al menos 60 meses de esa fase. Sin etiqueta: sin señal.<br>
     Cada celda: exceso anualizado en puntos porcentuales frente a la media histórica del propio activo,
     y la nota que resume su significatividad. Pasa el cursor por encima para ver el detalle completo
     (t, q, meses y tasa de acierto).<br>
@@ -824,6 +833,34 @@ function drawMatrix() {
     adicional &nbsp;·&nbsp; <b>+ / -</b> menor al 20% — indicativo, no concluyente &nbsp;·&nbsp;
     <b>0</b> no se puede distinguir de su propia media, con la muestra disponible hoy — no significa que
     "no haya efecto", significa que con estos datos no se puede afirmar que lo haya.`;
+}
+
+function drawExtended() {
+  const ext = D.extended;
+  const rows = (ext?.assets || []);
+  if (!rows.length) {
+    $("#extMatrix").innerHTML = "";
+    $("#extFoot").textContent = "Sin datos de la familia extendida en esta ejecución.";
+    return;
+  }
+  const head = `<thead><tr><th>Activo</th>${D.phases.map(p => `<th>${p}</th>`).join("")}</tr></thead>`;
+  const body = rows.map(a => `<tr><td class="asset">${a.name}<small>${a.source} · desde ${a.from.slice(0, 7)} · ${a.n} meses</small></td>` +
+    D.phases.map(p => {
+      const d = a.phases[p] || {};
+      if (d.grade == null || d.grade === "s/d") return `<td class="cell dim">—</td>`;
+      const sig = d.grade !== "0";
+      return `<td class="cell ${sig ? "" : "dim"}" style="background:${sig ? diverging(d.rel, 12) : "transparent"}"
+        title="t=${fmtNum(d.t, 2)} · q=${d.q != null ? fmtNum(d.q, 3) : "—"} · ${d.n} meses · fiabilidad ${d.reliability || "—"}">
+        <span class="g" style="color:${sig ? (d.rel >= 0 ? POS : NEG) : INK_FAINT}">${d.grade}</span>${sig && d.reliability ? `<span class="rel rel-${d.reliability}">${d.reliability[0]}</span>` : ""}
+        <span class="r">${signed(d.rel, 1)}</span></td>`;
+    }).join("") + `</tr>`).join("");
+  $("#extMatrix").innerHTML = head + `<tbody>${body}</tbody>`;
+  const m = ext.meta || {};
+  const bad = (m.log || []).filter(x => x.status !== "ok").map(x => x.name);
+  $("#extFoot").innerHTML = `Familia propia de contrastes (su propio control de falsos descubrimientos); no entra en la cartera,
+    el backtest ni el consenso. ${bad.length ? `No cargados esta vez: ${bad.join(", ")}.` : ""}
+    Los ETF (IBB, XBI, MCHI, FXI, EWJ) tienen historia corta: con menos de ~15 años por fase, casi ninguna
+    casilla puede llegar a Fuerte, y eso es lo correcto, no un fallo.`;
 }
 
 /* -------------------------------- consenso ------------------------------ */

@@ -837,3 +837,27 @@ reloj gira al revés; solo muy por encima se puede hablar de un ciclo con direcc
   la fase. El panel publica el Sharpe y la caída máxima frente al S&P 500 al
   lado del CAGR precisamente para que ese coste no quede escondido detrás de
   una rentabilidad más alta.
+
+## 12. Auditoría de octubre de 2026: borde irregular, fiabilidad y familia extendida
+
+**Borde irregular.** Las series macro se publican con retrasos distintos. El factor se calculaba
+como media ponderada de las series *disponibles*, de modo que en un mes con una sola serie viva
+(nóminas, 9% del peso) el factor era esa serie: el crecimiento saltó a −1,06. Ahora se arrastra
+el último z de cada serie hasta 2 meses (`TAIL_FILL_M`), se exige ≥80% del peso de cobertura en
+crecimiento e inflación (`MIN_TAIL_COVERAGE`) y se descartan los meses finales que no lleguen. Si
+menos del 90% del peso tiene dato nuevo, `current.edge.nowcast = true` y la web lo marca como
+estimación provisional. Series con última observación a más de 6 meses del final del panel (p. ej.
+USSLIND, último dato 2020-02) se excluyen del PCA con aviso.
+
+**Fiabilidad por casilla** (`reliability_label`): *Fuerte* = nota ++/+++, FDR q ≤ 0,10, mismo signo del
+exceso en las dos mitades de la muestra, mismo signo usando la fase con un mes de retraso, y ≥ 60 meses
+de esa fase. *Moderada* = nota ++/+++, estable en las dos mitades, ≥ 36 meses y (FDR o retraso).
+*Débil* = tiene nota pero falla alguna comprobación. *Sin señal* = nota 0. No se puede "forzar" una señal
+a Fuerte: solo más historia o más activos independientes la sostienen.
+
+**Fuerza de la fase actual** (`current.call_strength`): margen ≥ 0,6 Fuerte; 0,3–0,6 Moderada; < 0,3 Débil.
+
+**Familia extendida** (`extended`): Japón, Europa, Asia-Pacífico ex Japón y Norteamérica (Ken French),
+small caps (cartera Lo 20), y ETF IBB, XBI, MCHI, FXI, EWJ. Familia de contrastes propia, fuera del
+backtest, la rotación, el laboratorio y el consenso. Los nombres de archivo de French no se han podido
+verificar desde el entorno de desarrollo; si fallan, se anotan en `extended.meta.log`.
