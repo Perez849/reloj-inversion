@@ -2050,7 +2050,7 @@ SAT_MIN_SCHEMES = 3
 SAT_CLASSES = {"Biotecnología", "Tamaño (ext.)", "Región (ext.)", "China", "Japón"}
 
 
-def satellite_test(X, Xe, emeta, ameta, phases, probs_df, F, rot_base):
+def satellite_test(X, Xe, emeta, ameta, phases, probs_df, F, rot_base, level_weight=0.0):
     """Compara la cartera base con la cartera con satélite. Devuelve (rot_final, info).
     Se adopta (rot_final = con satélite) si mejora el Sharpe >= UNI_MIN_DSHARPE en al
     menos UNI_MIN_SCHEMES de 4 esquemas sin bajar el CAGR más de 0,05 puntos. Si no,
@@ -2067,7 +2067,7 @@ def satellite_test(X, Xe, emeta, ameta, phases, probs_df, F, rot_base):
     cls2.update({c: emeta[c]["class"] for c in cols})
     sleeves_sat = {**SLEEVES, "Satélite táctico": (SAT_CLASSES, 0.00, 0.15, 0, 2)}
     rot_sat = rotation(X2, phases, cls2, probs_df, F, sleeves=sleeves_sat,
-                       phase_sleeve_override=ESTANFLACION_OVERRIDE)
+                       phase_sleeve_override=ESTANFLACION_OVERRIDE, level_weight=level_weight)
     if not rot_sat.get("schemes"):
         return rot_base, info
     mb, ms = _scheme_metrics(rot_base), _scheme_metrics(rot_sat)
@@ -2088,6 +2088,44 @@ def satellite_test(X, Xe, emeta, ameta, phases, probs_df, F, rot_base):
     print(f"  ✓ satélite: mejora en {wins}/4 esquemas → "
           f"{'incorporado a «Qué comprar»' if info['adopted'] else 'queda como opción'}")
     return (rot_sat if info["adopted"] else rot_base), info
+
+
+
+LEVEL_WEIGHTS = (0.5, 1.0)
+
+
+def level_test(X, ameta, phases, probs_df, F, rot_base):
+    """Pregunta de usuario: ¿por qué un sector con rentabilidad absoluta altísima en
+    varias fases (semiconductores) casi no sale? Porque el motor puntúa la ventaja de
+    la fase FRENTE A LA PROPIA MEDIA del activo, no su nivel absoluto. Aquí se prueba
+    sumar al criterio de ordenación DENTRO del bloque de renta variable una fracción
+    (level_weight) de su media histórica. El bloque frente a los demás se sigue
+    puntuando con la ventaja pura. Se adopta si mejora el Sharpe >= UNI_MIN_DSHARPE en
+    al menos 3 de 4 esquemas sin bajar el CAGR más de 0,05 puntos."""
+    print("7d. Test de criterio de nivel absoluto dentro de renta variable…")
+    cls_map = {k: v.get("class", "Otros") for k, v in ameta.items()}
+    mb = _scheme_metrics(rot_base)
+    info = {"base": mb, "variants": {}, "adopted_weight": 0.0}
+    best, best_key, best_rot = 0.0, None, rot_base
+    for lw in LEVEL_WEIGHTS:
+        r = rotation(X, phases, cls_map, probs_df, F,
+                     phase_sleeve_override=ESTANFLACION_OVERRIDE, level_weight=lw)
+        m = _scheme_metrics(r)
+        wins = 0
+        for sch, b in mb.items():
+            v = m.get(sch) or {}
+            if None in (b.get("sharpe"), v.get("sharpe"), b.get("cagr"), v.get("cagr")):
+                continue
+            if v["sharpe"] - b["sharpe"] >= UNI_MIN_DSHARPE and v["cagr"] >= b["cagr"] - 0.05:
+                wins += 1
+        msh = float(np.mean([v["sharpe"] for v in m.values() if v.get("sharpe") is not None] or [0]))
+        info["variants"][str(lw)] = {"wins": wins, "schemes": m}
+        if wins >= UNI_MIN_SCHEMES and (best_key is None or (wins, msh) > best_key):
+            best, best_key, best_rot = lw, (wins, msh), r
+    info["adopted_weight"] = best
+    print(f"  ✓ peso del nivel absoluto adoptado: {best} "
+          + ", ".join("%s: %s/4" % (k, v["wins"]) for k, v in info["variants"].items()))
+    return best_rot, info
 
 
 def subsector_analysis(phases: pd.Series):
@@ -2503,7 +2541,7 @@ def _weights(names, vol, scheme: str) -> pd.Series:
     return (0.5 * eq + 0.5 * (iv / iv.sum()))
 
 
-def _sleeve_pick(mu, vol, raw_phase, avail, classes, cls_map, n_min, n_max):
+def _sleeve_pick(mu, vol, raw_phase, avail, classes, cls_map, n_min, n_max, mu_rank=None):
     """Selecciona los del bloque que de verdad convienen en esta fase y
     devuelve su orden y su puntuación. El número elegido no es fijo: se
     queda con los que puntúan **positivo** (ventaja de fase > 0) más los
@@ -2551,20 +2589,24 @@ def _sleeve_pick(mu, vol, raw_phase, avail, classes, cls_map, n_min, n_max):
     compitan los dos sería, en parte, contar la misma exposición dos veces, así
     que solo sigue en carrera el que muestre mejor ir — el mismo criterio que
     decide cualquier otro desempate de esta función, no una regla especial."""
+    # mu_rank: puntuación SOLO para ordenar/seleccionar dentro del bloque (puede incluir
+    # parte del nivel absoluto, ver rotation(level_weight=...)); `mu` (ventaja de fase
+    # pura) sigue mandando en la puntuación del bloque frente a los demás.
+    rmu = mu if mu_rank is None else mu_rank
     cand = [c for c in avail
             if cls_map.get(c) in classes and c not in NOT_SELECTABLE]
     if not cand:
         return [], 0.0
     for child, parent in ASSET_OVERLAP.items():
         if child in cand and parent in cand:
-            ir_child = mu.get(child, -1e9) / max(abs(vol.get(child, 0.0)), 1e-9)
-            ir_parent = mu.get(parent, -1e9) / max(abs(vol.get(parent, 0.0)), 1e-9)
+            ir_child = rmu.get(child, -1e9) / max(abs(vol.get(child, 0.0)), 1e-9)
+            ir_parent = rmu.get(parent, -1e9) / max(abs(vol.get(parent, 0.0)), 1e-9)
             cand.remove(child if ir_child <= ir_parent else parent)
     vc = vol.reindex(cand).replace(0, np.nan)
     floor = vc.quantile(VOL_FLOOR_Q) if vc.notna().sum() > 2 else None
     if floor and floor > 0:
         vc = vc.clip(lower=floor)
-    ir = (mu.reindex(cand) / vc).replace([np.inf, -np.inf], np.nan).dropna()
+    ir = (rmu.reindex(cand) / vc).replace([np.inf, -np.inf], np.nan).dropna()
     if ir.empty:
         return [], 0.0
     raw = (raw_phase.reindex(ir.index) / vc.reindex(ir.index)).replace([np.inf, -np.inf], np.nan)
@@ -2695,7 +2737,9 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
              bench_name: str = "Renta variable EE.UU. (mercado)",
              bd_name: str = "Treasury 10 años",
              include_6040: bool = True,
-             phase_sleeve_override: dict | None = None) -> dict:
+             phase_sleeve_override: dict | None = None,
+             level_weight: float = 0.0,
+             level_sleeves: frozenset = frozenset({"Renta variable"})) -> dict:
     """Cartera solo larga, siempre invertida al 100 %, sin apalancar ni cortos.
     La fase decide qué activos ocupan cada bloque y cuánto pesa cada bloque dentro
     de sus bandas. Se calculan los cuatro esquemas de reparto en paralelo sobre
@@ -2855,12 +2899,16 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
         else:
             mu = means(hist, hph, sig)
         avail = list(X.loc[t].dropna().index)
+        grand_t = _wmean(hist, _ew(hist, hist.index[-1]))
         picks, scores = {}, {}
         for name, (classes, lo, hi, n_min, n_max) in sleeves.items():
             if phase_sleeve_override and (sig, name) in phase_sleeve_override:
                 n_min, n_max = phase_sleeve_override[(sig, name)]
+            mr = None
+            if level_weight and name in level_sleeves:
+                mr = mu + level_weight * grand_t
             picks[name], scores[name] = _sleeve_pick(
-                mu, vol, raw_phase, avail, classes, cls_map, n_min, n_max)
+                mu, vol, raw_phase, avail, classes, cls_map, n_min, n_max, mu_rank=mr)
         if not any(picks.values()):
             continue
 
@@ -3317,7 +3365,13 @@ def main() -> None:
     rot = rotation(X, phases, cls_map, probs_df, F,
                    phase_sleeve_override=ESTANFLACION_OVERRIDE)
     try:
-        rot, satellite = satellite_test(X, Xe, emeta, ameta, phases, probs_df, F, rot)
+        rot, level_info = level_test(X, ameta, phases, probs_df, F, rot)
+    except Exception as exc:
+        warn(f"test de nivel absoluto omitido: {exc}")
+        level_info = {"error": str(exc), "adopted_weight": 0.0}
+    try:
+        rot, satellite = satellite_test(X, Xe, emeta, ameta, phases, probs_df, F, rot,
+                                        level_info.get("adopted_weight", 0.0))
     except Exception as exc:
         warn(f"satélite táctico omitido: {exc}")
         satellite = {"error": str(exc), "adopted": False}
@@ -3433,7 +3487,7 @@ def main() -> None:
         "backtest": bt, "rotation": rot, "lab": lab,
         "rotation_fi": rot_fi, "lab_fi": lab_fi,
         "validation": val, "subsectors": subsectors, "holdings": holdings,
-        "extended": extended, "universe": universe, "satellite": satellite, "now_edge": now, "pca_research": pca_research,
+        "extended": extended, "universe": universe, "satellite": satellite, "level_test": level_info, "now_edge": now, "pca_research": pca_research,
         "phases": PHASES, "phase_long": PHASE_LONG,
     }
 

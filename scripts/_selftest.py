@@ -204,3 +204,7 @@ assert sat.get("assets"), "el satélite no se ejecutó"
 assert sat.get("rotation", {}).get("schemes"), "satélite sin rotación"
 pb = next(iter(sat["rotation"]["schemes"].values()))["playbook"]
 print("satélite playbook:", {ph: [(x["name"], x["weight"]) for x in rows if x["sleeve"] == "Satélite táctico"] for ph, rows in pb.items()})
+
+lv = d["level_test"]
+assert lv.get("variants") and lv.get("error") is None, f"level_test roto: {lv}"
+print("nivel absoluto:", lv["adopted_weight"], {k: v["wins"] for k, v in lv["variants"].items()})
