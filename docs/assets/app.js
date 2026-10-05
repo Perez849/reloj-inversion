@@ -211,6 +211,7 @@ function render() {
   renderRobustness();
   renderConsensus();
   renderPcaResearch();
+  renderTactical();
   renderUniverse();
   renderRotation();
   renderLab();
@@ -643,6 +644,30 @@ function renderIndicators() {
       ${rows.map(indRow).join("")}`;
     host.appendChild(box);
   }
+}
+
+function renderTactical() {
+  const host = $("#tacticalBody");
+  const ext = D.extended?.assets || [];
+  if (!host) return;
+  const c = D.current;
+  const top2 = [c.phase, c.alt_phase];
+  host.innerHTML = D.phases.map(p => {
+    const pos = [], neg = [];
+    for (const a of ext) {
+      const d = a.phases[p];
+      if (!d || d.rel == null || !["Fuerte", "Moderada"].includes(d.reliability)) continue;
+      (d.rel >= 0 ? pos : neg).push({name: a.name, rel: d.rel, ann: d.ann, rel_l: d.reliability, n: d.n});
+    }
+    pos.sort((x, y) => y.rel - x.rel); neg.sort((x, y) => x.rel - y.rel);
+    const line = (r, good) => `<li><b>${r.name}</b> <span class="rel rel-${r.rel_l}">${r.rel_l[0]}</span>
+      <span style="color:${good ? POS : NEG}">${signed(r.rel, 1)} pp</span> <small>(rinde ${fmtNum(r.ann, 1)}% anual · ${r.n} meses)</small></li>`;
+    const now = top2.includes(p);
+    return `<div class="tac-card ${now ? "now" : ""}"><h3>${p}${p === c.phase ? " · fase actual" : p === c.alt_phase ? " · segunda fase" : ""}</h3>
+      ${pos.length ? `<div class="tac-h">Candidatos</div><ul>${pos.map(r => line(r, true)).join("")}</ul>` : ""}
+      ${neg.length ? `<div class="tac-h">Mejor evitar</div><ul>${neg.map(r => line(r, false)).join("")}</ul>` : ""}
+      ${!pos.length && !neg.length ? `<p class="small-cap">Ningún activo nuevo con evidencia moderada o fuerte en esta fase.</p>` : ""}</div>`;
+  }).join("");
 }
 
 function renderPcaResearch() {

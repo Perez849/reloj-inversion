@@ -329,3 +329,12 @@ table.matrix{border-collapse:collapse;width:100%;min-width:780px}
 .rel-Fuerte{background:#1f7a4d;color:#fff}
 .rel-Moderada{background:#b7791f;color:#fff}
 .rel-Débil{background:#8a8f98;color:#fff}
+
+.matrix-holder{-webkit-overflow-scrolling:touch;overflow-x:auto;touch-action:pan-x pan-y;max-width:100%}
+#tacticalBody{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-top:14px}
+.tac-card{border:1px solid var(--line);border-radius:var(--r-md);padding:14px 16px;background:var(--paper-raised)}
+.tac-card.now{border-color:var(--ink-soft)}
+.tac-card h3{margin:0 0 8px;font-size:15px}
+.tac-card ul{margin:4px 0 8px;padding-left:18px;font-size:13px}
+.tac-card li{margin:4px 0}
+.tac-h{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-faint);margin-top:6px}
