@@ -419,6 +419,8 @@ def first_pc(Z: pd.DataFrame):
 def build_factors(Z: pd.DataFrame):
     print("3. Extrayendo factores (PCA)…")
     out, diag, cov_f, cov_r = {}, {}, {}, {}
+    tail_info = {c: (Z[c].last_valid_index().strftime("%Y-%m") if Z[c].last_valid_index() is not None else None)
+                 for c in Z.columns}
     for block in ("growth", "inflation", "leading"):
         cols = [s.fred_id for s in SERIES if s.block == block and s.fred_id in Z.columns]
         if len(cols) < 2:
@@ -465,6 +467,11 @@ def build_factors(Z: pd.DataFrame):
         "nowcast": bool(min(fresh.values()) < FULL_FRESH_COVERAGE) if fresh else False,
         "last_full_month": last_full.strftime("%Y-%m") if last_full is not None else None,
         "rows_dropped": dropped,
+        "z_last_valid": tail_info,
+        "panel_end": Z.index[-1].strftime("%Y-%m"),
+        "coverage_by_month": {d.strftime("%Y-%m"): [round(float(cov_f["growth"].get(d, 0)), 2),
+                                                   round(float(cov_f["inflation"].get(d, 0)), 2)]
+                              for d in cov_f["growth"].index[-14:]},
     }
     e = diag["_edge"]
     print(f"  ✓ lectura de {e['date']} · peso con dato nuevo {e['fresh']} · "
