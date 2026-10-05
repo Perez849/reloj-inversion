@@ -54,6 +54,7 @@ MIN_MONTHS = 60
 T_START = time.time()
 WARNINGS: list[str] = []
 ASSET_LOG: list[dict] = []
+DEBUG_TAILS: dict = {}
 
 
 def warn(msg: str) -> None:
@@ -361,7 +362,19 @@ def build_blocks(df: pd.DataFrame):
                 warn(f"{spec.fred_id} ({spec.name}) excluida del PCA: última observación "
                      f"{lv.strftime('%Y-%m')}, {gap} meses antes del final del panel")
                 continue
-        x = transform(df[spec.fred_id], spec.transform)
+        raw = df[spec.fred_id]
+        # Huecos interiores de publicación (p. ej. el IPC de octubre de 2025, que no
+        # se publicó por el cierre del Gobierno): se interpolan hasta 2 meses seguidos.
+        # Sin esto, un solo mes ausente deja sin valor la transformación interanual.
+        if spec.transform != "lvl":
+            raw = raw.interpolate(limit=2, limit_area="inside")
+        x = transform(raw, spec.transform)
+        if spec.fred_id in ("CPIAUCSL", "RRSFS", "CPILFESL"):
+            DEBUG_TAILS[spec.fred_id] = {
+                "raw": {d.strftime("%Y-%m-%d"): (None if v != v else round(float(v), 3))
+                        for d, v in df[spec.fred_id].iloc[-16:].items()},
+                "x": {d.strftime("%Y-%m"): (None if v != v else round(float(v), 3))
+                      for d, v in x.iloc[-16:].items()}}
         if spec.invert:
             x = -x
         z = rolling_z(x).shift(spec.lag_m)
@@ -2992,7 +3005,7 @@ def main() -> None:
             "assets_ok": sum(1 for a in ASSET_LOG if a["status"] == "ok"),
             "assets_tried": len(ASSET_LOG),
             "history_from": history[0]["d"],
-            "warnings": WARNINGS, "asset_log": ASSET_LOG,
+            "warnings": WARNINGS, "asset_log": ASSET_LOG, "debug_tails": DEBUG_TAILS,
             "build_seconds": round(time.time() - t0, 1),
         },
         "current": {

@@ -101,6 +101,8 @@ def fred_ragged(sid):
     if sid == "PAYEMS":
         ext = pd.date_range(s.index[-1], periods=3, freq="ME")[1:]
         s = pd.concat([s, pd.Series([s.iloc[-1] * 0.97, s.iloc[-1] * 0.94], index=ext)])
+    if sid in ("CPIAUCSL", "RRSFS"):
+        s.loc["2025-10-31"] = np.nan   # hueco de publicación (cierre del Gobierno)
     if sid == "USSLIND":
         s = s[s.index <= "2020-02-29"]
     return s, None
