@@ -1035,6 +1035,66 @@ def yield_to_return(y_pct: pd.Series, dur: float, cvx: float) -> pd.Series:
     return ((y.shift(1) / 12.0 - dur * dy + 0.5 * cvx * dy ** 2) * 100.0).dropna()
 
 
+# Ken French publica los rendimientos por industria con 1-2 meses de retraso, mientras
+# los ETF y los rendimientos de FRED llegan al mes en curso. Sin tratarlo, el último
+# mes de la cartera se calcula con un puñado de activos sueltos (p. ej. solo el oro) y
+# el gráfico comparativo se corta en el último mes de French. Se hace dos cosas:
+#  1) se descarta el mes en curso (incompleto: Yahoo da el mes a fecha de hoy);
+#  2) los sectores de French sin dato de los últimos meses COMPLETOS se continúan con
+#     el ETF sectorial equivalente (SPDR), marcado en meta.bridge. Composición algo
+#     distinta, así que es un puente de uno o dos meses, no una serie nueva.
+BRIDGE_ETFS = {
+    "Tecnología": "XLK", "Energía": "XLE", "Financiero": "XLF", "Consumo básico": "XLP",
+    "Consumo discrecional": "XLY", "Salud": "XLV", "Industria": "XLI",
+    "Materiales / Químicas": "XLB", "Utilities": "XLU", "Comunicaciones": "XLC",
+    "Semiconductores": "SMH", "Renta variable EE.UU. (mercado)": "SPY",
+}
+BRIDGE_INFO: dict = {}
+
+
+def _bridge_and_trim(R: pd.DataFrame) -> pd.DataFrame:
+    if R.empty:
+        return R
+    today = pd.Timestamp.today()
+    cur_start = pd.Timestamp(today.year, today.month, 1)
+    R = R[R.index < cur_start]                      # fuera el mes en curso
+    last_complete = R.index.max()
+    bridged = {}
+    for col, sym in BRIDGE_ETFS.items():
+        if col not in R.columns:
+            continue
+        lv = R[col].last_valid_index()
+        if lv is None or lv >= last_complete:
+            continue
+        r, _ = yahoo_monthly(sym)
+        if r is None:
+            r, _ = stooq_monthly(sym.lower() + ".us")
+        if r is None:
+            continue
+        r = r.copy()
+        r.index = r.index.to_period("M").to_timestamp("M")
+        gap = r[(r.index > lv) & (r.index <= last_complete)].dropna()
+        if gap.empty:
+            continue
+        R.loc[gap.index, col] = gap.values
+        bridged[col] = {"etf": sym, "months": [d.strftime("%Y-%m") for d in gap.index]}
+    # recorte del borde: filas finales con poca cobertura de activos
+    cov = R.notna().mean(axis=1)
+    ref = cov.iloc[-24:].max()
+    keep_to = R.index[-1]
+    for d in reversed(list(R.index)):
+        if cov[d] >= 0.7 * ref:
+            keep_to = d
+            break
+    trimmed = int((R.index > keep_to).sum())
+    R = R[R.index <= keep_to]
+    BRIDGE_INFO.update({"bridged": bridged, "last_month": R.index[-1].strftime("%Y-%m"),
+                        "trimmed_months": trimmed})
+    if bridged:
+        print(f"  ✓ puente con ETF sectoriales en {len(bridged)} series hasta {R.index[-1].strftime('%Y-%m')}")
+    return R
+
+
 def fetch_assets(df: pd.DataFrame):
     print("4. Construyendo el universo de activos…")
     rets: dict[str, pd.Series] = {}
@@ -1186,6 +1246,7 @@ def fetch_assets(df: pd.DataFrame):
                 err=f"yahoo: {e1} | stooq: {e2}"[:200])
 
     R = pd.DataFrame(rets)
+    R = _bridge_and_trim(R)
     if rf is None:
         rf = (df["TB3MS"] / 12.0) if "TB3MS" in df.columns else pd.Series(0.0, index=R.index)
     rf = rf.reindex(R.index).ffill().fillna(0.0)
@@ -2089,6 +2150,31 @@ def satellite_test(X, Xe, emeta, ameta, phases, probs_df, F, rot_base, level_wei
           f"{'incorporado a «Qué comprar»' if info['adopted'] else 'queda como opción'}")
     return (rot_sat if info["adopted"] else rot_base), info
 
+
+
+
+def buy_hold_table(X: pd.DataFrame, rot: dict, cls_map: dict) -> dict:
+    """Cartera rotada frente a comprar y mantener cada activo de renta variable y el
+    oro durante EL MISMO periodo (el de la rotación walk-forward). Con retornos en
+    exceso sobre el tipo libre de riesgo, igual que las cifras de la cartera."""
+    try:
+        sch = rot["schemes"][rot["default"]]
+        start = pd.Timestamp(sch["portfolio"]["from"])
+    except Exception:
+        return {}
+    rows = []
+    for c in X.columns:
+        if cls_map.get(c) not in ("Renta variable", "Oro") and c != "Renta variable EE.UU. (mercado)":
+            continue
+        s = X[c].loc[start:]
+        if s.notna().sum() < max(60, int(0.8 * len(X.loc[start:]))):
+            continue
+        p = perf(s)
+        if p:
+            rows.append({"name": c, **{k: p[k] for k in ("cagr", "vol", "sharpe", "maxdd")}})
+    rows.sort(key=lambda r: -r["cagr"])
+    return {"from": str(start.date()), "portfolio": {k: sch["portfolio"].get(k) for k in ("cagr", "vol", "sharpe", "maxdd")},
+            "label": sch.get("label"), "assets": rows}
 
 
 LEVEL_WEIGHTS = (0.5, 1.0)
@@ -3364,6 +3450,7 @@ def main() -> None:
     cls_map = {k: v.get("class", "Otros") for k, v in ameta.items()}
     rot = rotation(X, phases, cls_map, probs_df, F,
                    phase_sleeve_override=ESTANFLACION_OVERRIDE)
+    buy_hold = buy_hold_table(X, rot, cls_map)
     try:
         rot, level_info = level_test(X, ameta, phases, probs_df, F, rot)
     except Exception as exc:
@@ -3456,7 +3543,7 @@ def main() -> None:
             "assets_ok": sum(1 for a in ASSET_LOG if a["status"] == "ok"),
             "assets_tried": len(ASSET_LOG),
             "history_from": history[0]["d"],
-            "warnings": WARNINGS, "asset_log": ASSET_LOG, "debug_tails": DEBUG_TAILS,
+            "warnings": WARNINGS, "asset_log": ASSET_LOG, "bridge": BRIDGE_INFO, "debug_tails": DEBUG_TAILS,
             "build_seconds": round(time.time() - t0, 1),
         },
         "current": {
@@ -3487,7 +3574,7 @@ def main() -> None:
         "backtest": bt, "rotation": rot, "lab": lab,
         "rotation_fi": rot_fi, "lab_fi": lab_fi,
         "validation": val, "subsectors": subsectors, "holdings": holdings,
-        "extended": extended, "universe": universe, "satellite": satellite, "level_test": level_info, "now_edge": now, "pca_research": pca_research,
+        "extended": extended, "universe": universe, "satellite": satellite, "level_test": level_info, "buy_hold": buy_hold, "now_edge": now, "pca_research": pca_research,
         "phases": PHASES, "phase_long": PHASE_LONG,
     }
 

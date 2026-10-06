@@ -208,3 +208,8 @@ print("satélite playbook:", {ph: [(x["name"], x["weight"]) for x in rows if x["
 lv = d["level_test"]
 assert lv.get("variants") and lv.get("error") is None, f"level_test roto: {lv}"
 print("nivel absoluto:", lv["adopted_weight"], {k: v["wins"] for k, v in lv["variants"].items()})
+
+assert d["buy_hold"].get("assets"), "falta la tabla de comprar y mantener"
+assert "bridge" in d["meta"], "falta el informe del puente"
+print("buy&hold:", d["buy_hold"]["portfolio"], [(a["name"], a["cagr"]) for a in d["buy_hold"]["assets"][:3]])
+print("puente:", d["meta"]["bridge"])

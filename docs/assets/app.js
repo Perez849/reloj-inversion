@@ -672,6 +672,21 @@ function renderTactical() {
   }).join("");
 }
 
+function buyHoldHTML() {
+  const b = D.buy_hold;
+  if (!b || !b.assets?.length) return "";
+  const p = b.portfolio || {};
+  const rows = [{name: `<b>Cartera rotada (${(b.label || "").toLowerCase()})</b>`, ...p, me: true}, ...b.assets];
+  return `<h3 style="font-family:var(--serif);font-size:17px;margin-bottom:4px">Cartera frente a comprar y mantener cada sector</h3>
+    <p class="cap" style="margin-bottom:10px">Mismo periodo (desde ${(b.from || "").slice(0, 4)}), cifras en exceso sobre el tipo sin riesgo.
+      Con la información de hoy, mirando atrás, algunos sectores sueltos (p. ej. semiconductores) han rendido más que la cartera:
+      el modelo tiene que decidir cada mes SIN saber cuál será, y concentrar en el que más ha subido ha empeorado el resultado
+      en el test fuera de muestra, sobre todo en la peor caída.</p>
+    <p class="scroll-hint">← desliza la tabla →</p><div class="matrix-holder"><table class="matrix"><thead><tr><th>Activo</th><th>CAGR %</th><th>Volatilidad %</th><th>Sharpe</th><th>Caída máx. %</th></tr></thead><tbody>
+    ${rows.map(r => `<tr style="${r.me ? "background:var(--paper-deep)" : ""}"><td class="asset">${r.name}</td><td>${fmtNum(r.cagr, 1)}</td><td>${fmtNum(r.vol, 1)}</td><td>${fmtNum(r.sharpe, 2)}</td><td>${fmtNum(r.maxdd, 1)}</td></tr>`).join("")}
+    </tbody></table></div><div style="margin-bottom:28px"></div>`;
+}
+
 function renderSatellite() {
   const host = $("#satBody");
   if (!host) return;
@@ -1321,6 +1336,8 @@ function renderRotation() {
     </div>
     <p class="foot" style="margin-bottom:28px">Barras verdes: años en que la cartera batió a ${T.benchShort}.
       Ganó <b>${S.wins_years} de ${S.n_years}</b> años.</p>
+
+    ${clockMode === "eq" ? buyHoldHTML() : ""}
 
     <h3 style="font-family:var(--serif);font-size:17px;margin-bottom:4px">Dónde gana y dónde no</h3>
     <p class="cap" style="margin-bottom:12px">Las fases con menos de 60 meses salen atenuadas: con año y
