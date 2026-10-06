@@ -875,3 +875,7 @@ verificar desde el entorno de desarrollo; si fallan, se anotan en `extended.meta
 
 ## Compañías con criterio (Claude + búsqueda web)
 Botón «✦ compañías» en cada subsector que supera a su sector en la fase actual. La web llama a un Worker de Cloudflare (`worker/`) que guarda la clave de la API, pide a Claude 3-5 compañías con búsqueda web y descarta todo dato cuya URL no aparezca en los resultados reales de la búsqueda (y toda compañía sin ningún dato verificable). Es una idea para investigar, no una predicción ni asesoramiento. Sin Worker, el botón copia una pregunta ya redactada y abre Claude (suscripción normal, sin coste extra, sin filtro automático de fuentes).
+
+## Informe mensual PDF
+
+`scripts/build_report.py` genera `docs/reports/market-pulse.pdf` (11 páginas) solo a partir de `docs/data/data.json`; no recalcula nada. Se regenera si cambia el mes o la fase, o si el último tiene más de 7 días. Se publica desde el mismo workflow (paso con `continue-on-error`) y el botón de la cabecera enlaza al último.

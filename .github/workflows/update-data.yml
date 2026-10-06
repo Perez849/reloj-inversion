@@ -66,11 +66,18 @@ jobs:
           node --check docs/assets/app.js
           node scripts/check_page.js
 
+      - name: Informe mensual PDF
+        continue-on-error: true
+        run: |
+          pip install playwright
+          python -m playwright install --with-deps chromium
+          python scripts/build_report.py
+
       - name: Publicar
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/data/data.json
+          git add docs/data/data.json docs/reports
           if git diff --staged --quiet; then
             echo "Sin cambios en los datos."
             exit 0
