@@ -870,7 +870,7 @@ def main() -> int:
     if not force and meta_f.exists() and (OUT / "market-pulse.pdf").exists():
         m = json.loads(meta_f.read_text())
         age = (now - datetime.fromisoformat(m["generated"])).days
-        if m.get("month") == ym and m.get("phase") == D["current"]["phase"] and age < 7:
+        if m.get("month") == ym and m.get("phase") == D["current"]["phase"] and m.get("scheme") == D["rotation"]["default"] and age < 7:
             print("Informe al día (mismo mes y fase, <7 días): no se regenera.")
             return 0
     page = build_html(D, now)
@@ -880,7 +880,7 @@ def main() -> int:
         return 0
     render_pdf(page, OUT / "market-pulse.pdf")
     (OUT / f"market-pulse-{ym}.pdf").write_bytes((OUT / "market-pulse.pdf").read_bytes())
-    meta_f.write_text(json.dumps({"generated": now.isoformat(), "month": ym, "phase": D["current"]["phase"]}))
+    meta_f.write_text(json.dumps({"generated": now.isoformat(), "month": ym, "phase": D["current"]["phase"], "scheme": D["rotation"]["default"]}))
     print("Informe generado:", OUT / "market-pulse.pdf")
     return 0
 
