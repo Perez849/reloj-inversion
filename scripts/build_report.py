@@ -290,7 +290,7 @@ def header(D, title, n, total_label):
 
 
 def footer(n, note=""):
-    return (f'<div class="pf"><span>{e(note)}</span><span>Página {n}</span></div>')
+    return (f'<div class="pf"><span>{e(note)}</span><span>Página @@</span></div>')
 
 
 def kpi(label, value, sub="", color=INK):
@@ -396,11 +396,15 @@ def build_html(D, gen: datetime) -> str:
     rbp = rec_by_phase(D)
     bullets.append(f'Recesión: el modelo a 12 meses (curva de tipos y condiciones financieras) da <b>{pct(rec.get("prob_12m"), 1)}</b>; '
                    f'el propio reloj, con las probabilidades de fase de hoy, implica un <b>≈{pct(rbp["_now"], 0)}</b> de que este mes ya sea de recesión. '
-                   f'Miden cosas distintas: ver página 10.')
+                   f'Miden cosas distintas: ver página @@RISK@@.')
     pb = [r for r in sch["playbook"].get(ph, [])]
     names = ", ".join(f'{r["name"]} ({num(r["weight"], 0)}%)' for r in pb)
     bullets.append(f'Cartera de la fase en el backtest: <b>{e(names)}</b>.')
     bullets.append(f'Si la fase cambia, el histórico apunta más a menudo a <b>{e(nxt)}</b> ({pct(nxt_p, 0)} de las transiciones desde {e(ph)}).')
+    rfd = D.get("rotation_fi")
+    if rfd:
+        pbfi = rfd["schemes"][rfd["default"]]["playbook"].get(ph, [])
+        bullets.append("Renta fija (cartera aparte): <b>" + e(", ".join(f'{r["name"]} ({num(r["weight"], 0)}%)' for r in pbfi)) + "</b>.")
     li = "".join(f"<li>{b}</li>" for b in bullets)
     pages.append(f'''
 <section class="page">{header(D, "Resumen ejecutivo", 2, tag)}
@@ -478,7 +482,7 @@ def build_html(D, gen: datetime) -> str:
 </section>''')
 
     # ---------------------------------------------------------------- 5 qué comprar
-    def playbook_card(phase, title):
+    def playbook_card(phase, title, sch=sch):
         rows = [r for r in sch["playbook"].get(phase, [])]
         donut, pal = svg_donut([(r["name"], r["weight"]) for r in rows])
         lg = "".join(f'<div class="dl"><i style="background:{pal[k % len(pal)]}"></i><span>{e(r["name"])}</span><b>{num(r["weight"], 1)}%</b></div>' for k, r in enumerate(rows))
@@ -490,14 +494,17 @@ def build_html(D, gen: datetime) -> str:
         return (f'<figure class="card pbk" style="border-top:3px solid {PC[phase]}"><figcaption>{e(title)}: <b>{e(phase)}</b></figcaption>'
                 f'<div class="donut">{donut}<div class="dls">{lg}</div></div><p class="cap">{mixs}</p><p class="cap">{bps}</p></figure>')
     tie = margin < 10
-    phase_rows = ""
-    for pp in PHASES:
-        comp = ", ".join(f'{r["name"]} {num(r["weight"], 0)}%' for r in sch["playbook"].get(pp, []))
-        bpp = sch["by_phase"].get(pp, {})
-        phase_rows += (f'<tr class="{"hl" if pp == ph else ""}"><th><i style="background:{PC[pp]}"></i>{e(pp)}</th><td>{e(comp)}</td>'
-                       f'<td class="r">{num(bpp.get("ann"), 1, True)}%</td><td class="r">{num(bpp.get("bench_ann"), 1, True)}%</td></tr>')
+    def phase_rows_for(sc):
+        out = ""
+        for pp in PHASES:
+            comp = ", ".join(f'{r["name"]} {num(r["weight"], 0)}%' for r in sc["playbook"].get(pp, []))
+            bpp = sc["by_phase"].get(pp, {})
+            out += (f'<tr class="{"hl" if pp == ph else ""}"><th><i style="background:{PC[pp]}"></i>{e(pp)}</th><td>{e(comp)}</td>'
+                    f'<td class="r">{num(bpp.get("ann"), 1, True)}%</td><td class="r">{num(bpp.get("bench_ann"), 1, True)}%</td></tr>')
+        return out
+    phase_rows = phase_rows_for(sch)
     pages.append(f'''
-<section class="page">{header(D, "Qué comprar ahora", 5, tag)}
+<section class="page">{header(D, "Renta variable: qué comprar ahora", 5, tag)}
   <p class="lead">Cartera solo larga de renta variable por sectores (y oro como único seguro), con el reparto «{e(sch["label"])}». Cada mes elige los activos con mayor ventaja <i>en esa fase frente a su propia media</i>, contraída estadísticamente para no dejarse engañar por rachas cortas.</p>
   <div class="{'two' if tie else 'one'}">
     {playbook_card(ph, "Fase vigente")}
@@ -533,7 +540,7 @@ def build_html(D, gen: datetime) -> str:
                      f'<table class="mini"><thead><tr><th>Subsector <small>(empresas del ETF, contexto)</small></th><th class="r">Anual</th><th class="r">vs sector</th></tr></thead><tbody>{"".join(trs)}</tbody></table></figure>')
     cards_html = "".join(cards) or '<p class="cap">Sin desglose por subsectores en esta ejecución.</p>'
     pages.append(f'''
-<section class="page">{header(D, "Un paso más: qué subsector pagó mejor", 6, tag)}
+<section class="page">{header(D, "Renta variable: qué subsector pagó mejor", 6, tag)}
   <p class="lead">Dentro de cada sector elegido en {e(ph)}, qué línea de negocio ha rendido más en esa fase. Análisis <b>complementario</b>: no cambia la cartera. Los tickers son las mayores posiciones del ETF sectorial como contexto, <b>no una recomendación</b>: que un subsector rinda más no implica que esas empresas concretas lo hagan.</p>
   <div class="stack">{cards_html}</div>
   {footer(6, "Subsectores: 49 industrias de Ken French (códigos SIC). Rentabilidad anual = media mensual de la fase × 12, retorno total.")}
@@ -543,10 +550,10 @@ def build_html(D, gen: datetime) -> str:
     base = [a for a in D["assets"] if (a["class"] in ("Renta variable", "Oro") or a["name"] in ("Small caps", "Renta variable EE.UU. (mercado)"))
             and a["name"] != "Otros sectores"]
     base.sort(key=lambda a: -((a["phases"].get(ph) or {}).get("rel") or -99))
-    tact = list(D.get("extended", {}).get("assets") or [])
+    tact = [a for a in (D.get("extended", {}).get("assets") or []) if a["name"] not in ("Europa (French)", "Norteamérica (French)", "Japón (French)")]
     tact.sort(key=lambda a: -((a["phases"].get(ph) or {}).get("rel") or -99))
 
-    def heat_row(a, mark=False):
+    def heat_row(a, hl=False):
         cells = []
         for p in PHASES:
             c = a["phases"].get(p) or {}
@@ -555,13 +562,14 @@ def build_html(D, gen: datetime) -> str:
             else:
                 cells.append(f'<td class="hm {"cur" if p == ph else ""}" style="background:{diverge(c["rel"])}">{num(c["rel"], 1, True)}</td>')
         avg = a.get("uncond_ann_tot") if a.get("uncond_ann_tot") is not None else a.get("uncond_ann")
-        return f'<tr><th>{e(a["name"])}</th>{"".join(cells)}<td class="hm avg">{num(avg, 1)}%</td></tr>'
+        nm = a["name"].replace(" (French)", "")
+        return f'<tr class="{"hl" if hl else ""}"><th>{e(nm)}</th>{"".join(cells)}<td class="hm avg">{num(avg, 1)}%</td></tr>'
 
     hrows = "".join(heat_row(a) for a in base)
     trows = "".join(heat_row(a) for a in tact)
-    sep = (f'<tr class="sep"><th colspan="6">Candidatos tácticos <small>activos fuera del universo base: regiones, tamaño, biotecnología, China y Japón</small></th></tr>' if tact else "")
+    sep = (f'<tr class="sep"><th colspan="6">Candidatos tácticos <small>activos fuera del universo base: tamaño, biotecnología, Asia, China y Japón</small></th></tr>' if tact else "")
     pages.append(f'''
-<section class="page">{header(D, "Qué ha pagado cada activo en cada fase", 7, tag)}
+<section class="page">{header(D, "Renta variable: qué ha pagado cada activo", 7, tag)}
   <p class="lead">Exceso anualizado, en puntos porcentuales, de cada activo en cada fase <i>frente a su propia media histórica</i>. La última columna es esa media: la rentabilidad anual total del activo en todo el periodo, para saber contra qué se compara cada casilla (un +10 sobre una media del 5% no es lo mismo que sobre una del 15%).</p>
   <table class="heat"><thead><tr><th>Activo (ordenado por la fase vigente)</th>{"".join(f'<th class="{"cur" if p == ph else ""}" style="border-bottom:3px solid {PC[p]}">{e(p)}</th>' for p in PHASES)}<th class="avgh">Media anual</th></tr></thead><tbody>{hrows}{sep}{trows}</tbody></table>
   <div class="note"><b>Cómo leerlo.</b> Verde: el activo rindió por encima de su media cuando el reloj marcaba esa fase; terracota, por debajo. El recuadro marca la fase vigente. Los candidatos tácticos son activos que no forman parte del universo base; se muestran todos para que veas también los que no aportan ventaja en ninguna fase.</div>
@@ -600,7 +608,7 @@ def build_html(D, gen: datetime) -> str:
         f'<td class="r">{num(sch["by_phase"][pp]["ann"], 1, True)}%</td><td class="r">{num(sch["by_phase"][pp]["bench_ann"], 1, True)}%</td>'
         f'<td class="r" style="color:{POS if sch["by_phase"][pp]["edge"] >= 0 else NEG}">{num(sch["by_phase"][pp]["edge"], 1, True)} pp</td></tr>' for pp in PHASES)
     pages.append(f'''
-<section class="page">{header(D, "Backtest: la cartera frente al mercado", 8, tag)}
+<section class="page">{header(D, "Renta variable: backtest frente al mercado", 8, tag)}
   <div class="kpis">
     {kpi("Cartera rotada", num(tc(pf), 1) + "%", f"anual compuesto desde {e(pf['from'][:4])}", POS)}
     {kpi("Mercado EE.UU.", num(tc(b100), 1) + "%", f"Sharpe {num(b100.get('sharpe'), 2)} · vol {num(b100.get('vol'), 1)}%", INK)}
@@ -622,22 +630,49 @@ def build_html(D, gen: datetime) -> str:
   {footer(8, "Sin costes de transacción ni impuestos. Rentabilidades pasadas no garantizan resultados futuros.")}
 </section>''')
 
-    # ---------------------------------------------------------------- 9 renta fija
+    # ---------------------------------------------------------------- 9 renta fija (3 páginas)
     rf = D.get("rotation_fi")
     if rf:
         sf = rf["schemes"][rf["default"]]
-        pbf = sf["playbook"].get(ph, [])
-        donutf, palf = svg_donut([(r["name"], r["weight"]) for r in pbf]) if pbf else ("", [])
-        lgf = "".join(f'<div class="dl"><i style="background:{palf[k % len(palf)]}"></i><span>{e(r["name"])}</span><b>{num(r["weight"], 1)}%</b></div>' for k, r in enumerate(pbf))
         pff = sf["portfolio"]
         bf = rf.get("bench_100eq", {})
         bf6 = rf.get("bench_6040", {})
         csf, cbf = curve_cum(sf)
         schf = "".join(mrow(v["label"], v["portfolio"], k == rf["default"]) for k, v in rf["schemes"].items())
         difff = diffs_of(sf, rf.get("bench_annual", {}), 22)
+        phase_rows_fi = phase_rows_for(sf)
+        bp_rows_fi = "".join(
+            f'<tr class="{"hl" if pp == ph else ""}"><th><i style="background:{PC[pp]}"></i>{e(pp)}</th><td class="r">{sf["by_phase"][pp]["n"]}</td>'
+            f'<td class="r">{num(sf["by_phase"][pp]["ann"], 1, True)}%</td><td class="r">{num(sf["by_phase"][pp]["bench_ann"], 1, True)}%</td>'
+            f'<td class="r" style="color:{POS if sf["by_phase"][pp]["edge"] >= 0 else NEG}">{num(sf["by_phase"][pp]["edge"], 1, True)} pp</td></tr>' for pp in PHASES)
+        # --- 9a qué comprar
         pages.append(f'''
-<section class="page">{header(D, "Renta fija: el mismo reloj, otra cartera", 9, tag)}
-  <p class="lead">El reloj también ordena la renta fija: gobierno (Treasuries), crédito, protegidos de la inflación y liquidez. Se analiza aparte y nunca se mezcla con la cartera de renta variable.</p>
+<section class="page">{header(D, "Renta fija: qué comprar ahora", 9, tag)}
+  <p class="lead">El reloj también ordena la renta fija: gobierno (Treasuries), crédito, protegidos de la inflación y liquidez. Es una cartera <b>aparte</b>, con su propio universo, su propio mercado de referencia y su propio backtest; nunca se mezcla con la de renta variable. Reparto: «{e(sf["label"])}».</p>
+  <div class="{'two' if tie else 'one'}">
+    {playbook_card(ph, "Fase vigente", sf)}
+    {playbook_card(alt, "Escenario alternativo (empate técnico)", sf) if tie else ""}
+  </div>
+  <figure class="card"><figcaption>La cartera de renta fija en cada fase <small>resaltada la fase vigente</small></figcaption>
+    <table class="mini phs"><thead><tr><th>Fase</th><th>Composición</th><th class="r">Exceso anual de la cartera en la fase</th><th class="r">Agregado de bonos</th></tr></thead><tbody>{phase_rows_fi}</tbody></table></figure>
+  <div class="note"><b>Cómo leerlo.</b> Igual que en renta variable, cada mes se eligen los activos con mayor ventaja <i>en esa fase frente a su propia media</i>, con datos solo hasta el mes anterior. Aquí no se impone ninguna regla teórica sobre duración o crédito: se muestra lo que ha pagado cada fase en los datos (página siguiente) y la cartera sale de ahí.</div>
+  {footer(9, "No es asesoramiento financiero. Rentabilidades pasadas no garantizan resultados futuros.")}
+</section>''')
+        # --- 9b qué ha pagado
+        fi_assets = [x for x in D["assets"] if x["class"] in ("Renta fija", "Liquidez")]
+        fi_assets.sort(key=lambda x: -((x["phases"].get(ph) or {}).get("rel") or -99))
+        picks = {r["name"] for r in sf["playbook"].get(ph, [])}
+        fi_rows = "".join(heat_row(x, hl=x["name"] in picks) for x in fi_assets)
+        pages.append(f'''
+<section class="page">{header(D, "Renta fija: qué ha pagado cada activo", 10, tag)}
+  <p class="lead">Exceso anualizado, en puntos porcentuales, de cada activo de renta fija en cada fase <i>frente a su propia media histórica</i>. La última columna es esa media: la rentabilidad anual total del activo en todo el periodo, para saber contra qué se compara cada casilla.</p>
+  <table class="heat"><thead><tr><th>Activo (ordenado por la fase vigente)</th>{"".join(f'<th class="{"cur" if p == ph else ""}" style="border-bottom:3px solid {PC[p]}">{e(p)}</th>' for p in PHASES)}<th class="avgh">Media anual</th></tr></thead><tbody>{fi_rows}</tbody></table>
+  <div class="note"><b>Cómo leerlo.</b> Verde: el activo rindió por encima de su media cuando el reloj marcaba esa fase; terracota, por debajo. El recuadro marca la fase vigente y las filas resaltadas son las que componen hoy la cartera de renta fija. Los activos marcados «aprox.» se reconstruyen a partir de rendimientos de FRED; el resto son ETF reales con menos historia.</div>
+  {footer(10, "FRED, ETF y Ken French. Contrastes con errores estándar Newey-West.")}
+</section>''')
+        # --- 9c backtest
+        pages.append(f'''
+<section class="page">{header(D, "Renta fija: backtest frente al agregado", 11, tag)}
   <div class="kpis">
     {kpi("Cartera rotada", num(tc(pff), 1) + "%", f"anual compuesto desde {e(pff['from'][:4])}", POS)}
     {kpi("Agregado de bonos", num(tc(bf), 1) + "%", f"Sharpe {num(bf.get('sharpe'), 2)}", INK)}
@@ -647,13 +682,15 @@ def build_html(D, gen: datetime) -> str:
   <figure class="card"><figcaption>Valor de 100 invertidos · escala logarítmica</figcaption>{svg_lines([("Cartera", ACCENT, csf), ("Agregado", INK, cbf)], h=300, labels=year_labels(sf, 5))}
     <div class="legend"><span><i style="background:{ACCENT}"></i>Cartera rotada de renta fija</span><span><i style="background:{INK}"></i>Agregado de renta fija EE.UU.</span></div></figure>
   <div class="two">
-    <figure class="card pbk" style="border-top:3px solid {PC[ph]}"><figcaption>Cartera de renta fija en <b>{e(ph)}</b></figcaption><div class="donut">{donutf}<div class="dls">{lgf}</div></div></figure>
     <figure class="card"><figcaption>Diferencia anual frente al agregado <small>pp</small></figcaption>{svg_bars(difff, w=340, h=190)}
       <p class="cap">Años en que la cartera supera al agregado: {sf["wins_years"]} de {sf["n_years"]}.</p></figure>
+    <figure class="card"><figcaption>Cómo le fue a la cartera en cada fase <small>exceso anualizado</small></figcaption>
+      <table class="mini"><thead><tr><th>Fase</th><th class="r">Meses</th><th class="r">Cartera</th><th class="r">Agregado</th><th class="r">Ventaja</th></tr></thead><tbody>{bp_rows_fi}</tbody></table></figure>
   </div>
   <figure class="card"><figcaption>Los cuatro repartos internos</figcaption>
     <table class="mini"><thead><tr><th>Esquema</th><th class="r">Anual</th><th class="r">Vol</th><th class="r">Sharpe</th><th class="r">Caída</th><th class="r">Peor 12m</th></tr></thead><tbody>{schf}{mrow("Agregado renta fija", bf)}{mrow("60/40 (referencia)", bf6) if bf6 else ""}</tbody></table></figure>
-  {footer(9, "Renta fija desde 2003 (ETF reales y rendimientos de FRED convertidos a retorno sintético).")}
+  <p class="cap">Renta fija desde 2003. Cifras anuales: retorno total compuesto; Sharpe y volatilidad sobre el exceso respecto a letras del Tesoro. Walk-forward, sin costes ni impuestos.</p>
+  {footer(11, "Renta fija desde 2003 (ETF reales y rendimientos de FRED convertidos a retorno sintético).")}
 </section>''')
 
     # ---------------------------------------------------------------- 10 riesgos y calidad
@@ -727,6 +764,15 @@ def build_html(D, gen: datetime) -> str:
   {footer(11)}
 </section>''')
 
+    risk_idx = next((k for k, pg in enumerate(pages, 1) if "Riesgos, calidad del modelo" in pg), 0)
+    out_pages = []
+    for k, pg in enumerate(pages, 1):
+        pg = pg.replace("Página @@", f"Página {k}").replace("@@RISK@@", str(risk_idx))
+        sec = ("RENTA VARIABLE" if "<h2>Renta variable" in pg else "RENTA FIJA" if "<h2>Renta fija" in pg else "")
+        if sec:
+            pg = pg.replace("MARKET PULSE · RELOJ DE INVERSIÓN", f"MARKET PULSE · {sec}", 1)
+        out_pages.append(pg)
+    pages = out_pages
     return TEMPLATE.replace("{{BODY}}", "".join(pages)).replace("{{TITLE}}", f"Market Pulse · {month_lbl}")
 
 
@@ -781,7 +827,7 @@ table.mini th b{font-weight:600}
 table.trans{font-size:7.4pt!important}table.trans th{padding:4px 2px!important}table.trans td{text-align:center;font:500 7pt "IBM Plex Mono",monospace;color:#1B1810}
 table.trans thead th{text-align:center}
 .donut{display:flex;align-items:center;gap:14px}.donut svg{width:170px;flex:none}
-.dls{flex:1}.dl{display:grid;grid-template-columns:12px 1fr auto;gap:7px;align-items:center;padding:6px 0;border-bottom:1px solid rgba(27,24,16,.08);font-size:9.2pt}
+.two .donut svg{width:118px}.two .donut{gap:10px}.dls{flex:1;min-width:0}.dl{display:grid;grid-template-columns:12px 1fr auto;gap:7px;align-items:center;padding:6px 0;border-bottom:1px solid rgba(27,24,16,.08);font-size:9.2pt}
 .dl i{width:10px;height:10px;border-radius:2px}.dl b{font:600 8.4pt "IBM Plex Mono",monospace}
 .note{background:#EEE6D2;border-left:3px solid #A9752C;border-radius:3px;padding:10px 13px;font-size:9.2pt;line-height:1.5}
 .note ul{margin:5px 0 0;padding-left:16px}.note li{margin:3px 0}

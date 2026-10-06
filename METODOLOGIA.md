@@ -882,3 +882,6 @@ Botón «✦ compañías» en cada subsector que supera a su sector en la fase a
 
 ### Recesión: dos preguntas distintas
 «El 75% de las recesiones cae en Estanflación» es P(fase | recesión). Lo relevante hoy es P(recesión | fase) = P(fase | recesión) × P(recesión) / P(fase): con Estanflación en el 33% del tiempo y la recesión en el 12,5%, solo ≈28% de los meses en Estanflación fueron recesión. Web e informe lo muestran junto al modelo logístico a 12 meses (curva de tipos + condiciones financieras), que mide otra cosa.
+
+### Estructura del informe PDF
+Páginas comunes (portada, resumen, ciclo, indicadores), bloque de renta variable (qué comprar, subsectores, qué ha pagado cada activo, backtest), bloque de renta fija (qué comprar, qué ha pagado cada activo, backtest) y cierre (riesgos, metodología). Las carteras de renta variable y renta fija nunca se mezclan. Los candidatos tácticos de la tabla de renta variable no incluyen las regiones de Ken French (Europa, Norteamérica, Japón).
