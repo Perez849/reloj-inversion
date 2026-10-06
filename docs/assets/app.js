@@ -1805,8 +1805,21 @@ document.addEventListener("click", async ev => {
   out.scrollIntoView({behavior: "smooth", block: "nearest"});
   const url = window.RELOJ_IA_URL;
   if (!url) {
-    out.innerHTML = `<p class="buy-empty">La IA aún no está conectada. Hay que desplegar el Worker (carpeta <code>worker/</code>, 3 comandos en su README)
-      y poner su URL en <code>docs/assets/config.js</code>: la clave de la API no puede vivir en una página pública.</p>`;
+    // Sin Worker: se copia un prompt ya redactado y se abre Claude, para usar la suscripción normal (sin coste extra).
+    const c0 = D.current;
+    const names = (D.holdings?.por_sector?.[btn.dataset.sector] || []).slice(0, 8).map(h => h.name).join(", ");
+    const prompt = `Actúa como un analista de renta variable prudente. Fase actual del ciclo económico (reloj de inversión): ${c0.phase} (segunda fase: ${c0.alt_phase}). `
+      + `Sector: ${btn.dataset.sector}. Subsector: ${btn.dataset.sub}, que históricamente rinde ${btn.dataset.edge} pp/año más que su sector en esta fase (dato pasado, no predicción). `
+      + (names ? `Mayores posiciones del ETF sectorial (solo contexto, no te limites a ellas): ${names}. ` : "")
+      + `Hoy es ${new Date().toISOString().slice(0, 10)}. Usa la búsqueda web y propón de 3 a 5 compañías cotizadas reales (EE.UU. o Europa, con liquidez) con mejores argumentos para este entorno. `
+      + `Reglas: cada argumento debe ser un hecho concreto y reciente con su enlace de fuente; no inventes cifras, tickers ni noticias; sin precio objetivo; incluye al menos un riesgo por compañía; `
+      + `indica el nivel de evidencia (alta/media/baja); si la evidencia no basta, da menos compañías y dilo. Explica por qué encajan con la fase macro, no solo con el sector. Responde en español.`;
+    let copied = false;
+    try { await navigator.clipboard.writeText(prompt); copied = true; } catch (_) {}
+    out.innerHTML = `<p class="cap">${copied ? "He copiado la pregunta ya redactada." : "Copia esta pregunta:"} Pégala en Claude (se abre en otra pestaña) y usa tu suscripción normal, sin coste extra.</p>
+      <textarea readonly rows="7" style="width:100%;font:inherit;font-size:12px;padding:8px;border:1px solid var(--line-soft);border-radius:8px;background:var(--paper)">${esc(prompt)}</textarea>
+      <p class="foot">Esta vía no filtra fuentes automáticamente: comprueba tú los enlaces que te dé.</p>`;
+    window.open("https://claude.ai/new", "_blank", "noopener");
     return;
   }
   const c = D.current;
