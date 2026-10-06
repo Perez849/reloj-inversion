@@ -543,10 +543,7 @@ def build_html(D, gen: datetime) -> str:
     base = [a for a in D["assets"] if (a["class"] in ("Renta variable", "Oro") or a["name"] in ("Small caps", "Renta variable EE.UU. (mercado)"))
             and a["name"] != "Otros sectores"]
     base.sort(key=lambda a: -((a["phases"].get(ph) or {}).get("rel") or -99))
-    tact = []
-    for a in (D.get("extended", {}).get("assets") or []):
-        if any((c.get("rel") or 0) > 0 and c.get("reliability") in ("Fuerte", "Moderada") for c in a["phases"].values()):
-            tact.append(a)
+    tact = list(D.get("extended", {}).get("assets") or [])
     tact.sort(key=lambda a: -((a["phases"].get(ph) or {}).get("rel") or -99))
 
     def heat_row(a, mark=False):
@@ -562,12 +559,12 @@ def build_html(D, gen: datetime) -> str:
 
     hrows = "".join(heat_row(a) for a in base)
     trows = "".join(heat_row(a) for a in tact)
-    sep = (f'<tr class="sep"><th colspan="6">Candidatos tácticos <small>activos fuera del universo base con ventaja positiva en alguna fase</small></th></tr>' if tact else "")
+    sep = (f'<tr class="sep"><th colspan="6">Candidatos tácticos <small>activos fuera del universo base: regiones, tamaño, biotecnología, China y Japón</small></th></tr>' if tact else "")
     pages.append(f'''
 <section class="page">{header(D, "Qué ha pagado cada activo en cada fase", 7, tag)}
   <p class="lead">Exceso anualizado, en puntos porcentuales, de cada activo en cada fase <i>frente a su propia media histórica</i>. La última columna es esa media: la rentabilidad anual total del activo en todo el periodo, para saber contra qué se compara cada casilla (un +10 sobre una media del 5% no es lo mismo que sobre una del 15%).</p>
   <table class="heat"><thead><tr><th>Activo (ordenado por la fase vigente)</th>{"".join(f'<th class="{"cur" if p == ph else ""}" style="border-bottom:3px solid {PC[p]}">{e(p)}</th>' for p in PHASES)}<th class="avgh">Media anual</th></tr></thead><tbody>{hrows}{sep}{trows}</tbody></table>
-  <div class="note"><b>Cómo leerlo.</b> Verde: el activo rindió por encima de su media cuando el reloj marcaba esa fase; terracota, por debajo. El recuadro marca la fase vigente. Los candidatos tácticos son activos que no forman parte del universo base y solo se muestran si tienen una ventaja positiva y estable en alguna fase.</div>
+  <div class="note"><b>Cómo leerlo.</b> Verde: el activo rindió por encima de su media cuando el reloj marcaba esa fase; terracota, por debajo. El recuadro marca la fase vigente. Los candidatos tácticos son activos que no forman parte del universo base; se muestran todos para que veas también los que no aportan ventaja en ninguna fase.</div>
   {footer(7, "Ken French (sectores), FRED y ETF. Contrastes con errores estándar Newey-West.")}
 </section>''')
 
