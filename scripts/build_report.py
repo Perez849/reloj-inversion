@@ -667,7 +667,7 @@ def build_html(D, gen: datetime) -> str:
 <section class="page">{header(D, "Renta fija: qué ha pagado cada activo", 10, tag)}
   <p class="lead">Exceso anualizado, en puntos porcentuales, de cada activo de renta fija en cada fase <i>frente a su propia media histórica</i>. La última columna es esa media: la rentabilidad anual total del activo en todo el periodo, para saber contra qué se compara cada casilla.</p>
   <table class="heat"><thead><tr><th>Activo (ordenado por la fase vigente)</th>{"".join(f'<th class="{"cur" if p == ph else ""}" style="border-bottom:3px solid {PC[p]}">{e(p)}</th>' for p in PHASES)}<th class="avgh">Media anual</th></tr></thead><tbody>{fi_rows}</tbody></table>
-  <div class="note"><b>Cómo leerlo.</b> Verde: el activo rindió por encima de su media cuando el reloj marcaba esa fase; terracota, por debajo. El recuadro marca la fase vigente y las filas resaltadas son las que componen hoy la cartera de renta fija. Todos los activos de esta tabla son invertibles (ETF reales o liquidez en letras del Tesoro): la cartera solo recomienda lo que se puede comprar. Las series sintéticas de FRED (Treasuries, hipotecario, crédito Baa/Aaa) quedan fuera como mera referencia histórica.</div>
+  <div class="note"><b>Cómo leerlo.</b> Verde: el activo rindió por encima de su media cuando el reloj marcaba esa fase; terracota, por debajo. El recuadro marca la fase vigente y las filas resaltadas son las que componen hoy la cartera de renta fija. Todos los activos de esta tabla son invertibles (ETF reales o liquidez en letras del Tesoro): la cartera solo recomienda lo que se puede comprar. Antes del lanzamiento de cada ETF, su historia se prolonga con el rendimiento FRED equivalente (aprox.) solo para estimar la evidencia por fase; lo que se compra es siempre el ETF.</div>
   {footer(10, "FRED, ETF y Ken French. Contrastes con errores estándar Newey-West.")}
 </section>''')
         # --- 9c backtest
@@ -689,7 +689,7 @@ def build_html(D, gen: datetime) -> str:
   </div>
   <figure class="card"><figcaption>Los cuatro repartos internos</figcaption>
     <table class="mini"><thead><tr><th>Esquema</th><th class="r">Anual</th><th class="r">Vol</th><th class="r">Sharpe</th><th class="r">Caída</th><th class="r">Peor 12m</th></tr></thead><tbody>{schf}{mrow("Agregado renta fija", bf)}{mrow("60/40 (referencia)", bf6) if bf6 else ""}</tbody></table></figure>
-  <p class="cap">Renta fija: solo ETF invertibles. Cifras anuales: retorno total compuesto; Sharpe y volatilidad sobre el exceso respecto a letras del Tesoro. Walk-forward, sin costes ni impuestos.</p>
+  <p class="cap">Renta fija: solo ETF invertibles; antes de su lanzamiento, histórico prolongado con rendimientos FRED. Cifras anuales: retorno total compuesto; Sharpe y volatilidad sobre el exceso respecto a letras del Tesoro. Walk-forward, sin costes ni impuestos.</p>
   {footer(11, "Renta fija: solo ETF invertibles (retorno total real).")}
 </section>''')
 

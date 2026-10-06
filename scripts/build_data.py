@@ -879,6 +879,15 @@ FRED_PX = {
                                   "índice de precios, no invertible"),
 }
 
+# ETF invertible -> serie sintética FRED que prolonga su historia hacia atrás (ver fetch_assets).
+FI_PROXY = {
+    "Treasury 1-3 años (SHY)": "Treasury 2 años",
+    "Treasury 7-10 años (IEF)": "Treasury 10 años",
+    "Treasury 20+ años (TLT)": "Treasury 30 años",
+    "Titulizaciones hipotecarias (MBB)": "Hipotecario 30 años (aprox.)",
+    "Crédito Investment Grade (LQD)": "Crédito Baa (aprox.)",
+}
+
 FRED_YIELD = {
     "MORTGAGE30US": (5.5, 40.0, "Hipotecario 30 años (aprox.)", "Referencia"),
     "DGS2": (1.9, 4.5, "Treasury 2 años", "Referencia"),
@@ -1269,6 +1278,32 @@ def fetch_assets(df: pd.DataFrame):
                 err=f"yahoo: {e1} | stooq: {e2}"[:200])
 
     R = pd.DataFrame(rets)
+    # Prolongar el histórico de los ETF de renta fija con el rendimiento FRED equivalente
+    # ANTES de su lanzamiento. La cartera sigue comprando solo el ETF (invertible); lo único
+    # que cambia es que la evidencia por fase se estima con décadas, no con los ~20 años de
+    # vida del ETF. Mismo criterio que el puente de Ken French en renta variable, y con su
+    # propio contraste de fuente en BRIDGE_INFO["fi_proxy"].
+    for etf, prox in FI_PROXY.items():
+        if etf not in R.columns or prox not in R.columns:
+            continue
+        t0 = R[etf].first_valid_index()
+        if t0 is None:
+            continue
+        both = pd.concat([R[etf], R[prox]], axis=1, join="inner").dropna()
+        if len(both) >= 36:
+            a_, b_ = both.iloc[:, 0] / 100, both.iloc[:, 1] / 100
+            BRIDGE_INFO.setdefault("fi_proxy", {})[etf] = {
+                "proxy": prox, "months": int(len(both)), "from": str(both.index[0].date())[:7],
+                "corr": round(float(a_.corr(b_)), 2),
+                "cagr_etf": round(float(((1 + a_).prod() ** (12 / len(a_)) - 1) * 100), 1),
+                "cagr_proxy": round(float(((1 + b_).prod() ** (12 / len(b_)) - 1) * 100), 1)}
+        pre = R[prox].dropna()
+        pre = pre[pre.index < t0]
+        R[etf] = R[etf].combine_first(pre)
+        if etf in meta:
+            meta[etf]["from"] = str(R[etf].first_valid_index().date())
+            meta[etf]["note"] = ((meta[etf].get("note") or "") + (" · " if meta[etf].get("note") else "")
+                                 + f"antes de {t0:%Y-%m}, rendimiento FRED convertido a retorno (aprox.); desde entonces, ETF real")
     R = _bridge_and_trim(R)
     if rf is None:
         rf = (df["TB3MS"] / 12.0) if "TB3MS" in df.columns else pd.Series(0.0, index=R.index)
