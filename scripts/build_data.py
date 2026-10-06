@@ -3692,7 +3692,7 @@ def main() -> None:
         indicators.append({
             **ind_info[spec.fred_id],
             "z": round(float(z.iloc[-1]), 2),
-            "z_prev": _z_at_lag(z, 12),
+            "z_prev": _z_at_lag(z, 1),
             "loading": pca.get(spec.block, {}).get("loadings", {}).get(spec.fred_id),
             "last_obs": raw_meta.get(spec.fred_id, {}).get("last_obs"),
         })
