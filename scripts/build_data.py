@@ -2186,9 +2186,18 @@ def buy_hold_table(X: pd.DataFrame, rot: dict, cls_map: dict) -> dict:
             continue
         p = perf(s)
         if p:
-            rows.append({"name": c, **{k: p[k] for k in ("cagr", "cagr_tot", "vol", "sharpe", "maxdd")}})
+            p10 = perf(s.dropna().iloc[-120:])
+            rows.append({"name": c, **{k: p[k] for k in ("cagr", "cagr_tot", "vol", "sharpe", "maxdd")},
+                         "tot10": p10.get("cagr_tot", p10.get("cagr"))})
     rows.sort(key=lambda r: -r["cagr"])
-    return {"from": str(start.date()), "portfolio": {k: sch["portfolio"].get(k) for k in ("cagr", "cagr_tot", "vol", "sharpe", "maxdd")},
+    port = {k: sch["portfolio"].get(k) for k in ("cagr", "cagr_tot", "vol", "sharpe", "maxdd")}
+    try:
+        cs = pd.Series({pd.Timestamp(x["d"] + "-01") + pd.offsets.MonthEnd(0): x["s"] for x in sch["curve"]})
+        p10 = perf(cs.iloc[-120:])
+        port["tot10"] = p10.get("cagr_tot", p10.get("cagr"))
+    except Exception:
+        port["tot10"] = None
+    return {"from": str(start.date()), "portfolio": port,
             "label": sch.get("label"), "assets": rows}
 
 

@@ -672,13 +672,15 @@ function buyHoldHTML() {
   const b = D.buy_hold;
   if (!b || !b.assets?.length) return "";
   const p = b.portfolio || {};
+  const hasTot = p.cagr_tot != null;
+  const better = b.assets.filter(x => tc(x) > tc(p)).slice(0, 3).map(x => x.name);
   const rows = [{name: `<b>Cartera rotada (${(b.label || "").toLowerCase()})</b>`, ...p, me: true}, ...b.assets];
   return `<h3 style="font-family:var(--serif);font-size:17px;margin-bottom:4px">Cartera frente a comprar y mantener cada sector</h3>
-    <p class="cap" style="margin-bottom:10px">Mismo periodo (desde ${(b.from || "").slice(0, 4)}), retorno total anual compuesto.
-      Mirando atrás, algunos sectores sueltos (p. ej. semiconductores) han rendido más que la cartera; el modelo decide cada mes sin saber cuál será.${(() => { const k = D.meta?.bridge?.check?.["Semiconductores"]; return k ? `
+    <p class="cap" style="margin-bottom:10px">Mismo periodo para todos (desde ${(b.from || "").slice(0, 4)}), ${hasTot ? "retorno total anual compuesto" : "exceso anual sobre letras del Tesoro (los datos se actualizan en la próxima ejecución)"}.
+      ${better.length ? `Mirando atrás, ${better.join(", ")} ha${better.length > 1 ? "n" : ""} rendido más que la cartera, pero con más riesgo; ` : "Ningún sector suelto ha rendido más que la cartera en el periodo completo; "}el modelo decide cada mes sin saber cuál será. La columna «10 años» muestra solo la última década.${(() => { const k = D.meta?.bridge?.check?.["Semiconductores"]; return k ? `
       Control de la fuente: semiconductores (Ken French) frente al ETF ${k.etf} desde ${k.from}: correlación ${fmtNum(k.corr, 2)}, ${fmtNum(k.cagr_french, 1)}% vs ${fmtNum(k.cagr_etf, 1)}% anual.` : ""; })()}</p>
-    <p class="scroll-hint">← desliza la tabla →</p><div class="matrix-holder"><table class="matrix"><thead><tr><th>Activo</th><th>Anual %</th><th>Volatilidad %</th><th>Sharpe</th><th>Caída máx. %</th></tr></thead><tbody>
-    ${rows.map(r => `<tr style="${r.me ? "background:var(--paper-deep)" : ""}"><td class="asset">${r.name}</td><td>${fmtNum(tc(r), 1)}</td><td>${fmtNum(r.vol, 1)}</td><td>${fmtNum(r.sharpe, 2)}</td><td>${fmtNum(r.maxdd, 1)}</td></tr>`).join("")}
+    <p class="scroll-hint">← desliza la tabla →</p><div class="matrix-holder"><table class="matrix"><thead><tr><th>Activo</th><th>Anual %</th><th>10 años %</th><th>Volatilidad %</th><th>Sharpe</th><th>Caída máx. %</th></tr></thead><tbody>
+    ${rows.map(r => `<tr style="${r.me ? "background:var(--paper-deep)" : ""}"><td class="asset">${r.name}</td><td>${fmtNum(tc(r), 1)}</td><td>${r.tot10 != null ? fmtNum(r.tot10, 1) : "—"}</td><td>${fmtNum(r.vol, 1)}</td><td>${fmtNum(r.sharpe, 2)}</td><td>${fmtNum(r.maxdd, 1)}</td></tr>`).join("")}
     </tbody></table></div><div style="margin-bottom:28px"></div>`;
 }
 
