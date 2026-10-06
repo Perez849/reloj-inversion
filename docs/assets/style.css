@@ -340,3 +340,12 @@ table.matrix{border-collapse:collapse;width:100%;min-width:780px}
 .tac-card ul{margin:4px 0 8px;padding-left:18px;font-size:13px}
 .tac-card li{margin:4px 0}
 .tac-h{font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-faint);margin-top:6px}
+
+.ia-btn{font:inherit;font-size:11px;padding:1px 7px;border:1px solid var(--line-strong);border-radius:999px;background:transparent;color:var(--ink-soft);cursor:pointer;margin-left:4px}
+.ia-btn:hover{background:var(--paper-deep);color:var(--ink)}
+.ia-btn:disabled{opacity:.5;cursor:wait}
+.ia-out{margin:18px 0;padding:16px;border:1px solid var(--line-soft);border-radius:10px;background:var(--paper-deep)}
+.ia-co{padding:10px 0;border-top:1px solid var(--line-soft)}
+.ia-co h4{margin:0 0 4px;font-size:15px}
+.ia-co ul{margin:6px 0 6px 18px;padding:0;font-size:13px}
+.ia-co a{color:inherit;text-decoration:underline}

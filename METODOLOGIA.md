@@ -872,3 +872,6 @@ verificar desde el entorno de desarrollo; si fallan, se anotan en `extended.meta
 - Las cifras de rentabilidad que se muestran ("Anual") son retorno total (exceso + tipo libre de riesgo). Sharpe y volatilidad siguen calculándose sobre el exceso sobre letras. El payload guarda `cagr` (exceso) y `cagr_tot`.
 - `meta.bridge.check` contrasta Ken French "Chips" con el ETF SMH en los meses solapados (correlación y CAGR).
 - Retirados de la web (los datos siguen en `data.json`): bloque PCA-research, universo, satélite no adoptado y contraste «ahora». Retirada la lista "Mejor evitar".
+
+## Compañías con criterio (Claude + búsqueda web)
+Botón «✦ compañías» en cada subsector que supera a su sector en la fase actual. La web llama a un Worker de Cloudflare (`worker/`) que guarda la clave de la API, pide a Claude 3-5 compañías con búsqueda web y descarta todo dato cuya URL no aparezca en los resultados reales de la búsqueda (y toda compañía sin ningún dato verificable). Es una idea para investigar, no una predicción ni asesoramiento. Hasta desplegar el Worker y rellenar `docs/assets/config.js` el botón solo explica cómo activarlo.

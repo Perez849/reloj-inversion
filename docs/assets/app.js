@@ -447,6 +447,7 @@ function wireClockToggle() {
       seg.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
       renderBuy();
       renderConsensus();
+      renderTactical();
       renderRotation();
       renderLab();
     };
@@ -650,6 +651,9 @@ function renderTactical() {
   const host = $("#tacticalBody");
   const ext = D.extended?.assets || [];
   if (!host) return;
+  const sec = $("#tactical");
+  if (sec) sec.hidden = clockMode !== "eq";   // son activos de renta variable: no aplica al reloj de renta fija
+  if (clockMode !== "eq") return;
   const c = D.current;
   const top2 = [c.phase, c.alt_phase];
   host.innerHTML = D.phases.map(p => {
@@ -686,6 +690,10 @@ function buyHoldHTML() {
 }
 
 function indRow(i) {
+  // Peso relativo: |carga| / suma de |cargas| del bloque, para que los pesos sumen 100%.
+  const blockTot = D.indicators.filter(x => x.block === i.block && x.loading != null)
+    .reduce((a, x) => a + Math.abs(x.loading), 0);
+  const share = (i.loading != null && blockTot > 0) ? Math.abs(i.loading) / blockTot : null;
   const scale = 3;
   const pctW = Math.min(50, Math.abs(i.z) / scale * 50);
   const pos = i.z >= 0;
@@ -697,13 +705,13 @@ function indRow(i) {
   const arrow = delta == null ? "" : (delta > 0.15 ? "▲" : delta < -0.15 ? "▼" : "▬");
   const tip = [i.note, `retraso de publicación: ${i.lag_m} ${i.lag_m === 1 ? "mes" : "meses"} — el dato de un mes concreto no entra en la clasificación hasta que de verdad se publicó, no en tiempo real`,
     i.invert ? "signo invertido: sube el indicador cuando la serie original baja, para que todo el bloque lea en la misma dirección" : null,
-    i.loading != null ? `peso ${fmtNum(i.loading, 2)}: su carga dentro del primer componente principal del bloque — cuánto arrastra al índice conjunto cuando esta serie se mueve, no una importancia fijada a mano` : null,
+    share != null ? `peso ${fmtNum(share * 100, 0)}%: parte de la influencia total del bloque que corresponde a esta serie (los pesos de un bloque suman 100%). Sale del primer componente principal, no de una importancia fijada a mano` : null,
   ].filter(Boolean).join(" · ");
   return `
     <div class="ind-row" title="${tip}">
       <div class="nm">${i.name}
         <small>${i.id} · retraso ${i.lag_m}m${i.invert ? " · invertida" : ""}${
-          i.loading != null ? ` · peso ${fmtNum(i.loading, 2)}` : ""}</small>
+          share != null ? ` · peso ${fmtNum(share * 100, 0)}%` : ""}</small>
       </div>
       <div class="zbar"><span class="axis"></span><i style="${style}"></i></div>
       <div class="zval" style="color:${col}">${signed(i.z, 2)} <span style="color:${INK_FAINT};font-size:9.5px">${arrow}</span></div>
@@ -1003,6 +1011,8 @@ function renderRobustness() {
 // memoria. Son las posiciones reales y actuales (nombre, ticker, peso) del propio
 // SPDR/State Street sectorial que ya aparece en ETF_MAP — ver holdings.meta.source
 // y fetch_holdings() en build_data.py. Nunca cambian ningún número de la cartera.
+const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+
 function holdingsExamples(list) {
   if (!list || !list.length) return "";
   return list.slice(0, 3)
@@ -1087,7 +1097,9 @@ function subsectorHTML(S, phase) {
         const examples = holdingsExamples(hold?.por_subsector?.[it.name]) || (hold ? "ninguna empresa del ETF sectorial encaja en este subsector (son compañías pequeñas)" : "");
         return metricRow({
           label: it.name,
-          badge: sig ? ` <span class="small-cap" style="color:${itAnn >= 0 ? POS : NEG}">${it.grade}</span>` : "",
+          badge: (sig ? ` <span class="small-cap" style="color:${itAnn >= 0 ? POS : NEG}">${it.grade}</span>` : "")
+            + (secAnn != null && itAnn > secAnn && itAnn > 0
+              ? ` <button type="button" class="ia-btn" data-ia data-sector="${esc(x.name)}" data-sub="${esc(it.name)}" data-edge="${(itAnn - secAnn).toFixed(2)}" title="Pedir a Claude compañías concretas para este subsector en la fase actual">✦ compañías</button>` : ""),
           caption: examples,
           value: `${fmtNum(itAnn, 1)}%`,
           valueColor: col,
@@ -1108,9 +1120,11 @@ function subsectorHTML(S, phase) {
       arriba, que sigue decidida por sector completo. Dentro de cada sector YA elegido en <b>${phase}</b>,
       mira qué línea de negocio pagó más y cuál menos — con historia suficiente para medirlo por fase en
       la mayoría de sectores; donde no la hay, se enseñan en su lugar las mayores posiciones reales de hoy
-      del fondo que replica ese sector. Bajo cada nombre, un par de empresas reales y actuales (nombre,
-      ticker y peso) — nunca una lista elegida de memoria, ver METODOLOGIA.md.</p>
-    <div class="cons-grid" style="margin-bottom:8px">${cards.join("")}</div>`;
+      del fondo que replica ese sector. Bajo cada nombre, las mayores posiciones reales del fondo (nombre,
+      ticker y peso): son <b>contexto, no una recomendación</b>. Que el subsector rinda mejor que su sector no
+      implica que esas empresas lo hagan. Para ideas concretas, pulsa <b>✦ compañías</b> en un subsector que supere a su sector: Claude busca información reciente y propone empresas (estén o no en el fondo) con sus fuentes.</p>
+    <div class="cons-grid" style="margin-bottom:8px">${cards.join("")}</div>
+    <div id="iaOut" class="ia-out" hidden></div>`;
 }
 
 /* ------------------------------ backtest --------------------------------- */
@@ -1759,4 +1773,60 @@ function wireControls() {
 }
 
 boot();
+
+
+/* ------------------- compañías con criterio (Claude + búsqueda web) ------------------- */
+function renderIA(out, data) {
+  const conf = {alta: POS, media: "var(--ink-soft)", baja: NEG};
+  const safe = u => /^https:\/\//.test(u || "") ? esc(u) : "#";
+  const cos = (data.companias || []).map(c => `
+    <div class="ia-co">
+      <h4>${esc(c.nombre)} <span class="small-cap mono">${esc(c.ticker)}${c.bolsa ? " · " + esc(c.bolsa) : ""}</span>
+        <span class="small-cap" style="color:${conf[c.confianza] || "inherit"}">evidencia ${esc(c.confianza)}</span></h4>
+      <p>${esc(c.tesis)}</p>
+      <ul>${c.por_que_ahora.map(d => `<li>${esc(d.dato)} <small><a href="${safe(d.fuente_url)}" target="_blank" rel="noopener noreferrer">${esc(d.fuente_titulo || "fuente")}</a>${d.fecha ? " · " + esc(d.fecha) : ""}</small></li>`).join("")}</ul>
+      ${c.riesgos?.length ? `<p class="small-cap"><b>Riesgos:</b> ${c.riesgos.map(esc).join(" · ")}</p>` : ""}
+    </div>`).join("");
+  out.innerHTML = `
+    ${data.resumen ? `<p class="cap">${esc(data.resumen)}</p>` : ""}
+    ${cos || `<p class="buy-empty">Claude no ha encontrado evidencia suficiente para recomendar compañías con fuentes fiables.</p>`}
+    ${data.limites ? `<p class="foot">${esc(data.limites)}</p>` : ""}
+    <p class="foot">Generado por Claude (${esc(data.modelo || "")}) el ${esc((data.generado || "").slice(0, 10))} con búsqueda web.
+      Solo se muestran datos con una fuente que la búsqueda encontró de verdad${data.descartados_sin_fuente ? ` (descartados sin fuente: ${data.descartados_sin_fuente})` : ""}.
+      Es una idea para investigar, no asesoramiento ni una predicción; verifica las fuentes antes de operar.</p>`;
+}
+
+document.addEventListener("click", async ev => {
+  const btn = ev.target.closest?.("[data-ia]");
+  if (!btn) return;
+  const out = $("#iaOut");
+  if (!out) return;
+  out.hidden = false;
+  out.scrollIntoView({behavior: "smooth", block: "nearest"});
+  const url = window.RELOJ_IA_URL;
+  if (!url) {
+    out.innerHTML = `<p class="buy-empty">La IA aún no está conectada. Hay que desplegar el Worker (carpeta <code>worker/</code>, 3 comandos en su README)
+      y poner su URL en <code>docs/assets/config.js</code>: la clave de la API no puede vivir en una página pública.</p>`;
+    return;
+  }
+  const c = D.current;
+  const hold = D.holdings?.por_sector?.[btn.dataset.sector] || [];
+  out.innerHTML = `<p class="cap">Claude está buscando información reciente sobre <b>${esc(btn.dataset.sub)}</b>… (20-60 s)</p>`;
+  btn.disabled = true;
+  try {
+    const r = await fetch(url, {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({phase: c.phase, alt_phase: c.alt_phase, date: c.date, sector: btn.dataset.sector,
+        subsector: btn.dataset.sub, edge_pp: Number(btn.dataset.edge), etf_names: hold.slice(0, 8).map(h => h.name)})});
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+    out.innerHTML = `<h3 style="font-family:var(--serif);font-size:17px;margin:0 0 6px">${esc(btn.dataset.sub)} · ${esc(c.phase)}: compañías según Claude</h3>`;
+    const body = document.createElement("div");
+    out.appendChild(body);
+    renderIA(body, data);
+  } catch (e) {
+    out.innerHTML = `<p class="buy-empty">No se pudo obtener la respuesta: ${esc(e.message)}</p>`;
+  } finally {
+    btn.disabled = false;
+  }
+});
 })();
