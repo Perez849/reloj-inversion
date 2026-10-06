@@ -83,8 +83,9 @@ jobs:
           rm -rf /tmp/pub && mkdir -p /tmp/pub/data /tmp/pub/reports
           cp docs/data/data.json /tmp/pub/data/
           cp -r docs/reports/. /tmp/pub/reports/ 2>/dev/null || true
+          mkdir -p /tmp/pub/lab && cp -r lab/. /tmp/pub/lab/ 2>/dev/null || true
           for intento in 1 2 3 4 5; do
-            git add docs/data/data.json docs/reports
+            git add docs/data/data.json docs/reports lab
             if git diff --staged --quiet; then
               echo "Sin cambios en los datos."
               exit 0
@@ -98,7 +99,7 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
             cp /tmp/pub/data/data.json docs/data/data.json
-            mkdir -p docs/reports && cp -r /tmp/pub/reports/. docs/reports/
+            mkdir -p docs/reports lab && cp -r /tmp/pub/reports/. docs/reports/ && cp -r /tmp/pub/lab/. lab/ 2>/dev/null || true
             sleep $((intento * 5))
           done
           echo "No se pudo publicar tras 5 intentos."

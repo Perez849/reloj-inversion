@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import io
 import json
+from pathlib import Path
 import math
 import os
 import time
@@ -3644,6 +3645,18 @@ def main() -> None:
     except Exception as exc:
         warn(f"satélite táctico omitido: {exc}")
         satellite = {"error": str(exc), "adopted": False}
+    # Volcado de los insumos de la rotación (rendimientos mensuales, fases, probabilidades,
+    # factores) para poder reproducir y probar variantes localmente sin red. No se publica.
+    try:
+        _lab = Path(__file__).resolve().parent.parent / "lab"
+        _lab.mkdir(exist_ok=True)
+        X.to_csv(_lab / "X.csv")
+        phases.to_csv(_lab / "phases.csv", header=True)
+        probs_df.to_csv(_lab / "probs.csv")
+        F.to_csv(_lab / "F.csv")
+        (_lab / "cls_map.json").write_text(json.dumps(cls_map, ensure_ascii=False))
+    except Exception as exc:
+        warn(f"volcado lab omitido: {exc}")
     lab = laboratory(X, phases, cls_map)
     # Reloj de renta fija: mismo motor, otro conjunto de bloques (ver SLEEVES_FI) y
     # otro benchmark (el agregado de bonos, no el S&P 500). include_6040=False: un
