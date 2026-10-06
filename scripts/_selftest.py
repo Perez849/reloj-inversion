@@ -145,6 +145,13 @@ ids = {i["id"] for i in d["indicators"]}
 assert "BAA_AAA" in ids, "falta el diferencial derivado"
 print("indicadores:", len(d["indicators"]), "/", d["meta"]["series_total"])
 print("validación NBER:", d["validation"].get("nber"))
+_nb = d["validation"].get("nber")
+if _nb and d.get("nber"):
+    _hist = [h["d"] for h in d["history"]]
+    _m = sum(1 for x in _hist if any(a <= x < b for a, b in d["nber"]))
+    _usrec_n = len([x for x in _hist])
+    assert abs(_m / _usrec_n - _nb["share_recession_months"]) < 0.02, (
+        f"NBER: la cuota de recesión ({_nb['share_recession_months']}) no cuadra con los periodos ({_m}/{_usrec_n})")
 
 sub = d.get("subsectors")
 assert sub and sub.get("por_sector"), "faltan subsectores (análisis complementario)"

@@ -3698,6 +3698,9 @@ def main() -> None:
                 "i": round(float(b), 3), "p": p}
                for d, a, b, p in zip(F.index, F["growth"], F["inflation"], phases)]
 
+    # Convención de `nber`: cada par es [primer mes de recesión, PRIMER mes ya fuera de
+    # recesión] (fin exclusivo, así el sombreado del gráfico acaba donde empieza la
+    # expansión). Quien sume meses con el fin inclusivo cuenta uno de más por episodio.
     nber = []
     if "USREC" in df.columns:
         r = df["USREC"].reindex(F.index).fillna(0)
