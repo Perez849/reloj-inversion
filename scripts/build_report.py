@@ -667,7 +667,7 @@ def build_html(D, gen: datetime) -> str:
 <section class="page">{header(D, "Renta fija: qué ha pagado cada activo", 10, tag)}
   <p class="lead">Exceso anualizado, en puntos porcentuales, de cada activo de renta fija en cada fase <i>frente a su propia media histórica</i>. La última columna es esa media: la rentabilidad anual total del activo en todo el periodo, para saber contra qué se compara cada casilla.</p>
   <table class="heat"><thead><tr><th>Activo (ordenado por la fase vigente)</th>{"".join(f'<th class="{"cur" if p == ph else ""}" style="border-bottom:3px solid {PC[p]}">{e(p)}</th>' for p in PHASES)}<th class="avgh">Media anual</th></tr></thead><tbody>{fi_rows}</tbody></table>
-  <div class="note"><b>Cómo leerlo.</b> Verde: el activo rindió por encima de su media cuando el reloj marcaba esa fase; terracota, por debajo. El recuadro marca la fase vigente y las filas resaltadas son las que componen hoy la cartera de renta fija. Los activos marcados «aprox.» se reconstruyen a partir de rendimientos de FRED; el resto son ETF reales con menos historia.</div>
+  <div class="note"><b>Cómo leerlo.</b> Verde: el activo rindió por encima de su media cuando el reloj marcaba esa fase; terracota, por debajo. El recuadro marca la fase vigente y las filas resaltadas son las que componen hoy la cartera de renta fija. Todos los activos de esta tabla son invertibles (ETF reales o liquidez en letras del Tesoro): la cartera solo recomienda lo que se puede comprar. Las series sintéticas de FRED (Treasuries, hipotecario, crédito Baa/Aaa) quedan fuera como mera referencia histórica.</div>
   {footer(10, "FRED, ETF y Ken French. Contrastes con errores estándar Newey-West.")}
 </section>''')
         # --- 9c backtest
@@ -689,8 +689,8 @@ def build_html(D, gen: datetime) -> str:
   </div>
   <figure class="card"><figcaption>Los cuatro repartos internos</figcaption>
     <table class="mini"><thead><tr><th>Esquema</th><th class="r">Anual</th><th class="r">Vol</th><th class="r">Sharpe</th><th class="r">Caída</th><th class="r">Peor 12m</th></tr></thead><tbody>{schf}{mrow("Agregado renta fija", bf)}{mrow("60/40 (referencia)", bf6) if bf6 else ""}</tbody></table></figure>
-  <p class="cap">Renta fija desde 2003. Cifras anuales: retorno total compuesto; Sharpe y volatilidad sobre el exceso respecto a letras del Tesoro. Walk-forward, sin costes ni impuestos.</p>
-  {footer(11, "Renta fija desde 2003 (ETF reales y rendimientos de FRED convertidos a retorno sintético).")}
+  <p class="cap">Renta fija: solo ETF invertibles. Cifras anuales: retorno total compuesto; Sharpe y volatilidad sobre el exceso respecto a letras del Tesoro. Walk-forward, sin costes ni impuestos.</p>
+  {footer(11, "Renta fija: solo ETF invertibles (retorno total real).")}
 </section>''')
 
     # ---------------------------------------------------------------- 10 riesgos y calidad
@@ -903,6 +903,14 @@ def render_pdf(html_text: str, out: Path) -> None:
         b.close()
 
 
+def signature(D) -> str:
+    """Huella de lo que el informe recomienda: si cambia, hay que regenerarlo aunque sea el mismo mes."""
+    import hashlib
+    pl = {k: D[k]["schemes"][D[k]["default"]]["playbook"] for k in ("rotation", "rotation_fi") if D.get(k)}
+    raw = json.dumps([pl, D["current"]["phase"], D["current"].get("call_strength"), D["rotation"]["default"]], sort_keys=True, default=str)
+    return hashlib.md5(raw.encode()).hexdigest()
+
+
 def main() -> int:
     force = "--force" in sys.argv
     D = json.loads(DATA.read_text(encoding="utf-8"))
@@ -913,7 +921,7 @@ def main() -> int:
     if not force and meta_f.exists() and (OUT / "market-pulse.pdf").exists():
         m = json.loads(meta_f.read_text())
         age = (now - datetime.fromisoformat(m["generated"])).days
-        if m.get("month") == ym and m.get("phase") == D["current"]["phase"] and m.get("scheme") == D["rotation"]["default"] and age < 7:
+        if m.get("month") == ym and m.get("phase") == D["current"]["phase"] and m.get("scheme") == D["rotation"]["default"] and m.get("sig") == signature(D) and age < 7:
             print("Informe al día (mismo mes y fase, <7 días): no se regenera.")
             return 0
     page = build_html(D, now)
@@ -923,7 +931,7 @@ def main() -> int:
         return 0
     render_pdf(page, OUT / "market-pulse.pdf")
     (OUT / f"market-pulse-{ym}.pdf").write_bytes((OUT / "market-pulse.pdf").read_bytes())
-    meta_f.write_text(json.dumps({"generated": now.isoformat(), "month": ym, "phase": D["current"]["phase"], "scheme": D["rotation"]["default"]}))
+    meta_f.write_text(json.dumps({"generated": now.isoformat(), "month": ym, "phase": D["current"]["phase"], "scheme": D["rotation"]["default"], "sig": signature(D)}))
     print("Informe generado:", OUT / "market-pulse.pdf")
     return 0
 

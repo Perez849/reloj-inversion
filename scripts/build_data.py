@@ -879,13 +879,13 @@ FRED_PX = {
 }
 
 FRED_YIELD = {
-    "MORTGAGE30US": (5.5, 40.0, "Hipotecario 30 años (aprox.)", "Renta fija"),
-    "DGS2": (1.9, 4.5, "Treasury 2 años", "Renta fija"),
-    "DGS10": (8.2, 80.0, "Treasury 10 años", "Renta fija"),
-    "DGS30": (18.5, 450.0, "Treasury 30 años", "Renta fija"),
-    "BAA": (7.5, 70.0, "Crédito Baa (aprox.)", "Renta fija"),
-    "AAA": (8.0, 80.0, "Crédito Aaa (aprox.)", "Renta fija"),
-    "DFII10": (8.5, 85.0, "TIPS 10 años (aprox.)", "Renta fija"),
+    "MORTGAGE30US": (5.5, 40.0, "Hipotecario 30 años (aprox.)", "Referencia"),
+    "DGS2": (1.9, 4.5, "Treasury 2 años", "Referencia"),
+    "DGS10": (8.2, 80.0, "Treasury 10 años", "Referencia"),
+    "DGS30": (18.5, 450.0, "Treasury 30 años", "Referencia"),
+    "BAA": (7.5, 70.0, "Crédito Baa (aprox.)", "Referencia"),
+    "AAA": (8.0, 80.0, "Crédito Aaa (aprox.)", "Referencia"),
+    "DFII10": (8.5, 85.0, "TIPS 10 años (aprox.)", "Referencia"),
 }
 
 # Fuentes de mercado. Yahoo primero (los runners de GitHub llegan bien), Stooq de
@@ -899,6 +899,12 @@ MARKET = {
 
     "Cobre": ("Real / alternativos", "HG=F", "hg.f", ""),
 
+    # Treasuries invertibles (ETF reales, desde 2002). Sustituyen en la cartera a las series
+    # sintéticas de FRED_YIELD, que quedan solo como referencia: la cartera solo puede
+    # recomendar lo que se puede comprar.
+    "Treasury 1-3 años (SHY)": ("Renta fija", "SHY", "shy.us", "retorno total real, desde 2002"),
+    "Treasury 7-10 años (IEF)": ("Renta fija", "IEF", "ief.us", "retorno total real, desde 2002"),
+    "Treasury 20+ años (TLT)": ("Renta fija", "TLT", "tlt.us", "retorno total real, desde 2002"),
     "Crédito Investment Grade (LQD)": ("Renta fija", "LQD", "lqd.us",
                                        "retorno total real, desde 2002"),
     "Crédito High Yield (HYG)": ("Renta fija", "HYG", "hyg.us",
@@ -1223,7 +1229,7 @@ def fetch_assets(df: pd.DataFrame):
             add(lab, None, cls, f"FRED / {sid}", err="no descargado")
         else:
             add(lab, yield_to_return(df[sid], dur, cvx), cls, f"FRED / {sid}",
-                f"aproximación por duración {dur} y convexidad {cvx}")
+                f"aproximación por duración {dur} y convexidad {cvx} · referencia sintética, no invertible")
 
     if "TB3MS" in df.columns:
         add("Liquidez (letras 3m)", (df["TB3MS"] / 12.0).dropna(), "Liquidez",
