@@ -676,7 +676,7 @@ function buyHoldHTML() {
   const better = b.assets.filter(x => tc(x) > tc(p)).slice(0, 3).map(x => x.name);
   const rows = [{name: `<b>Cartera rotada (${(b.label || "").toLowerCase()})</b>`, ...p, me: true}, ...b.assets];
   return `<h3 style="font-family:var(--serif);font-size:17px;margin-bottom:4px">Cartera frente a comprar y mantener cada sector</h3>
-    <p class="cap" style="margin-bottom:10px">Mismo periodo para todos (desde ${(b.from || "").slice(0, 4)}), ${hasTot ? "retorno total anual compuesto" : "exceso anual sobre letras del Tesoro (los datos se actualizan en la próxima ejecución)"}.
+    <p class="cap" style="margin-bottom:10px">Mismo periodo para todos (desde ${(b.from || "").slice(0, 4)}), ${hasTot ? "rentabilidad anual compuesta" : "exceso anual sobre letras del Tesoro (los datos se actualizan en la próxima ejecución)"}.
       ${better.length ? `Mirando atrás, ${better.join(", ")} ha${better.length > 1 ? "n" : ""} rendido más que la cartera, pero con más riesgo; ` : "Ningún sector suelto ha rendido más que la cartera en el periodo completo; "}el modelo decide cada mes sin saber cuál será. La columna «10 años» muestra solo la última década.${(() => { const k = D.meta?.bridge?.check?.["Semiconductores"]; return k ? `
       Control de la fuente: semiconductores (Ken French) frente al ETF ${k.etf} desde ${k.from}: correlación ${fmtNum(k.corr, 2)}, ${fmtNum(k.cagr_french, 1)}% vs ${fmtNum(k.cagr_etf, 1)}% anual.` : ""; })()}</p>
     <p class="scroll-hint">← desliza la tabla →</p><div class="matrix-holder"><table class="matrix"><thead><tr><th>Activo</th><th>Anual %</th><th>10 años %</th><th>Volatilidad %</th><th>Sharpe</th><th>Caída máx. %</th></tr></thead><tbody>
@@ -1158,8 +1158,7 @@ function renderRotation() {
       <div class="eyebrow">El backtest · ${T.label}</div>
       <h2>${T.title} Fase a fase, desde ${(p.from || "").slice(0, 4) || "—"}</h2>
       <p class="cap">${T.intro}</p>
-      <p class="cap" style="margin-top:8px">"Anual" es el <b>retorno total anual compuesto (CAGR)</b>, con el interés del
-        efectivo incluido. El Sharpe y la volatilidad se calculan sobre el exceso respecto a letras del Tesoro (convención estándar).</p>
+      <p class="cap" style="margin-top:8px">"Anual" es la rentabilidad anual compuesta (CAGR) de lo que habría ganado quien siguiera la cartera: rentabilidad pura de los activos, sin restar nada. Solo el Sharpe se calcula descontando el tipo sin riesgo, que es su definición.</p>
     </div>
 
     <div class="outlook" style="margin-bottom:24px;border-color:${beatsMkt ? POS : PHASE_COLOR["Sobrecalentamiento"]}">
@@ -1172,7 +1171,7 @@ function renderRotation() {
       <div class="item" title="Fórmula: rentabilidad anualizada dividida entre la volatilidad anualizada. Compara dos series con distinto nivel de riesgo en términos justos: 8% de rentabilidad con la mitad de vaivén que otra que también da 8% es, en Sharpe, el doble de buena. Por encima de 1 se considera sólido para una cartera de solo renta variable; por debajo de 0,5, flojo."><dt>Sharpe</dt><dd style="color:${(p.sharpe ?? 0) > (mkt.sharpe ?? 0) ? POS : "var(--ink)"}">${fmtNum(p.sharpe, 2)} vs ${fmtNum(mkt.sharpe, 2)}</dd>
         <small>rentabilidad por unidad de riesgo asumido — más alto es mejor</small></div>
     </div>
-    <p class="foot" style="margin-top:-14px;margin-bottom:20px">Caída máxima: la mayor pérdida de pico a valle en todo el periodo, no una pérdida típica.</p>
+    <p class="foot" style="margin-top:-14px;margin-bottom:20px">Caída máxima: la mayor pérdida de pico a valle en todo el periodo, no una pérdida típica.${(() => { const q = D.recency_test; if (!q || !q.variants) return ""; const v = Object.entries(q.variants).map(([k, x]) => `${k} m: ${x.wins}/4`).join(", "); return ` Peso de los datos recientes: el modelo ya pondera con semivida de ${q.base_half_life} meses; se probaron otras (${v} esquemas mejorados) y ${q.adopted_half_life === q.base_half_life ? "ninguna mejora el resultado, se mantiene " + q.base_half_life : "se adopta " + q.adopted_half_life} meses.`; })()}</p>
 
     <h3 style="font-family:var(--serif);font-size:17px;margin-bottom:4px">¿Y si el reparto interno cambia?</h3>
     <p class="cap" style="margin-bottom:14px">La selección ${T.selectionWord} es idéntica en los cuatro

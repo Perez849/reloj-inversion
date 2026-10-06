@@ -2238,6 +2238,44 @@ def level_test(X, ameta, phases, probs_df, F, rot_base):
     return best_rot, info
 
 
+def recency_test(X, ameta, phases, probs_df, F, rot_base):
+    """¿Dar más (o menos) peso a los datos recientes mejora la cartera? El motor ya
+    pondera exponencialmente por antigüedad (HALF_LIFE_M, base 60 meses). Se prueban
+    otras semividas, incluida una ventana efectiva de ~15-20 años (semivida 120-180) y
+    la historia casi plana (360). Mismo criterio de adopción que los demás tests
+    (Sharpe +0,01 en >= 3 de 4 esquemas sin bajar el CAGR más de 0,05 pp); se elige
+    sobre la misma muestra, así que es mejora observada, no garantía."""
+    global HALF_LIFE_M
+    print("7c. Test de peso de los datos recientes (semivida)…")
+    cls_map = {k: v.get("class", "Otros") for k, v in ameta.items()}
+    base_hl = HALF_LIFE_M
+    mb = _scheme_metrics(rot_base)
+    info = {"base_half_life": base_hl, "base": mb, "variants": {}, "adopted_half_life": base_hl}
+    best_key, best_rot, best_hl = None, rot_base, base_hl
+    try:
+        for hl in (36, 120, 180, 360):
+            HALF_LIFE_M = hl
+            r = rotation(X, phases, cls_map, probs_df, F, phase_sleeve_override=ESTANFLACION_OVERRIDE)
+            m = _scheme_metrics(r)
+            wins = 0
+            for sch, b in mb.items():
+                v = m.get(sch) or {}
+                if None in (b.get("sharpe"), v.get("sharpe"), b.get("cagr"), v.get("cagr")):
+                    continue
+                if v["sharpe"] - b["sharpe"] >= UNI_MIN_DSHARPE and v["cagr"] >= b["cagr"] - 0.05:
+                    wins += 1
+            msh = float(np.mean([v["sharpe"] for v in m.values() if v.get("sharpe") is not None] or [0]))
+            info["variants"][str(hl)] = {"wins": wins, "mean_sharpe": round(msh, 3), "schemes": m}
+            if wins >= UNI_MIN_SCHEMES and (best_key is None or (wins, msh) > best_key):
+                best_key, best_rot, best_hl = (wins, msh), r, hl
+    finally:
+        HALF_LIFE_M = best_hl
+    info["adopted_half_life"] = best_hl
+    print("  ✓ semivida adoptada: %s (base %s) · " % (best_hl, base_hl)
+          + ", ".join("%s: %s/4" % (k, v["wins"]) for k, v in info["variants"].items()))
+    return best_rot, info
+
+
 def subsector_analysis(phases: pd.Series):
     """Análisis COMPLEMENTARIO (sección 8b): qué subsector, dentro de cada uno de
     los sectores que ya usa la cartera principal, ha pagado más en cada fase. Usa
@@ -3483,6 +3521,11 @@ def main() -> None:
     cls_map = {k: v.get("class", "Otros") for k, v in ameta.items()}
     rot = rotation(X, phases, cls_map, probs_df, F,
                    phase_sleeve_override=ESTANFLACION_OVERRIDE)
+    try:
+        rot, recency_info = recency_test(X, ameta, phases, probs_df, F, rot)
+    except Exception as exc:
+        warn(f"test de semivida omitido: {exc}")
+        recency_info = {"error": str(exc)}
     buy_hold = buy_hold_table(X, rot, cls_map)
     try:
         rot, level_info = level_test(X, ameta, phases, probs_df, F, rot)
@@ -3607,7 +3650,7 @@ def main() -> None:
         "backtest": bt, "rotation": rot, "lab": lab,
         "rotation_fi": rot_fi, "lab_fi": lab_fi,
         "validation": val, "subsectors": subsectors, "holdings": holdings,
-        "extended": extended, "universe": universe, "satellite": satellite, "level_test": level_info, "buy_hold": buy_hold, "now_edge": now, "pca_research": pca_research,
+        "extended": extended, "universe": universe, "satellite": satellite, "level_test": level_info, "recency_test": recency_info, "buy_hold": buy_hold, "now_edge": now, "pca_research": pca_research,
         "phases": PHASES, "phase_long": PHASE_LONG,
     }
 
