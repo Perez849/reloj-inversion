@@ -36,7 +36,7 @@ if (huerfanos.length) {
 
 // 2. El <script> que carga la página tiene que ser el fichero comprobado.
 const srcs = [...html.matchAll(/<script\s+src\s*=\s*["']([^"']+)["']/g)].map(m => m[1]);
-const src = srcs.map(x => path.normalize(path.join(path.dirname(HTML), x))).find(x => x === path.normalize(APP));
+const src = srcs.map(x => path.normalize(path.join(path.dirname(HTML), x.split("?")[0]))).find(x => x === path.normalize(APP));
 if (!srcs.length) {
   fallos.push("index.html no carga ningún script.");
 } else if (!src) {
