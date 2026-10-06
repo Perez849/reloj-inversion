@@ -152,6 +152,7 @@ const txt = (tag, attrs, content, parent) => {
 };
 const fmtPct = (v, d = 0) => v === null || v === undefined || Number.isNaN(v)
   ? "—" : `${(v * 100).toFixed(d)}%`;
+const tc = o => (o && (o.cagr_tot ?? o.cagr));
 const fmtNum = (v, d = 2) => v === null || v === undefined || Number.isNaN(v)
   ? "—" : Number(v).toFixed(d);
 const signed = (v, d = 1) => v === null || v === undefined || Number.isNaN(v)
@@ -210,10 +211,7 @@ function render() {
   renderMatrix();
   renderRobustness();
   renderConsensus();
-  renderPcaResearch();
   renderTactical();
-  renderSatellite();
-  renderUniverse();
   renderRotation();
   renderLab();
   renderValidation();
@@ -448,7 +446,6 @@ function wireClockToggle() {
       seg.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
       renderBuy();
       renderConsensus();
-      renderSatellite();
       renderRotation();
       renderLab();
     };
@@ -655,20 +652,19 @@ function renderTactical() {
   const c = D.current;
   const top2 = [c.phase, c.alt_phase];
   host.innerHTML = D.phases.map(p => {
-    const pos = [], neg = [];
+    const pos = [];
     for (const a of ext) {
       const d = a.phases[p];
       if (!d || d.rel == null || !["Fuerte", "Moderada"].includes(d.reliability)) continue;
-      (d.rel >= 0 ? pos : neg).push({name: a.name, rel: d.rel, ann: d.ann, rel_l: d.reliability, n: d.n});
+      if (d.rel > 0) pos.push({name: a.name, rel: d.rel, rel_l: d.reliability, n: d.n});
     }
-    pos.sort((x, y) => y.rel - x.rel); neg.sort((x, y) => x.rel - y.rel);
+    pos.sort((x, y) => y.rel - x.rel);
     const line = (r, good) => `<li><b>${r.name}</b> <span class="rel rel-${r.rel_l}">${r.rel_l[0]}</span>
-      <span style="color:${good ? POS : NEG}">${signed(r.rel, 1)} pp</span> <small>(rinde ${fmtNum(r.ann, 1)}% anual · ${r.n} meses)</small></li>`;
+      <span style="color:${good ? POS : NEG}">${signed(r.rel, 1)} pp</span> <small>(${r.n} meses)</small></li>`;
     const now = top2.includes(p);
     return `<div class="tac-card ${now ? "now" : ""}"><h3>${p}${p === c.phase ? " · fase actual" : p === c.alt_phase ? " · segunda fase" : ""}</h3>
       ${pos.length ? `<div class="tac-h">Candidatos</div><ul>${pos.map(r => line(r, true)).join("")}</ul>` : ""}
-      ${neg.length ? `<div class="tac-h">Mejor evitar</div><ul>${neg.map(r => line(r, false)).join("")}</ul>` : ""}
-      ${!pos.length && !neg.length ? `<p class="small-cap">Ningún activo nuevo con evidencia moderada o fuerte en esta fase.</p>` : ""}</div>`;
+      ${!pos.length ? `<p class="small-cap">Ningún activo nuevo con evidencia moderada o fuerte en esta fase.</p>` : ""}</div>`;
   }).join("");
 }
 
@@ -678,57 +674,12 @@ function buyHoldHTML() {
   const p = b.portfolio || {};
   const rows = [{name: `<b>Cartera rotada (${(b.label || "").toLowerCase()})</b>`, ...p, me: true}, ...b.assets];
   return `<h3 style="font-family:var(--serif);font-size:17px;margin-bottom:4px">Cartera frente a comprar y mantener cada sector</h3>
-    <p class="cap" style="margin-bottom:10px">Mismo periodo (desde ${(b.from || "").slice(0, 4)}), cifras en exceso sobre el tipo sin riesgo.
-      Con la información de hoy, mirando atrás, algunos sectores sueltos (p. ej. semiconductores) han rendido más que la cartera:
-      el modelo tiene que decidir cada mes SIN saber cuál será, y concentrar en el que más ha subido ha empeorado el resultado
-      en el test fuera de muestra, sobre todo en la peor caída.</p>
-    <p class="scroll-hint">← desliza la tabla →</p><div class="matrix-holder"><table class="matrix"><thead><tr><th>Activo</th><th>CAGR %</th><th>Volatilidad %</th><th>Sharpe</th><th>Caída máx. %</th></tr></thead><tbody>
-    ${rows.map(r => `<tr style="${r.me ? "background:var(--paper-deep)" : ""}"><td class="asset">${r.name}</td><td>${fmtNum(r.cagr, 1)}</td><td>${fmtNum(r.vol, 1)}</td><td>${fmtNum(r.sharpe, 2)}</td><td>${fmtNum(r.maxdd, 1)}</td></tr>`).join("")}
+    <p class="cap" style="margin-bottom:10px">Mismo periodo (desde ${(b.from || "").slice(0, 4)}), retorno total anual compuesto.
+      Mirando atrás, algunos sectores sueltos (p. ej. semiconductores) han rendido más que la cartera; el modelo decide cada mes sin saber cuál será.${(() => { const k = D.meta?.bridge?.check?.["Semiconductores"]; return k ? `
+      Control de la fuente: semiconductores (Ken French) frente al ETF ${k.etf} desde ${k.from}: correlación ${fmtNum(k.corr, 2)}, ${fmtNum(k.cagr_french, 1)}% vs ${fmtNum(k.cagr_etf, 1)}% anual.` : ""; })()}</p>
+    <p class="scroll-hint">← desliza la tabla →</p><div class="matrix-holder"><table class="matrix"><thead><tr><th>Activo</th><th>Anual %</th><th>Volatilidad %</th><th>Sharpe</th><th>Caída máx. %</th></tr></thead><tbody>
+    ${rows.map(r => `<tr style="${r.me ? "background:var(--paper-deep)" : ""}"><td class="asset">${r.name}</td><td>${fmtNum(tc(r), 1)}</td><td>${fmtNum(r.vol, 1)}</td><td>${fmtNum(r.sharpe, 2)}</td><td>${fmtNum(r.maxdd, 1)}</td></tr>`).join("")}
     </tbody></table></div><div style="margin-bottom:28px"></div>`;
-}
-
-function renderSatellite() {
-  const host = $("#satBody");
-  if (!host) return;
-  const s = D.satellite;
-  if (!s || !s.rotation || clockMode !== "eq") { host.innerHTML = ""; return; }
-  const c = D.current;
-  const sch = s.rotation.schemes[s.rotation.default] || Object.values(s.rotation.schemes)[0];
-  const rows = (sch.playbook?.[c.phase] || []).filter(x => x.sleeve === "Satélite táctico");
-  const mix = sch.sleeve_mix?.[c.phase]?.["Satélite táctico"];
-  const mb = s.base?.[s.rotation.default] || {}, ms = s.with_satellite?.[s.rotation.default] || {};
-  const dlt = (k, f = 2) => (ms[k] != null && mb[k] != null) ? signed(ms[k] - mb[k], f) : "—";
-  const figs = `Cartera con satélite frente a sin él (reparto ${sch.label?.toLowerCase() || ""}): CAGR ${fmtNum(ms.cagr, 2)}% vs ${fmtNum(mb.cagr, 2)}% (${dlt("cagr")} pp),
-    Sharpe ${fmtNum(ms.sharpe, 2)} vs ${fmtNum(mb.sharpe, 2)} (${dlt("sharpe")}), caída máxima ${fmtNum(ms.maxdd, 1)}% vs ${fmtNum(mb.maxdd, 1)}%.
-    Mejora el Sharpe en ${s.wins}/4 esquemas de reparto.`;
-  const body = rows.length
-    ? rows.map(x => `<div class="buy-item"><div><span class="nm">${x.name}</span><span class="tickers"><span class="small-cap mono">${x.class}</span></span></div><span class="wt">${fmtNum(x.weight, 1)}%</span></div>`).join("")
-    : `<p class="buy-empty">En <b>${c.phase}</b> ningún activo nuevo tiene ventaja suficiente: el satélite queda a 0% (banda 0-15%).</p>`;
-  if (s.adopted) { host.innerHTML = `<p class="buy-foot">Satélite táctico incorporado arriba. ${figs}</p>`; return; }
-  host.innerHTML = `<div class="buy-col sat"><h4><span>Satélite táctico · ${s.adopted ? "incorporado" : "opcional"}</span><span>${mix != null ? fmtNum(mix, 0) + "%" : "0%"}</span></h4>${body}
-    <p class="buy-foot">${s.adopted ? "Forma parte de la cartera de arriba." : "NO forma parte de la cartera de arriba: no cumple el criterio de mejora (≥ 3 de 4 esquemas), se ofrece como opción."}
-    ${figs}</p></div>`;
-}
-
-function renderPcaResearch() {
-  const r = D.pca_research;
-  const host = $("#pcaResearch");
-  if (!r || !r.blocks) { host.innerHTML = ""; return; }
-  const T = {growth: "Crecimiento", inflation: "Inflación", leading: "Adelantados"};
-  host.innerHTML = `<b>¿Más series explican más?</b> Se probaron series candidatas y solo entran las que suben la varianza explicada
-    del primer componente (con signo y correlación coherentes). ` + Object.entries(r.blocks).map(([b, v]) =>
-    `<br><b>${T[b] || b}</b>: ${fmtPct(v.var_base, 0)} → <b>${fmtPct(v.var_final, 0)}</b>` +
-    (v.added.length ? ` con ${v.added.map(x => `${x.name} (+${x.gain_pp} pp)`).join(", ")}` : " (ninguna candidata mejora)")).join("");
-}
-
-function renderUniverse() {
-  const u = D.universe;
-  const host = $("#universeBlock");
-  if (!u || !u.groups) { host.innerHTML = ""; return; }
-  const rows = Object.entries(u.groups).map(([g, v]) => `<br><b>${g}</b>: mejora el Sharpe de la cartera en ${v.wins}/4 esquemas de reparto → ${v.adopted ? "<b>incorporado</b>" : "no incorporado"}`).join("");
-  host.innerHTML = `<b>¿Mejoran los activos nuevos la cartera?</b> Cada grupo se suma al bloque de renta variable y se compara con la cartera base
-    (se incorpora si sube el Sharpe ≥ 0,01 en al menos 3 de 4 esquemas sin bajar el CAGR). Selección hecha sobre la misma muestra del backtest:
-    es mejora observada, no garantía.${rows}`;
 }
 
 function indRow(i) {
@@ -907,7 +858,6 @@ function drawMatrix() {
 
   $("#matrix").innerHTML = head + `<tbody>${body}</tbody>`;
   drawExtended();
-  drawNow();
   $("#matrixFoot").innerHTML = `
     <b>Etiqueta F / M / D</b> junto a la nota = fiabilidad <b>Fuerte / Moderada / Débil</b>. Fuerte exige
     nota ++ o +++, FDR ≤ 0,10, mismo signo en las dos mitades de la muestra, mismo signo usando la fase
@@ -922,23 +872,6 @@ function drawMatrix() {
     adicional &nbsp;·&nbsp; <b>+ / -</b> menor al 20% — indicativo, no concluyente &nbsp;·&nbsp;
     <b>0</b> no se puede distinguir de su propia media, con la muestra disponible hoy — no significa que
     "no haya efecto", significa que con estos datos no se puede afirmar que lo haya.`;
-}
-
-function drawNow() {
-  const ne = D.now_edge;
-  const rows = ne?.assets || [];
-  if (!rows.length) { $("#nowTable").innerHTML = ""; $("#nowFoot").textContent = "Sin contraste «ahora» en esta ejecución."; return; }
-  const body = rows.filter(r => r.reliability !== "Sin señal").map(r => `<tr>
-    <td class="asset">${r.name}<small>${r.class}</small></td>
-    <td class="cell" style="background:${diverging(r.now_ann, 12)}"><span class="g" style="color:${r.now_ann >= 0 ? POS : NEG}">${signed(r.now_ann, 1)}</span></td>
-    <td class="cell"><span class="rel rel-${r.reliability}">${r.reliability}</span></td>
-    <td style="font-family:var(--mono)" title="t=${fmtNum(r.t, 2)} · q=${r.q != null ? fmtNum(r.q, 3) : "—"}">${r.oos.r2 != null ? "R² OOS " + fmtNum(r.oos.r2 * 100, 1) + "%" : "—"}</td></tr>`).join("");
-  $("#nowTable").innerHTML = `<thead><tr><th>Activo</th><th>Exceso anual esperado hoy vs su media (pp)</th><th>Fiabilidad</th><th>Fuera de muestra</th></tr></thead><tbody>${body || `<tr><td colspan="4">Ningún activo supera el umbral hoy.</td></tr>`}</tbody>`;
-  const c = ne.meta.counts;
-  $("#nowFoot").innerHTML = `Se regresa el exceso de retorno mensual sobre las probabilidades de fase conocidas el mes anterior y se contrasta
-    si la mezcla de HOY difiere de la media histórica. Es un único contraste por activo con toda la muestra (más potente que
-    cuatro medias por fase). <b>Fuerte</b> = |t| ≥ 1,96, FDR ≤ 0,10 y mejora fuera de muestra (ventana creciente, Clark-West t ≥ 1,28, R² OOS > 0).
-    Hoy: ${c.Fuerte} fuertes, ${c.Moderada} moderadas, ${c.Débil} débiles, ${c["Sin señal"]} sin señal (ocultas).`;
 }
 
 function drawExtended() {
@@ -1202,14 +1135,14 @@ function renderRotation() {
   const mkt = r.bench_100eq || {};
   const b6040 = r.bench_6040 || {};
   const p = S.portfolio;
-  const beatsMkt = p.cagr != null && mkt.cagr != null && p.cagr > mkt.cagr;
+  const beatsMkt = tc(p) != null && tc(mkt) != null && tc(p) > tc(mkt);
   const mainSleeve = Object.keys(r.bands || {})[0];
   const [cLo, cHi] = r.counts?.[mainSleeve] || [];
 
   const statRow = (name, s, extra, active) => `
     <tr style="${active ? "background:rgba(169,117,44,.07)" : ""}">
       <td class="asset" style="${active ? "color:var(--ink);font-weight:600" : ""}">${name}</td>
-      <td style="text-align:right;font-family:var(--mono)">${fmtNum(s.cagr, 1)}%</td>
+      <td style="text-align:right;font-family:var(--mono)">${fmtNum(tc(s), 1)}%</td>
       <td style="text-align:right;font-family:var(--mono)">${fmtNum(s.vol, 1)}%</td>
       <td style="text-align:right;font-family:var(--mono);font-weight:600;color:${
         s.sharpe > (mkt.sharpe ?? 0) ? POS : "var(--ink-soft)"}">${fmtNum(s.sharpe, 2)}</td>
@@ -1223,28 +1156,21 @@ function renderRotation() {
       <div class="eyebrow">El backtest · ${T.label}</div>
       <h2>${T.title} Fase a fase, desde ${(p.from || "").slice(0, 4) || "—"}</h2>
       <p class="cap">${T.intro}</p>
-      <p class="cap" style="margin-top:8px">Todos los números de esta sección son <b>exceso sobre
-        letras del Tesoro a 3 meses</b>, no el retorno total del índice — es la convención estándar
-        para que el Sharpe signifique lo que dice significar. ${T.benchShort} en términos brutos ha
-        rentado más que la cifra de abajo, aproximadamente el tipo de interés sin riesgo del
-        periodo; la comparación entre cartera y mercado es igual de válida porque a los dos se les
-        resta lo mismo. "Anual" es siempre <b>CAGR</b> (tasa de crecimiento anual compuesto): la
-        rentabilidad anual constante que, capitalizada mes a mes durante todo el periodo, habría dado
-        el mismo resultado final — no la media aritmética de los años sueltos, que sobreestima el
-        resultado real de una serie con altibajos.</p>
+      <p class="cap" style="margin-top:8px">"Anual" es el <b>retorno total anual compuesto (CAGR)</b>, con el interés del
+        efectivo incluido. El Sharpe y la volatilidad se calculan sobre el exceso respecto a letras del Tesoro (convención estándar).</p>
     </div>
 
     <div class="outlook" style="margin-bottom:24px;border-color:${beatsMkt ? POS : PHASE_COLOR["Sobrecalentamiento"]}">
-      <div class="item"><dt>Cartera de rotación</dt><dd style="color:${beatsMkt ? POS : "var(--ink)"}">${fmtNum(p.cagr, 1)}% anual*</dd>
+      <div class="item"><dt>Cartera de rotación</dt><dd style="color:${beatsMkt ? POS : "var(--ink)"}">${fmtNum(tc(p), 1)}% anual</dd>
         <small>Sharpe ${fmtNum(p.sharpe, 2)} · caída máxima ${fmtNum(p.maxdd, 1)}%</small></div>
-      <div class="item"><dt>${T.benchDt}</dt><dd>${fmtNum(mkt.cagr, 1)}% anual*</dd>
+      <div class="item"><dt>${T.benchDt}</dt><dd>${fmtNum(tc(mkt), 1)}% anual</dd>
         <small>Sharpe ${fmtNum(mkt.sharpe, 2)} · caída máxima ${fmtNum(mkt.maxdd, 1)}%</small></div>
-      <div class="item"><dt>Diferencia</dt><dd style="color:${beatsMkt ? POS : NEG}">${signed((p.cagr ?? 0) - (mkt.cagr ?? 0), 1)} pp/año</dd>
+      <div class="item"><dt>Diferencia</dt><dd style="color:${beatsMkt ? POS : NEG}">${signed((tc(p) ?? 0) - (tc(mkt) ?? 0), 1)} pp/año</dd>
         <small>${beatsMkt ? "la rotación por fase bate al índice en rentabilidad, no solo en riesgo" : "el índice bate a la rotación en rentabilidad; mira el Sharpe y la caída máxima antes de descartarla"}</small></div>
       <div class="item" title="Fórmula: rentabilidad anualizada dividida entre la volatilidad anualizada. Compara dos series con distinto nivel de riesgo en términos justos: 8% de rentabilidad con la mitad de vaivén que otra que también da 8% es, en Sharpe, el doble de buena. Por encima de 1 se considera sólido para una cartera de solo renta variable; por debajo de 0,5, flojo."><dt>Sharpe</dt><dd style="color:${(p.sharpe ?? 0) > (mkt.sharpe ?? 0) ? POS : "var(--ink)"}">${fmtNum(p.sharpe, 2)} vs ${fmtNum(mkt.sharpe, 2)}</dd>
         <small>rentabilidad por unidad de riesgo asumido — más alto es mejor</small></div>
     </div>
-    <p class="foot" style="margin-top:-14px;margin-bottom:20px">* Exceso anualizado sobre letras del Tesoro a 3 meses (ver nota arriba), no CAGR del índice en bruto. "Caída máxima" (maxDD): la mayor pérdida que habría sufrido quien entró justo en el peor pico y vendió justo en el peor valle posterior — el susto más grande que ha dado la estrategia en todo el periodo, no una pérdida típica.</p>
+    <p class="foot" style="margin-top:-14px;margin-bottom:20px">Caída máxima: la mayor pérdida de pico a valle en todo el periodo, no una pérdida típica.</p>
 
     <h3 style="font-family:var(--serif);font-size:17px;margin-bottom:4px">¿Y si el reparto interno cambia?</h3>
     <p class="cap" style="margin-bottom:14px">La selección ${T.selectionWord} es idéntica en los cuatro
@@ -1271,7 +1197,7 @@ function renderRotation() {
       <table class="matrix">
         <thead><tr>
           <th>Esquema de reparto</th>
-          <th style="text-align:right" title="CAGR: rentabilidad anual compuesta, exceso sobre letras del Tesoro a 3 meses">Anual*</th>
+          <th style="text-align:right" title="Rentabilidad anual compuesta (CAGR), retorno total">Anual</th>
           <th style="text-align:right" title="Volatilidad anualizada: la desviación estándar de los retornos mensuales, llevada a escala de un año — cuanto mayor, más se mueve el valor de la cartera mes a mes">Vol</th>
           <th style="text-align:right" title="Rentabilidad anual dividida entre volatilidad anualizada: rentabilidad por unidad de riesgo asumido">Sharpe</th>
           <th style="text-align:right" title="Caída máxima (maxDD): la mayor pérdida de pico a valle en todo el periodo, no una pérdida típica">Caída máx.</th>
@@ -1282,14 +1208,14 @@ function renderRotation() {
           ${Object.entries(r.schemes).map(([k, v]) =>
             statRow(v.label, v.portfolio, `${v.wins_years}/${v.n_years}`, k === scheme)).join("")}
           <tr style="border-top:2px solid var(--line-strong)"><td class="asset" style="font-weight:600">${T.benchLabel}</td>
-            <td style="text-align:right;font-family:var(--mono);font-weight:600">${fmtNum(mkt.cagr, 1)}%</td>
+            <td style="text-align:right;font-family:var(--mono);font-weight:600">${fmtNum(tc(mkt), 1)}%</td>
             <td style="text-align:right;font-family:var(--mono)">${fmtNum(mkt.vol, 1)}%</td>
             <td style="text-align:right;font-family:var(--mono);font-weight:600">${fmtNum(mkt.sharpe, 2)}</td>
             <td style="text-align:right;font-family:var(--mono)">${fmtNum(mkt.maxdd, 1)}%</td>
             <td style="text-align:right;font-family:var(--mono)">${fmtNum(mkt.worst12, 1)}%</td>
             <td style="text-align:right;font-family:var(--mono);color:var(--ink-soft)">—</td></tr>
           ${T.show6040 ? `<tr><td class="asset" style="color:var(--ink-faint);font-size:12px">60/40 (referencia, sin peso en esta cartera)</td>
-            <td style="text-align:right;font-family:var(--mono);color:var(--ink-faint);font-size:12px">${fmtNum(b6040.cagr, 1)}%</td>
+            <td style="text-align:right;font-family:var(--mono);color:var(--ink-faint);font-size:12px">${fmtNum(tc(b6040), 1)}%</td>
             <td style="text-align:right;font-family:var(--mono);color:var(--ink-faint);font-size:12px">${fmtNum(b6040.vol, 1)}%</td>
             <td style="text-align:right;font-family:var(--mono);color:var(--ink-faint);font-size:12px">${fmtNum(b6040.sharpe, 2)}</td>
             <td style="text-align:right;font-family:var(--mono);color:var(--ink-faint);font-size:12px">${fmtNum(b6040.maxdd, 1)}%</td>
@@ -1727,8 +1653,8 @@ function renderMethod() {
       real" hacia arriba en proporción a cuántas pruebas se hacen a la vez — porque se testan cientos de
       casillas de golpe, y con tantas, algunas "señales" saldrían significativas por puro azar si no se
       corrigiera nada.`],
-    ["El histórico es largo a propósito", `Los sectores usan las carteras de Ken French, que llegan a
-      1926 — casi un siglo, con varios ciclos completos de negocio dentro. Con solo ETFs cotizados desde
+    ["El histórico es largo a propósito", `Los sectores usan las carteras de Ken French, que dan
+      varias décadas, con varios ciclos completos de negocio dentro. Con solo ETFs cotizados desde
       1999 apenas hay dos ciclos completos y cualquier resultado sería, en el mejor de los casos,
       anecdótico: no se puede separar una ventaja real de haber tenido suerte con el periodo elegido. Los
       tickers junto a cada activo son la forma real de ejecutarlo hoy, aunque el histórico que respalda

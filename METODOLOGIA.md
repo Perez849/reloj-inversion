@@ -867,3 +867,8 @@ verificar desde el entorno de desarrollo; si fallan, se anotan en `extended.meta
 **Ampliación del PCA** (`select_candidates`): 31 series FRED candidatas (empleo privado, paro, pedidos, consumo, componentes del IPC, M2, préstamos, estrés financiero…). Selección hacia delante por varianza explicada del PC1 de cada bloque, con |r| ≥ 0,30 frente al factor existente (se invierte si r < 0), ≥ 360 meses de historia y mejora ≥ 0,5 pp; máximo 8 por bloque. Es selección sobre el ajuste del factor, no sobre rentabilidades. El informe (`pca_research`) lista añadidas y rechazadas con el motivo.
 
 **Test del universo** (`universe_test`): cada grupo de activos nuevos (biotecnología, small caps, regiones French, China, Japón ETF) se suma al bloque de renta variable de la rotación walk-forward y se compara con la base en los cuatro esquemas. Se incorpora si mejora el Sharpe ≥ 0,01 en ≥ 3 de 4 esquemas sin bajar el CAGR; la unión de los adoptados se vuelve a comprobar. Selección en muestra: mejora observada, no garantía.
+
+## Auditoría de unidades y limpieza (oct 2026)
+- Las cifras de rentabilidad que se muestran ("Anual") son retorno total (exceso + tipo libre de riesgo). Sharpe y volatilidad siguen calculándose sobre el exceso sobre letras. El payload guarda `cagr` (exceso) y `cagr_tot`.
+- `meta.bridge.check` contrasta Ken French "Chips" con el ETF SMH en los meses solapados (correlación y CAGR).
+- Retirados de la web (los datos siguen en `data.json`): bloque PCA-research, universo, satélite no adoptado y contraste «ahora». Retirada la lista "Mejor evitar".

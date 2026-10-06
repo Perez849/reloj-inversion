@@ -1064,7 +1064,7 @@ def _bridge_and_trim(R: pd.DataFrame) -> pd.DataFrame:
         if col not in R.columns:
             continue
         lv = R[col].last_valid_index()
-        if lv is None or lv >= last_complete:
+        if lv is None:
             continue
         r, _ = yahoo_monthly(sym)
         if r is None:
@@ -1073,6 +1073,19 @@ def _bridge_and_trim(R: pd.DataFrame) -> pd.DataFrame:
             continue
         r = r.copy()
         r.index = r.index.to_period("M").to_timestamp("M")
+        # Contraste de la fuente: ¿Ken French recoge bien este sector? Se compara con el
+        # ETF en los meses en que ambos existen (retorno total mensual, en %).
+        both = pd.concat([R[col].loc[:lv], r], axis=1, join="inner").dropna()
+        if len(both) >= 36:
+            a, b = both.iloc[:, 0] / 100, both.iloc[:, 1] / 100
+            ga = float((1 + a).prod() ** (12 / len(a)) - 1) * 100
+            gb = float((1 + b).prod() ** (12 / len(b)) - 1) * 100
+            BRIDGE_INFO.setdefault("check", {})[col] = {
+                "etf": sym, "months": int(len(both)), "from": str(both.index[0].date())[:7],
+                "corr": round(float(a.corr(b)), 3),
+                "cagr_french": round(ga, 1), "cagr_etf": round(gb, 1)}
+        if lv >= last_complete:
+            continue
         gap = r[(r.index > lv) & (r.index <= last_complete)].dropna()
         if gap.empty:
             continue
@@ -1145,6 +1158,8 @@ def fetch_assets(df: pd.DataFrame):
     rf = None
     if ff is not None and "RF" in ff.columns:
         rf = ff["RF"]
+        global RF_M
+        RF_M = rf.copy()
         add("Renta variable EE.UU. (mercado)", ff["Mkt-RF"] + rf, "Índice regional",
             "Ken French", "índice agregado: referencia, no posición")
         add("Prima Value (HML)", ff["HML"], "Prima (largo-corto)", "Ken French",
@@ -2171,9 +2186,9 @@ def buy_hold_table(X: pd.DataFrame, rot: dict, cls_map: dict) -> dict:
             continue
         p = perf(s)
         if p:
-            rows.append({"name": c, **{k: p[k] for k in ("cagr", "vol", "sharpe", "maxdd")}})
+            rows.append({"name": c, **{k: p[k] for k in ("cagr", "cagr_tot", "vol", "sharpe", "maxdd")}})
     rows.sort(key=lambda r: -r["cagr"])
-    return {"from": str(start.date()), "portfolio": {k: sch["portfolio"].get(k) for k in ("cagr", "vol", "sharpe", "maxdd")},
+    return {"from": str(start.date()), "portfolio": {k: sch["portfolio"].get(k) for k in ("cagr", "cagr_tot", "vol", "sharpe", "maxdd")},
             "label": sch.get("label"), "assets": rows}
 
 
@@ -2264,6 +2279,9 @@ def subsector_analysis(phases: pd.Series):
 # 7. Backtest
 # ======================================================================================
 
+RF_M = None   # tipo libre de riesgo mensual (%), para pasar de exceso a retorno total
+
+
 def perf(series: pd.Series) -> dict:
     s = series.dropna() / 100.0
     if s.size < 24:
@@ -2273,7 +2291,13 @@ def perf(series: pd.Series) -> dict:
     vol = s.std() * math.sqrt(12)
     _, _, t = newey_west(s.values * 100)
     roll12 = (1 + s).rolling(12).apply(np.prod, raw=True) - 1
-    return {"cagr": round(float(cagr * 100), 2), "vol": round(float(vol * 100), 2),
+    cagr_tot = None
+    if RF_M is not None:
+        rfa = RF_M.reindex(s.index)
+        if rfa.notna().mean() > 0.8:
+            tot = (1 + s + rfa.fillna(rfa.mean()) / 100.0).cumprod()
+            cagr_tot = round(float(tot.iloc[-1] ** (12 / s.size) - 1) * 100, 2)
+    return {"cagr_tot": cagr_tot, "cagr": round(float(cagr * 100), 2), "vol": round(float(vol * 100), 2),
             "sharpe": round(float(cagr / vol), 2) if vol > 0 else None,
             "maxdd": round(float((curve / curve.cummax() - 1).min() * 100), 2),
             "worst12": round(float(roll12.min() * 100), 2) if roll12.notna().any() else None,
