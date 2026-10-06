@@ -3676,6 +3676,12 @@ def main() -> None:
     consensus = consensus_for(SLEEVES)
     consensus_fi = consensus_for(SLEEVES_FI)
 
+    def _z_at_lag(z, months):
+        """Valor del z-score exactamente `months` meses antes del último (por fecha, no por posición)."""
+        t = (z.index[-1].to_period("M") - months).to_timestamp("M")
+        v = z.get(t)
+        return None if v is None or v != v else round(float(v), 2)
+
     indicators = []
     for spec in SERIES:
         if spec.fred_id not in Z.columns:
@@ -3686,7 +3692,7 @@ def main() -> None:
         indicators.append({
             **ind_info[spec.fred_id],
             "z": round(float(z.iloc[-1]), 2),
-            "z_prev": round(float(z.iloc[-13]), 2) if z.size > 13 else None,
+            "z_prev": _z_at_lag(z, 12),
             "loading": pca.get(spec.block, {}).get("loadings", {}).get(spec.fred_id),
             "last_obs": raw_meta.get(spec.fred_id, {}).get("last_obs"),
         })
