@@ -79,7 +79,7 @@ def diverge(v, scale=12.0):
 
 
 # ------------------------------------------------------------------ gráficos SVG
-def svg_plane(D, trail=36, w=520, h=430):
+def svg_plane(D, trail=36, w=520, h=560):
     hist = D["history"]
     cur = D["current"]
     pts = hist[-trail:]
@@ -161,7 +161,7 @@ def svg_gi(D, months=180, w=700, h=190):
 
 def svg_zrows(items, w=330):
     """Barras divergentes de z-score; items = [(nombre, z, z_prev)]"""
-    rh = 25
+    rh = 31
     h = rh * len(items) + 6
     cx = 190 + (w - 190 - 40) / 2
     half = (w - 190 - 40) / 2
@@ -194,12 +194,11 @@ def svg_lines(series, w=700, h=300, recs=None, labels=None):
     s = [f'<svg viewBox="0 0 {w} {h}" class="chart" xmlns="http://www.w3.org/2000/svg">']
     for a, b in (recs or []):
         s.append(f'<rect x="{X(a):.1f}" y="{pt}" width="{max(1.5, X(b) - X(a)):.1f}" height="{h - pt - pb}" fill="{INK}" opacity="0.06"/>')
-    dec = int(math.floor(lg0))
-    for k in range(dec, int(math.ceil(lg1)) + 1):
-        v = 10 ** k
-        if lg0 <= k <= lg1:
-            s.append(f'<line x1="{pl}" y1="{Y(v):.1f}" x2="{w - pr}" y2="{Y(v):.1f}" stroke="{INK}" stroke-opacity="0.12"/>')
-            s.append(f'<text x="{pl - 6}" y="{Y(v) + 3:.1f}" text-anchor="end" class="tick">{v:,.0f}</text>')
+    ticks = [m * 10 ** k for k in range(int(math.floor(lg0)) - 1, int(math.ceil(lg1)) + 1) for m in (1, 1.5, 2, 3, 5, 7)]
+    ticks = [v for v in ticks if lg0 <= math.log10(v) <= lg1]
+    for v in ticks:
+        s.append(f'<line x1="{pl}" y1="{Y(v):.1f}" x2="{w - pr}" y2="{Y(v):.1f}" stroke="{INK}" stroke-opacity="0.12"/>')
+        s.append(f'<text x="{pl - 6}" y="{Y(v) + 3:.1f}" text-anchor="end" class="tick">{v:,.0f}</text>')
     for k, lab in (labels or []):
         s.append(f'<text x="{X(k):.1f}" y="{h - 8}" text-anchor="middle" class="tick">{lab}</text>')
     for name, col, vs in series:
@@ -322,6 +321,22 @@ def scheme(D, key="rotation"):
     return r, r["schemes"][r["default"]]
 
 
+def year_labels(sch, step):
+    out = []
+    for k, p in enumerate(sch["curve"]):
+        if p["d"].endswith("-01") and int(p["d"][:4]) % step == 0:
+            out.append((k, p["d"][:4]))
+    return out
+
+
+def rec_by_phase(D):
+    v = D["validation"]
+    n, sh = v["nber"], v["share"]
+    out = {p: (n["phase_mix_in_recession"].get(p, 0) * n["share_recession_months"] / sh[p]) if sh[p] else 0 for p in PHASES}
+    out["_now"] = sum(D["current"]["probs"][p] * out[p] for p in PHASES)
+    return out
+
+
 def curve_cum(sch):
     cs, cb = [100.0], [100.0]
     lab = []
@@ -378,8 +393,10 @@ def build_html(D, gen: datetime) -> str:
     bullets.append(f'{sigma_text(cur["growth"], "El crecimiento")} ({momentum_word(mom.get("growth_3m"), "acelerando", "perdiendo fuerza")}). '
                    f'{sigma_text(cur["inflation"], "La inflación")} '
                    f'({momentum_word(mom.get("inflation_3m"), "subiendo", "cediendo")}).')
-    bullets.append(f'Probabilidad de recesión a 12 meses: <b>{pct(rec.get("prob_12m"), 1)}</b> '
-                   f'(modelo logístico sobre curva de tipos y condiciones financieras, AUC {num(rec.get("auc"), 2)}).')
+    rbp = rec_by_phase(D)
+    bullets.append(f'Recesión: el modelo a 12 meses (curva de tipos y condiciones financieras) da <b>{pct(rec.get("prob_12m"), 1)}</b>; '
+                   f'el propio reloj, con las probabilidades de fase de hoy, implica un <b>≈{pct(rbp["_now"], 0)}</b> de que este mes ya sea de recesión. '
+                   f'Miden cosas distintas: ver página 10.')
     pb = [r for r in sch["playbook"].get(ph, [])]
     names = ", ".join(f'{r["name"]} ({num(r["weight"], 0)}%)' for r in pb)
     bullets.append(f'Cartera de la fase en el backtest: <b>{e(names)}</b>.')
@@ -423,16 +440,16 @@ def build_html(D, gen: datetime) -> str:
     <div class="legend">{"".join(f'<span><i style="background:{PC[p]}"></i>{e(p)}</span>' for p in PHASES)}</div></figure>
   <figure class="card"><figcaption>Crecimiento e inflación frente a su tendencia <small>σ · últimos 15 años</small></figcaption>{svg_gi(D)}
     <div class="legend"><span><i style="background:{POS}"></i>Crecimiento</span><span><i style="background:{NEG}"></i>Inflación</span></div></figure>
-  <div class="three">
+  <div class="two">
     <figure class="card"><figcaption>Probabilidad de cada fase hoy</figcaption>{probbars}
       <p class="cap">Probabilidad normal sobre la posición de los dos ejes y su incertidumbre de medición. Margen entre las dos primeras: {num(margin, 1)} puntos.</p></figure>
     <figure class="card"><figcaption>Duración y peso histórico</figcaption>
       <table class="mini"><thead><tr><th>Fase</th><th>Duración media</th><th>% del tiempo</th></tr></thead><tbody>{ds}</tbody></table>
       <p class="cap">Desde {e(D["meta"]["history_from"][:4])}. Orden habitual del ciclo: Recuperación → Sobrecalentamiento → Estanflación → Reflación; solo el {pct(D["validation"]["rotation"]["clockwise_share"], 0)} de los cambios sigue ese orden, así que no conviene darlo por seguro.</p></figure>
-    <figure class="card"><figcaption>Si la fase cambia, ¿hacia dónde?</figcaption>
-      <table class="mini trans"><thead><tr><th>desde ↓ hacia →</th>{"".join(f'<th>{e(p[:3])}.</th>' for p in PHASES)}</tr></thead><tbody>{trans}</tbody></table>
-      <p class="cap">Frecuencia histórica de cada transición mensual (la diagonal es “seguir igual”).</p></figure>
   </div>
+  <figure class="card"><figcaption>Si la fase cambia, ¿hacia dónde?</figcaption>
+      <table class="mini trans"><thead><tr><th>desde ↓ hacia →</th>{"".join(f'<th>{e(p)}</th>' for p in PHASES)}</tr></thead><tbody>{trans}</tbody></table>
+      <p class="cap">Frecuencia histórica de cada transición mensual (la diagonal es “seguir igual”).</p></figure>
   {footer(3)}
 </section>''')
 
@@ -473,6 +490,12 @@ def build_html(D, gen: datetime) -> str:
         return (f'<figure class="card pbk" style="border-top:3px solid {PC[phase]}"><figcaption>{e(title)}: <b>{e(phase)}</b></figcaption>'
                 f'<div class="donut">{donut}<div class="dls">{lg}</div></div><p class="cap">{mixs}</p><p class="cap">{bps}</p></figure>')
     tie = margin < 10
+    phase_rows = ""
+    for pp in PHASES:
+        comp = ", ".join(f'{r["name"]} {num(r["weight"], 0)}%' for r in sch["playbook"].get(pp, []))
+        bpp = sch["by_phase"].get(pp, {})
+        phase_rows += (f'<tr class="{"hl" if pp == ph else ""}"><th><i style="background:{PC[pp]}"></i>{e(pp)}</th><td>{e(comp)}</td>'
+                       f'<td class="r">{num(bpp.get("ann"), 1, True)}%</td><td class="r">{num(bpp.get("bench_ann"), 1, True)}%</td></tr>')
     pages.append(f'''
 <section class="page">{header(D, "Qué comprar ahora", 5, tag)}
   <p class="lead">Cartera solo larga de renta variable por sectores (y oro como único seguro), con el reparto «{e(sch["label"])}». Cada mes elige los activos con mayor ventaja <i>en esa fase frente a su propia media</i>, contraída estadísticamente para no dejarse engañar por rachas cortas.</p>
@@ -480,6 +503,8 @@ def build_html(D, gen: datetime) -> str:
     {playbook_card(ph, "Fase vigente")}
     {playbook_card(alt, "Escenario alternativo (empate técnico)") if tie else ""}
   </div>
+  <figure class="card"><figcaption>La cartera en cada fase <small>pesos de cada sector · resaltada la fase vigente</small></figcaption>
+    <table class="mini phs"><thead><tr><th>Fase</th><th>Composición</th><th class="r">Exceso anual de la cartera en la fase</th><th class="r">Mercado</th></tr></thead><tbody>{phase_rows}</tbody></table></figure>
   <div class="note"><b>Cómo leerlo.</b> La señal de fase es <b>{e(strength.lower())}</b>: {"con un margen tan estrecho conviene mirar las dos carteras a la vez y no apostar todo a una sola." if tie else "el margen es suficiente para posicionarse por la fase principal."}
   El backtest es walk-forward: cada mes usa solo datos disponibles hasta el mes anterior.</div>
   {footer(5, "No es asesoramiento financiero. Rentabilidades pasadas no garantizan resultados futuros.")}
@@ -515,44 +540,41 @@ def build_html(D, gen: datetime) -> str:
 </section>''')
 
     # ---------------------------------------------------------------- 7 mapa de calor
-    cls_ok = ("Renta variable", "Oro", "Renta fija", "Índice regional", "Real / alternativos")
-    assets = [a for a in D["assets"] if a["class"] in ("Renta variable", "Oro") or a["name"] in ("Small caps", "Renta variable EE.UU. (mercado)")]
-    assets.sort(key=lambda a: -((a["phases"].get(ph) or {}).get("rel") or -99))
-    hrows = []
-    for a in assets[:22]:
+    base = [a for a in D["assets"] if (a["class"] in ("Renta variable", "Oro") or a["name"] in ("Small caps", "Renta variable EE.UU. (mercado)"))
+            and a["name"] != "Otros sectores"]
+    base.sort(key=lambda a: -((a["phases"].get(ph) or {}).get("rel") or -99))
+    tact = []
+    for a in (D.get("extended", {}).get("assets") or []):
+        if any((c.get("rel") or 0) > 0 and c.get("reliability") in ("Fuerte", "Moderada") for c in a["phases"].values()):
+            tact.append(a)
+    tact.sort(key=lambda a: -((a["phases"].get(ph) or {}).get("rel") or -99))
+
+    def heat_row(a, mark=False):
         cells = []
         for p in PHASES:
             c = a["phases"].get(p) or {}
             if c.get("rel") is None:
                 cells.append('<td class="hm dim">—</td>')
-                continue
-            rl = (c.get("reliability") or "")[:1]
-            badge = f'<em class="rb rb{rl}">{rl}</em>' if c.get("reliability") in ("Fuerte", "Moderada", "Débil") else ""
-            cells.append(f'<td class="hm {"cur" if p == ph else ""}" style="background:{diverge(c["rel"])}">{num(c["rel"], 1, True)}{badge}</td>')
-        hrows.append(f'<tr><th>{e(a["name"])}</th>{"".join(cells)}</tr>')
-    ne = D.get("now_edge", {}).get("meta", {}).get("counts", {})
-    cnt = {k: 0 for k in ("Fuerte", "Moderada", "Débil", "Sin señal")}
-    for a in D["assets"]:
-        for c in a["phases"].values():
-            if c.get("reliability") in cnt:
-                cnt[c["reliability"]] += 1
+            else:
+                cells.append(f'<td class="hm {"cur" if p == ph else ""}" style="background:{diverge(c["rel"])}">{num(c["rel"], 1, True)}</td>')
+        avg = a.get("uncond_ann_tot") if a.get("uncond_ann_tot") is not None else a.get("uncond_ann")
+        return f'<tr><th>{e(a["name"])}</th>{"".join(cells)}<td class="hm avg">{num(avg, 1)}%</td></tr>'
+
+    hrows = "".join(heat_row(a) for a in base)
+    trows = "".join(heat_row(a) for a in tact)
+    sep = (f'<tr class="sep"><th colspan="6">Candidatos tácticos <small>activos fuera del universo base con ventaja positiva en alguna fase</small></th></tr>' if tact else "")
     pages.append(f'''
 <section class="page">{header(D, "Qué ha pagado cada activo en cada fase", 7, tag)}
-  <p class="lead">Exceso anualizado, en puntos porcentuales, de cada activo en cada fase <i>frente a su propia media histórica</i>. La letra indica la fiabilidad estadística de la casilla:
-  <span class="rb rbF">F</span> fuerte · <span class="rb rbM">M</span> moderada · <span class="rb rbD">D</span> débil; sin letra, sin señal.</p>
-  <table class="heat"><thead><tr><th>Activo (ordenado por la fase vigente)</th>{"".join(f'<th class="{"cur" if p == ph else ""}" style="border-bottom:3px solid {PC[p]}">{e(p)}</th>' for p in PHASES)}</tr></thead><tbody>{"".join(hrows)}</tbody></table>
-  <div class="note"><b>Fiabilidad del conjunto</b> ({sum(cnt.values())} casillas): {cnt["Fuerte"]} fuertes · {cnt["Moderada"]} moderadas · {cnt["Débil"]} débiles · {cnt["Sin señal"]} sin señal.
-  Fuerte exige |t| robusta ≥ 1,96, control de falsos descubrimientos (Benjamini-Hochberg ≤ 10%), estabilidad entre mitades de la muestra, utilidad con la fase conocida con retraso y al menos 60 meses en la fase.</div>
+  <p class="lead">Exceso anualizado, en puntos porcentuales, de cada activo en cada fase <i>frente a su propia media histórica</i>. La última columna es esa media: la rentabilidad anual total del activo en todo el periodo, para saber contra qué se compara cada casilla (un +10 sobre una media del 5% no es lo mismo que sobre una del 15%).</p>
+  <table class="heat"><thead><tr><th>Activo (ordenado por la fase vigente)</th>{"".join(f'<th class="{"cur" if p == ph else ""}" style="border-bottom:3px solid {PC[p]}">{e(p)}</th>' for p in PHASES)}<th class="avgh">Media anual</th></tr></thead><tbody>{hrows}{sep}{trows}</tbody></table>
+  <div class="note"><b>Cómo leerlo.</b> Verde: el activo rindió por encima de su media cuando el reloj marcaba esa fase; terracota, por debajo. El recuadro marca la fase vigente. Los candidatos tácticos son activos que no forman parte del universo base y solo se muestran si tienen una ventaja positiva y estable en alguna fase.</div>
   {footer(7, "Ken French (sectores), FRED y ETF. Contrastes con errores estándar Newey-West.")}
 </section>''')
 
     # ---------------------------------------------------------------- 8 backtest
     cs, cb = curve_cum(sch)
     n = len(cs)
-    labels = []
-    for k, p in enumerate(sch["curve"]):
-        if p["d"].endswith("-01") and int(p["d"][:4]) % 10 == 0:
-            labels.append((k, p["d"][:4]))
+    labels = year_labels(sch, 10)
     dates = [p["d"] for p in sch["curve"]]
     recs = []
     for a, b in D.get("nber", []):
@@ -563,17 +585,23 @@ def build_html(D, gen: datetime) -> str:
     pf = sch["portfolio"]
     b100 = rot.get("bench_100eq", {})
     b6040 = rot.get("bench_6040", {})
+
     def mrow(name, o, bold=False):
         t = "b" if bold else "span"
         return (f'<tr><th><{t}>{e(name)}</{t}></th><td class="r">{num(tc(o), 1)}%</td><td class="r">{num(o.get("vol"), 1)}%</td>'
                 f'<td class="r">{num(o.get("sharpe"), 2)}</td><td class="r">{num(o.get("maxdd"), 1)}%</td><td class="r">{num(o.get("worst12"), 1)}%</td></tr>')
+
+    def diffs_of(sc, bn, last=26):
+        a_, b_ = sc["annual"], bn
+        ys = sorted(int(y) for y in a_ if (str(y) in b_ or y in b_))
+        return [(y, a_.get(y, a_.get(str(y))) - b_.get(y, b_.get(str(y)))) for y in ys][-last:]
+
     schrows = "".join(mrow(v["label"], v["portfolio"], k == rot["default"]) for k, v in rot["schemes"].items())
-    ann = sch["annual"]
-    bann = rot.get("bench_annual", {})
-    yrs = sorted(int(y) for y in ann if str(y) in bann or y in bann)
-    diffs = [(y, ann.get(y, ann.get(str(y))) - bann.get(y, bann.get(str(y)))) for y in yrs][-26:]
-    bh = D.get("buy_hold", {})
-    bhr = "".join(f'<tr><th>{e(a["name"])}</th><td class="r">{num(tc(a), 1)}%</td><td class="r">{num(a.get("tot10"), 1)}%</td><td class="r">{num(a.get("vol"), 1)}%</td></tr>' for a in (bh.get("assets") or [])[:3])
+    diffs = diffs_of(sch, rot.get("bench_annual", {}))
+    bp_rows = "".join(
+        f'<tr class="{"hl" if pp == ph else ""}"><th><i style="background:{PC[pp]}"></i>{e(pp)}</th><td class="r">{sch["by_phase"][pp]["n"]}</td>'
+        f'<td class="r">{num(sch["by_phase"][pp]["ann"], 1, True)}%</td><td class="r">{num(sch["by_phase"][pp]["bench_ann"], 1, True)}%</td>'
+        f'<td class="r" style="color:{POS if sch["by_phase"][pp]["edge"] >= 0 else NEG}">{num(sch["by_phase"][pp]["edge"], 1, True)} pp</td></tr>' for pp in PHASES)
     pages.append(f'''
 <section class="page">{header(D, "Backtest: la cartera frente al mercado", 8, tag)}
   <div class="kpis">
@@ -583,19 +611,18 @@ def build_html(D, gen: datetime) -> str:
     {kpi("Caída máxima", num(pf.get("maxdd"), 1) + "%", f"mercado {num(b100.get('maxdd'), 1)}%", NEG)}
   </div>
   <figure class="card"><figcaption>Valor de 100 invertidos · escala logarítmica <small>zonas grises: recesiones NBER</small></figcaption>
-    {svg_lines([("Cartera", ACCENT, cs), ("Mercado", INK, cb)], h=235, recs=recs, labels=labels)}
+    {svg_lines([("Cartera", ACCENT, cs), ("Mercado", INK, cb)], h=330, recs=recs, labels=labels)}
     <div class="legend"><span><i style="background:{ACCENT}"></i>Cartera rotada ({e(sch["label"])})</span><span><i style="background:{INK}"></i>Mercado EE.UU.</span></div></figure>
   <div class="two">
-    <figure class="card"><figcaption>Diferencia anual frente al mercado <small>pp, últimos 26 años</small></figcaption>{svg_bars(diffs, w=340, h=120)}
+    <figure class="card"><figcaption>Diferencia anual frente al mercado <small>pp, últimos 26 años</small></figcaption>{svg_bars(diffs, w=340, h=190)}
       <p class="cap">Años en que la cartera supera al mercado: {sch["wins_years"]} de {sch["n_years"]}.</p></figure>
     <figure class="card"><figcaption>Los cuatro repartos internos</figcaption>
       <table class="mini"><thead><tr><th>Esquema</th><th class="r">Anual</th><th class="r">Vol</th><th class="r">Sharpe</th><th class="r">Caída</th><th class="r">Peor 12m</th></tr></thead><tbody>{schrows}{mrow("Mercado EE.UU.", b100)}{mrow("60/40 (referencia)", b6040)}</tbody></table></figure>
   </div>
-  <figure class="card"><figcaption>Y frente a comprar y mantener cada sector <small>mismo periodo desde {e((bh.get("from") or "")[:4])}</small></figcaption>
-    <table class="mini"><thead><tr><th>Activo</th><th class="r">Anual total</th><th class="r">Últimos 10 años</th><th class="r">Volatilidad</th></tr></thead><tbody>
-    <tr><th><b>Cartera rotada</b></th><td class="r">{num(tc(bh.get("portfolio")), 1)}%</td><td class="r">{num((bh.get("portfolio") or {}).get("tot10"), 1)}%</td><td class="r">{num((bh.get("portfolio") or {}).get("vol"), 1)}%</td></tr>{bhr}</tbody></table>
-    <p class="cap">Mirando atrás, algunos sectores sueltos pueden rendir más (con más riesgo); el modelo decide cada mes sin saber cuál será. Cifras: retorno total anual compuesto; Sharpe y volatilidad sobre el exceso respecto a letras del Tesoro.</p></figure>
-  {footer(8, "Walk-forward: sin información futura. Sin costes de transacción ni impuestos.")}
+  <figure class="card"><figcaption>Cómo le fue a la cartera en cada fase <small>exceso anualizado sobre letras del Tesoro</small></figcaption>
+    <table class="mini"><thead><tr><th>Fase</th><th class="r">Meses</th><th class="r">Cartera</th><th class="r">Mercado</th><th class="r">Ventaja</th></tr></thead><tbody>{bp_rows}</tbody></table>
+    <p class="cap">Walk-forward: cada mes se decide con datos hasta el mes anterior. Cifras anuales: retorno total compuesto; Sharpe y volatilidad sobre el exceso respecto a letras del Tesoro.</p></figure>
+  {footer(8, "Sin costes de transacción ni impuestos. Rentabilidades pasadas no garantizan resultados futuros.")}
 </section>''')
 
     # ---------------------------------------------------------------- 9 renta fija
@@ -607,7 +634,10 @@ def build_html(D, gen: datetime) -> str:
         lgf = "".join(f'<div class="dl"><i style="background:{palf[k % len(palf)]}"></i><span>{e(r["name"])}</span><b>{num(r["weight"], 1)}%</b></div>' for k, r in enumerate(pbf))
         pff = sf["portfolio"]
         bf = rf.get("bench_100eq", {})
+        bf6 = rf.get("bench_6040", {})
         csf, cbf = curve_cum(sf)
+        schf = "".join(mrow(v["label"], v["portfolio"], k == rf["default"]) for k, v in rf["schemes"].items())
+        difff = diffs_of(sf, rf.get("bench_annual", {}), 22)
         pages.append(f'''
 <section class="page">{header(D, "Renta fija: el mismo reloj, otra cartera", 9, tag)}
   <p class="lead">El reloj también ordena la renta fija: gobierno (Treasuries), crédito, protegidos de la inflación y liquidez. Se analiza aparte y nunca se mezcla con la cartera de renta variable.</p>
@@ -617,35 +647,51 @@ def build_html(D, gen: datetime) -> str:
     {kpi("Sharpe cartera", num(pff.get("sharpe"), 2), "rentabilidad / riesgo", ACCENT)}
     {kpi("Caída máxima", num(pff.get("maxdd"), 1) + "%", f"agregado {num(bf.get('maxdd'), 1)}%", NEG)}
   </div>
+  <figure class="card"><figcaption>Valor de 100 invertidos · escala logarítmica</figcaption>{svg_lines([("Cartera", ACCENT, csf), ("Agregado", INK, cbf)], h=300, labels=year_labels(sf, 5))}
+    <div class="legend"><span><i style="background:{ACCENT}"></i>Cartera rotada de renta fija</span><span><i style="background:{INK}"></i>Agregado de renta fija EE.UU.</span></div></figure>
   <div class="two">
     <figure class="card pbk" style="border-top:3px solid {PC[ph]}"><figcaption>Cartera de renta fija en <b>{e(ph)}</b></figcaption><div class="donut">{donutf}<div class="dls">{lgf}</div></div></figure>
-    <figure class="card"><figcaption>Valor de 100 invertidos</figcaption>{svg_lines([("Cartera", ACCENT, csf), ("Agregado", INK, cbf)], w=340, h=200)}</figure>
+    <figure class="card"><figcaption>Diferencia anual frente al agregado <small>pp</small></figcaption>{svg_bars(difff, w=340, h=190)}
+      <p class="cap">Años en que la cartera supera al agregado: {sf["wins_years"]} de {sf["n_years"]}.</p></figure>
   </div>
+  <figure class="card"><figcaption>Los cuatro repartos internos</figcaption>
+    <table class="mini"><thead><tr><th>Esquema</th><th class="r">Anual</th><th class="r">Vol</th><th class="r">Sharpe</th><th class="r">Caída</th><th class="r">Peor 12m</th></tr></thead><tbody>{schf}{mrow("Agregado renta fija", bf)}{mrow("60/40 (referencia)", bf6) if bf6 else ""}</tbody></table></figure>
   {footer(9, "Renta fija desde 2003 (ETF reales y rendimientos de FRED convertidos a retorno sintético).")}
 </section>''')
 
     # ---------------------------------------------------------------- 10 riesgos y calidad
     nb = D["validation"]["nber"]
     warn = D["meta"].get("warnings") or []
+    rbp = rec_by_phase(D)
+    rec_rows = "".join(f'<tr><th><i style="background:{PC[pp]}"></i>{e(pp)}</th><td class="r">{pct(D["validation"]["share"][pp], 0)}</td><td class="r">{pct(nb["phase_mix_in_recession"][pp], 0)}</td><td class="r"><b>{pct(rbp[pp], 0)}</b></td></tr>' for pp in PHASES)
     pages.append(f'''
 <section class="page">{header(D, "Riesgos, calidad del modelo y límites", 10, tag)}
-  <div class="three">
+  <div class="two">
     <figure class="card"><figcaption>Probabilidad de recesión a 12 meses</figcaption>{svg_gauge(rec.get("prob_12m") or 0)}
-      <p class="cap">Modelo logístico con {e(", ".join(rec.get("features", [])))}. AUC {num(rec.get("auc"), 2)} (0,5 = azar, 1 = perfecto), {rec.get("n_obs")} observaciones.</p></figure>
+      <p class="cap">Modelo logístico con {e(", ".join(rec.get("features", [])))} (curva de tipos y condiciones financieras). AUC {num(rec.get("auc"), 2)} (0,5 = azar, 1 = perfecto), {rec.get("n_obs")} observaciones.</p></figure>
+    <figure class="card"><figcaption>¿Y por qué no coincide con la fase?</figcaption>
+      <table class="mini"><thead><tr><th>Fase</th><th class="r">% del tiempo</th><th class="r">% de las recesiones</th><th class="r">% de sus meses en recesión</th></tr></thead><tbody>{rec_rows}</tbody></table>
+      <p class="cap">El 75% de recesiones en Estanflación responde a «si hay recesión, ¿en qué fase estaba?». Lo que importa hoy es la pregunta inversa: Estanflación ocupa el {pct(D["validation"]["share"]["Estanflación"], 0)} del tiempo y la recesión solo el {pct(nb["share_recession_months"], 1)}, así que solo el {pct(rbp["Estanflación"], 0)} de los meses en Estanflación fueron recesión.</p></figure>
+  </div>
+  <div class="note"><b>Lectura conjunta.</b> Con las probabilidades de fase de hoy, el reloj implica un ≈{pct(rbp["_now"], 0)} de que este mes sea de recesión (mezcla de Estanflación y Reflación); el modelo de recesión mira a 12 meses y solo usa curva de tipos y condiciones financieras, que ahora no dan alarma, y por eso marca {pct(rec.get("prob_12m"), 1)}. Son señales distintas y conviene leerlas juntas: actividad hoy frente a tensión financiera por delante.</div>
+  <div class="three" style="margin-top:12px">
     <figure class="card"><figcaption>¿Ve el clasificador las recesiones?</figcaption>
       <table class="mini"><tbody><tr><th>Meses de recesión con crecimiento negativo</th><td class="r">{pct(nb["recall"], 0)}</td></tr>
       <tr><th>Meses de expansión con crecimiento positivo</th><td class="r">{pct(nb["specificity"], 0)}</td></tr>
-      <tr><th>Meses de recesión NBER en la muestra</th><td class="r">{pct(nb["share_recession_months"], 1)}</td></tr>
-      <tr><th>En recesión: % en Estanflación</th><td class="r">{pct(nb["phase_mix_in_recession"]["Estanflación"], 0)}</td></tr>
-      <tr><th>En recesión: % en Reflación</th><td class="r">{pct(nb["phase_mix_in_recession"]["Reflación"], 0)}</td></tr></tbody></table>
+      <tr><th>Meses de recesión NBER en la muestra</th><td class="r">{pct(nb["share_recession_months"], 1)}</td></tr></tbody></table>
       <p class="cap">Contraste con las fechas oficiales del NBER, que el modelo nunca ve.</p></figure>
     <figure class="card"><figcaption>Calidad de los datos</figcaption>
       <table class="mini"><tbody><tr><th>Series macro cargadas</th><td class="r">{D["meta"]["series_ok"]}/{D["meta"]["series_total"]}</td></tr>
       <tr><th>Activos cargados</th><td class="r">{D["meta"]["assets_ok"]}/{D["meta"]["assets_tried"]}</td></tr>
       <tr><th>Histórico desde</th><td class="r">{e(D["meta"]["history_from"])}</td></tr>
       <tr><th>Último mes completo</th><td class="r">{e(mes_label(last_full))}</td></tr>
-      <tr><th>Avisos de la última ejecución</th><td class="r">{len(warn)}</td></tr></tbody></table>
-      <p class="cap">El último mes se estima con la información disponible (nowcast) y se corrige al llegar los datos.</p></figure>
+      <tr><th>Avisos de la ejecución</th><td class="r">{len(warn)}</td></tr></tbody></table>
+      <p class="cap">El último mes se estima con la información disponible (nowcast).</p></figure>
+    <figure class="card"><figcaption>Estabilidad de la señal</figcaption>
+      <table class="mini"><tbody><tr><th>Señal actual</th><td class="r">{e(strength)}</td></tr>
+      <tr><th>Margen 1.ª vs 2.ª fase</th><td class="r">{num(margin, 1)} pp</td></tr>
+      <tr><th>Cambios de fase en el histórico</th><td class="r">{D["validation"]["rotation"]["n_transitions"]}</td></tr></tbody></table>
+      <p class="cap">Con margen pequeño, un solo dato puede cambiar la fase.</p></figure>
   </div>
   <div class="note"><b>Límites que conviene tener presentes</b>
     <ul>
@@ -745,6 +791,10 @@ table.trans thead th{text-align:center}
 table.heat{width:100%;border-collapse:collapse;font-size:9pt;margin-bottom:10px}
 table.heat th,table.heat td{padding:6.5px 7px;border-bottom:1px solid rgba(27,24,16,.07)}
 table.heat thead th{font:500 6.6pt "IBM Plex Mono",monospace;letter-spacing:.05em;text-transform:uppercase;text-align:center;color:#322C1F;padding-bottom:6px}
+td.avg{background:#EEE6D2;font-weight:600}th.avgh{background:#EEE6D2}
+table.heat tr.sep th{background:#1B1810;color:#F6F2E8;text-align:left;font:600 7.4pt "IBM Plex Mono",monospace;letter-spacing:.08em;text-transform:uppercase;padding:6px 8px}
+table.heat tr.sep small{font:400 6.8pt Inter,sans-serif;text-transform:none;letter-spacing:0;color:#C9A56B;margin-left:6px}
+tr.hl td,tr.hl th{background:rgba(169,117,44,.13)}
 table.heat thead th:first-child{text-align:left}
 table.heat tbody th{text-align:left;font-weight:500}
 td.hm{text-align:center;font:500 8pt "IBM Plex Mono",monospace;position:relative}
@@ -785,6 +835,27 @@ def render_pdf(html_text: str, out: Path) -> None:
         except Exception:
             pass
         pg.wait_for_timeout(500)
+        # Ajuste de relleno: cada página interior se escala (zoom) para ocupar el alto útil,
+        # sin pasarse (máx. x1,45) y encogiéndose si el contenido desborda.
+        pg.evaluate("""() => {
+          const avail = 297 * 3.7795 - (14.5 + 17) * 3.7795;
+          document.querySelectorAll('.page:not(.cover)').forEach(pgEl => {
+            const foot = pgEl.querySelector('.pf');
+            const wrap = document.createElement('div'); wrap.className = 'pc';
+            [...pgEl.children].forEach(c => { if (c !== foot) wrap.appendChild(c); });
+            pgEl.insertBefore(wrap, foot);
+            let z = 1;
+            for (let i = 0; i < 4; i++) {
+              wrap.style.zoom = z;
+              const h = wrap.getBoundingClientRect().height;
+              const nz = Math.max(0.8, Math.min(1.45, z * avail / h));
+              if (Math.abs(nz - z) < 0.002) break;
+              z = nz;
+            }
+            wrap.style.zoom = z * 0.985;
+          });
+        }""")
+        pg.wait_for_timeout(300)
         pg.pdf(path=str(out), format="A4", print_background=True, prefer_css_page_size=True)
         b.close()
 

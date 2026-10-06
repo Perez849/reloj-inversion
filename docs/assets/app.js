@@ -328,6 +328,17 @@ function mostLikelyNext() {
   return { ...best, stay };
 }
 
+/* P(recesión | fase) = %recesión-en-fase × %meses-recesión / %tiempo-en-fase (Bayes, con los datos de validación) */
+function recByPhase() {
+  const v = D.validation || {}, n = v.nber, sh = v.share;
+  if (!n || !sh || n.share_recession_months == null) return null;
+  const out = {};
+  for (const p of D.phases) out[p] = sh[p] > 0 ? (n.phase_mix_in_recession[p] || 0) * n.share_recession_months / sh[p] : null;
+  const probs = D.current.probs || {};
+  out._now = D.phases.reduce((a, p) => a + (probs[p] || 0) * (out[p] || 0), 0);
+  return out;
+}
+
 function renderOutlook() {
   const c = D.current, rec = c.recession || {};
   const lead = c.leading, lead6 = c.leading_6m;
@@ -354,7 +365,8 @@ function renderOutlook() {
         probabilidad de un suceso de sí/no — entrenada con la curva de tipos y las condiciones
         financieras. Ajuste: AUC ${fmtNum(rec.auc, 2)} en ${rec.n_obs} meses — el "área bajo la curva ROC"
         mide qué tan bien distingue el modelo entre meses que acabaron en recesión y los que no; 0,50 es
-        adivinar a cara o cruz, 1,00 es perfecto, y ${fmtNum(rec.auc, 2)} está ${rec.auc >= 0.8 ? "cerca del extremo bueno" : rec.auc >= 0.65 ? "claramente por encima del azar, sin ser perfecto" : "solo algo por encima del azar"}.` : "No disponible."}</small></div>`;
+        adivinar a cara o cruz, 1,00 es perfecto, y ${fmtNum(rec.auc, 2)} está ${rec.auc >= 0.8 ? "cerca del extremo bueno" : rec.auc >= 0.65 ? "claramente por encima del azar, sin ser perfecto" : "solo algo por encima del azar"}.` : "No disponible."}
+      ${(() => { const r = recByPhase(); return r ? `<br><b>¿Cuadra con la fase?</b> Son dos preguntas distintas. El reloj mide actividad e inflación <i>hoy</i>: con las probabilidades de fase actuales implica un ≈${fmtPct(r._now, 0)} de que este mes sea de recesión (Estanflación: ${fmtPct(r["Estanflación"], 0)} de sus meses fueron recesión; Reflación: ${fmtPct(r["Reflación"], 0)}). El modelo de recesión mira a 12 meses y solo usa curva de tipos y condiciones financieras, que ahora no dan alarma. Que el 75% de las recesiones caiga en Estanflación no significa que Estanflación sea recesión: esa fase ocupa el ${fmtPct(D.validation.share["Estanflación"], 0)} del tiempo y la recesión solo el ${fmtPct(D.validation.nber.share_recession_months, 0)}.` : ""; })()}</small></div>`;
 }
 
 /* ------------------------- reloj: renta variable / renta fija ------------------------- */
@@ -1562,6 +1574,8 @@ function renderValidation() {
         <tr title="De todos los meses que el NBER fechó como expansión (no recesión), en cuántos el eje de crecimiento marcaba positivo — el reverso de la fila de arriba, a esto se le llama 'especificidad': si fuera bajo, el modelo vería recesión por todas partes, incluso en expansión clara"><td>Meses de expansión con crecimiento positivo</td><td>${fmtPct(nber.specificity, 0)}</td></tr>
         <tr title="De los meses que el NBER fechó como recesión, qué fracción cayó en la fase Reflación — la más fría de las cuatro, y la que cabría esperar que coincidiera más con una recesión real"><td>Recesiones repartidas en Reflación</td><td>${fmtPct(nber.phase_mix_in_recession["Reflación"], 0)}</td></tr>
         <tr title="El resto de meses de recesión que no cayeron en Reflación: caen aquí, en la fase de crecimiento débil con inflación aún alta — coherente con una recesión con inflación pegajosa, no con un fallo del modelo"><td>Recesiones repartidas en Estanflación</td><td>${fmtPct(nber.phase_mix_in_recession["Estanflación"], 0)}</td></tr>
+        <tr title="Al revés: de todos los meses clasificados en Estanflación, qué fracción fue recesión según el NBER. Es la cifra que importa si hoy la fase es Estanflación"><td>Meses en Estanflación que fueron recesión</td><td>${fmtPct(recByPhase()?.["Estanflación"], 0)}</td></tr>
+        <tr title="Al revés: de todos los meses clasificados en Reflación, qué fracción fue recesión según el NBER"><td>Meses en Reflación que fueron recesión</td><td>${fmtPct(recByPhase()?.["Reflación"], 0)}</td></tr>
       </table>
       <p class="cap" style="margin-top:10px;font-size:12px">El fechado del NBER (la autoridad oficial en
       EE.UU. sobre cuándo empieza y termina una recesión, que decide con meses de retraso y usando datos

@@ -879,3 +879,6 @@ Botón «✦ compañías» en cada subsector que supera a su sector en la fase a
 ## Informe mensual PDF
 
 `scripts/build_report.py` genera `docs/reports/market-pulse.pdf` (11 páginas) solo a partir de `docs/data/data.json`; no recalcula nada. Se regenera si cambia el mes o la fase, o si el último tiene más de 7 días. Se publica desde el mismo workflow (paso con `continue-on-error`) y el botón de la cabecera enlaza al último.
+
+### Recesión: dos preguntas distintas
+«El 75% de las recesiones cae en Estanflación» es P(fase | recesión). Lo relevante hoy es P(recesión | fase) = P(fase | recesión) × P(recesión) / P(fase): con Estanflación en el 33% del tiempo y la recesión en el 12,5%, solo ≈28% de los meses en Estanflación fueron recesión. Web e informe lo muestran junto al modelo logístico a 12 meses (curva de tipos + condiciones financieras), que mide otra cosa.
