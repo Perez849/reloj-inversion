@@ -59,7 +59,8 @@ DEBUG_TAILS: dict = {}
 
 def warn(msg: str) -> None:
     print(f"  ! {msg}")
-    WARNINGS.append(msg)
+    if msg not in WARNINGS:
+        WARNINGS.append(msg)
 
 
 def http_get(url: str, tries: int = RETRIES, expect: str | None = None,
@@ -1443,6 +1444,7 @@ SECTOR_HOLDINGS_TICKERS = {
 # una fuente más que gestionar, y con los nombres que de verdad importan hoy.
 CHIP_TICKERS = {
     "NVDA", "AMD", "AVGO", "MU", "INTC", "LRCX", "AMAT", "TXN", "KLAC", "MRVL", "SNDK",
+    "ADI", "QCOM", "NXPI", "MCHP", "ON", "MPWR", "SWKS", "QRVO", "FSLR",
 }
 
 # Subsectores con su propio ETF de sub-industria en la misma familia SPDR. Se probó
@@ -1602,7 +1604,84 @@ HOLDINGS_GROUPS = {
     },
 }
 
-N_HOLDINGS = 20
+# ---- Ampliación (oct 2026): el fichero de cada SPDR trae el fondo COMPLETO, no solo el top-20,
+# así que se clasifican más empresas. Misma regla: código SIC real (criterio de Ken French);
+# lo dudoso se deja fuera. Berkshire Hathaway sale de Seguros: es un conglomerado (seguros,
+# ferrocarril, energía, industria, participaciones), aunque su SIC formal sea 6331.
+for _t in ("BRK.B", "BRK.A", "PEP"):
+    TICKER_SUBSECTOR.pop(_t, None)
+TICKER_SUBSECTOR.update({
+    # Consumo básico. Mondelez (SIC 2000) y Hershey (2060) son "Food" en Ken French, no refrescos.
+    "MDLZ": "Alimentación", "HSY": "Alimentación", "GIS": "Alimentación", "KHC": "Alimentación",
+    "K": "Alimentación", "KLG": "Alimentación", "HRL": "Alimentación", "TSN": "Alimentación",
+    "CAG": "Alimentación", "SJM": "Alimentación", "CPB": "Alimentación", "LW": "Alimentación",
+    "MKC": "Alimentación", "SFM": "Minoristas",
+    "STZ": "Cerveza y licores", "TAP": "Cerveza y licores", "BF.B": "Cerveza y licores",
+    "CELH": "Golosinas y refrescos",
+    "BG": "Agricultura",
+    # Distribución y comercio (SIC 52xx-59xx y 50xx-51xx): minoristas y mayoristas de Ken French.
+    "WMT": "Minoristas", "COST": "Minoristas", "TGT": "Minoristas", "KR": "Minoristas",
+    "DG": "Minoristas", "DLTR": "Minoristas", "CASY": "Minoristas", "BJ": "Minoristas",
+    "SYY": "Mayoristas", "USFD": "Mayoristas", "PFGC": "Mayoristas",
+    "MCK": "Mayoristas", "COR": "Mayoristas", "CAH": "Mayoristas",
+    "HD": "Minoristas", "LOW": "Minoristas", "TJX": "Minoristas", "ROST": "Minoristas",
+    "ORLY": "Minoristas", "AZO": "Minoristas", "TSCO": "Minoristas", "ULTA": "Minoristas",
+    "BBY": "Minoristas", "WSM": "Minoristas", "KMX": "Minoristas", "DKS": "Minoristas",
+    "AMZN": "Minoristas",
+    # Constructores de vivienda (SIC 1531): "Construcción" de Ken French.
+    "DHI": "Construcción", "LEN": "Construcción", "PHM": "Construcción", "NVR": "Construcción",
+    # Salud
+    "BSX": "Equipos médicos", "BDX": "Equipos médicos", "EW": "Equipos médicos",
+    "ZBH": "Equipos médicos", "RMD": "Equipos médicos", "DXCM": "Equipos médicos",
+    "BAX": "Equipos médicos", "PODD": "Equipos médicos", "ALGN": "Equipos médicos",
+    "HOLX": "Equipos médicos", "STE": "Equipos médicos", "COO": "Equipos médicos",
+    "ZTS": "Farmacéuticas", "BIIB": "Farmacéuticas", "INCY": "Farmacéuticas",
+    "VTRS": "Farmacéuticas",
+    "HCA": "Servicios de salud", "UHS": "Servicios de salud", "DVA": "Servicios de salud",
+    "DGX": "Servicios de salud", "LH": "Servicios de salud",
+    # Energía
+    "HES": "Petróleo y gas", "CTRA": "Petróleo y gas", "APA": "Petróleo y gas",
+    # Industria
+    "CMI": "Maquinaria", "IR": "Maquinaria", "ITW": "Maquinaria", "DOV": "Maquinaria",
+    "XYL": "Maquinaria", "TDG": "Aeronáutica", "TXT": "Aeronáutica",
+    "HII": "Naval y ferroviario", "WAB": "Naval y ferroviario",
+    "NUE": "Acero", "STLD": "Acero",
+    # Tecnología (SIC 357x = Hardware; 7372 = Software)
+    "CSCO": "Hardware", "ANET": "Hardware", "DELL": "Hardware", "HPQ": "Hardware",
+    "HPE": "Hardware", "STX": "Hardware", "WDC": "Hardware", "NTAP": "Hardware",
+    "SMCI": "Hardware",
+    "CRM": "Software", "ADBE": "Software", "NOW": "Software", "INTU": "Software",
+    "ADSK": "Software", "SNPS": "Software", "CDNS": "Software", "WDAY": "Software",
+    "FTNT": "Software", "DDOG": "Software", "TEAM": "Software", "ROP": "Software",
+    # Financiero
+    "PNC": "Banca", "TFC": "Banca", "FITB": "Banca", "HBAN": "Banca", "RF": "Banca",
+    "KEY": "Banca", "CFG": "Banca", "MTB": "Banca",
+    "BX": "Bróker y gestión de activos", "KKR": "Bróker y gestión de activos",
+    "APO": "Bróker y gestión de activos", "ARES": "Bróker y gestión de activos",
+    "IBKR": "Bróker y gestión de activos", "RJF": "Bróker y gestión de activos",
+    "TROW": "Bróker y gestión de activos", "BEN": "Bróker y gestión de activos",
+    "IVZ": "Bróker y gestión de activos", "NTRS": "Bróker y gestión de activos",
+    "STT": "Bróker y gestión de activos", "AMP": "Bróker y gestión de activos",
+    "TRV": "Seguros", "AIG": "Seguros", "MET": "Seguros", "PRU": "Seguros", "ALL": "Seguros",
+    "AFL": "Seguros", "HIG": "Seguros", "CINF": "Seguros", "MMC": "Seguros", "AON": "Seguros",
+    "AJG": "Seguros", "WTW": "Seguros", "L": "Seguros", "ACGL": "Seguros", "WRB": "Seguros",
+    "EG": "Seguros", "PFG": "Seguros", "BRO": "Seguros",
+})
+for _sec, _add in {
+    "Comunicaciones": {"Medios interactivos y redes": {"MTCH", "PINS"},
+                       "Telecomunicaciones": {"LUMN"}, "Videojuegos": {"EA"},
+                       "Publicidad y editorial": {"OMC", "IPG", "NWSA", "NWS"}},
+    "Utilities": {"Eléctricas reguladas": {"EIX", "FE", "ES", "PNW", "LNT", "EVRG"},
+                  "Multiservicios (electricidad y gas)": {"CNP", "CMS", "NI"},
+                  "Generación independiente": {"NRG", "AES"}},
+    "Materiales / Químicas": {"Química": {"LYB", "DD", "ALB", "EMN", "MOS", "FMC", "CE"},
+                              "Envases y embalaje": {"BALL", "AVY"}},
+}.items():
+    for _g, _ts in _add.items():
+        HOLDINGS_GROUPS[_sec].setdefault(_g, set()).update(_ts)
+
+
+N_HOLDINGS = 200   # fondo completo: la clasificación por subsector necesita más allá del top-20
 
 
 def _fetch_spdr_xlsx(ticker: str):
@@ -1736,6 +1815,7 @@ def fetch_holdings():
                     warn(f"Holdings: {m['ticker']} aparece en dos grupos de "
                          f"{sector} a la vez ({prev} y {row['grupo']})")
                 seen_g[m["ticker"]] = row["grupo"]
+    por_sector = {k: v[:20] for k, v in por_sector.items()}   # la web enseña el top-20 de cada sector
     return {"por_sector": por_sector, "por_subsector": por_subsector, "grupos": grupos,
             "meta": {"as_of": as_of, "source": "SPDR / State Street (holdings diarios)"}}
 
@@ -1850,6 +1930,8 @@ def reliability_label(d: dict) -> str:
     c = d.get("checks") or {}
     q = d.get("q")
     fdr = q is not None and q <= 0.10
+    if d.get("rel_shrunk") is not None and abs(d["rel_shrunk"]) < 0.05:
+        return "Débil"   # la estimación prudente (James-Stein) la deja en cero
     if (len(g) >= 2 and fdr and c.get("split") and c.get("lag")
             and c.get("n", 0) >= RELIAB_MIN_N_STRONG):
         return "Fuerte"
@@ -1877,6 +1959,8 @@ def conditional_stats(X: pd.DataFrame, phases: pd.Series, meta: dict,
             "note": meta.get(col, {}).get("note", ""),
             "from": str(s.index[0].date()), "to": str(s.index[-1].date()),
             "n": int(s.size), "uncond_ann": round(float(grand * 12), 2),
+            "uncond_ann_tot": (round(float(grand * 12 + RF_M.reindex(s.index).mean() * 12), 2)
+                               if RF_M is not None and RF_M.reindex(s.index).notna().mean() > 0.8 else None),
             "phases": {},
         }
         mu_d, se_d = {}, {}
@@ -1890,6 +1974,8 @@ def conditional_stats(X: pd.DataFrame, phases: pd.Series, meta: dict,
             mu_d[phase], se_d[phase] = mu, se
             entry["phases"][phase] = {
                 "ann": round(float(mu * 12), 2),
+                "ann_tot": (round(float(mu * 12 + RF_M.reindex(sub.index).mean() * 12), 2)
+                            if RF_M is not None and RF_M.reindex(sub.index).notna().mean() > 0.8 else None),
                 "rel": round(float((mu - grand) * 12), 2),
                 "t": round(float(t), 2) if t == t else None,
                 "hit": round(float((sub.values > 0).mean()), 3),
@@ -2304,7 +2390,7 @@ def subsector_analysis(phases: pd.Series):
             if not d or "ann" not in d:
                 continue
             by_sector.setdefault(parent, {}).setdefault(phase, []).append({
-                "name": row["name"], "ann": d["ann"], "rel": d.get("rel"),
+                "name": row["name"], "ann": d["ann"], "ann_tot": d.get("ann_tot"), "rel": d.get("rel"),
                 "rel_shrunk": d.get("rel_shrunk"), "grade": d.get("grade"),
                 "n": d["n"],
             })
@@ -2832,6 +2918,17 @@ def _sleeve_weights(scores: dict, sleeves: dict | None = None) -> dict:
     return w
 
 
+def _add_rf(series):
+    """Pasa una serie en exceso sobre letras (en %) a retorno total sumando el tipo libre
+    de riesgo mensual. Solo para lo que se MUESTRA; Sharpe y contrastes siguen en exceso."""
+    if series is None or RF_M is None:
+        return series
+    rf = RF_M.reindex(series.index)
+    if rf.notna().mean() < 0.8:
+        return series
+    return series + rf.fillna(rf.mean())
+
+
 def _annual(series: pd.Series) -> dict:
     y = (1 + series / 100.0).groupby(series.index.year).prod() - 1
     return {int(k): round(float(v * 100), 2) for k, v in y.items()}
@@ -3159,7 +3256,10 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
             playbook[phase] = [r for r in rows if r["weight"] >= 0.3]
             mix[phase] = {k: round(v * 100, 1) for k, v in budgets.items()}
 
-        ann = _annual(R)
+        ann_ex = _annual(R)
+        R_tot = _add_rf(R)
+        bench_tot = _add_rf(bench) if bench is not None else None
+        ann = _annual(_add_rf(R))
         realized = float(R.std() * math.sqrt(12))
         bench_v = float(bench.dropna().std() * math.sqrt(12)) if bench is not None else None
         out_schemes[sch] = {
@@ -3175,14 +3275,14 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
             "sleeve_mix": mix,
             "annual": ann,
             "turnover": round(float(turn_s.mean() * 100), 1),
-            "wins_years": sum(1 for y, v in ann.items()
+            "wins_years": sum(1 for y, v in ann_ex.items()
                               if y in bench_annual and v > bench_annual[y]),
-            "n_years": len([y for y in ann if y in bench_annual]),
-            "curve": [{"d": d.strftime("%Y-%m"), "s": round(float(R.loc[d]), 4),
-                       "b": (round(float(bench.loc[d]), 4)
+            "n_years": len([y for y in ann_ex if y in bench_annual]),
+            "curve": [{"d": d.strftime("%Y-%m"), "s": round(float(R_tot.loc[d]), 4),
+                       "b": (round(float(bench_tot.loc[d]), 4)
                              if bench is not None and d in bench.index
                              and bench.loc[d] == bench.loc[d] else None)}
-                      for d in R.index][-560:],
+                      for d in R.index],
         }
 
     print("  ✓ " + " · ".join(
@@ -3196,7 +3296,7 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
     return {"schemes": out_schemes, "default": best_scheme,
             "bench_100eq": perf(bench) if bench is not None else {},
             "bench_6040": perf(bench_6040) if bench_6040 is not None else {},
-            "bench_annual": bench_annual,
+            "bench_annual": (_annual(_add_rf(bench_valid)) if bench_valid is not None else {}),
             "bands": {k: [round(v[1] * 100), round(v[2] * 100)]
                       for k, v in sleeves.items()},
             # Suelo/techo REAL de cada bloque (n_min, n_max de SLEEVES), para que el
