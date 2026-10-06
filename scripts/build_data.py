@@ -3288,11 +3288,11 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
     print("  ✓ " + " · ".join(
         f"{SCHEMES[k]}: Sharpe {out_schemes[k]['portfolio'].get('sharpe')}"
         for k in out_schemes))
-    # El esquema por defecto es el de mayor CAGR realizado en el propio
-    # walk-forward, no uno fijado a mano: la web deja elegir los cuatro,
-    # pero lo que se muestra sin tocar nada tiene que ser el que de verdad
-    # ha rentado más, no una preferencia de diseño.
-    best_scheme = max(out_schemes, key=lambda k: out_schemes[k]["portfolio"].get("cagr", -1e9))
+    # El esquema por defecto es el de mayor Sharpe realizado en el propio walk-forward
+    # (el mismo criterio con el que se aceptan o rechazan el resto de variantes), con el
+    # CAGR como desempate. La web deja elegir los cuatro.
+    best_scheme = max(out_schemes, key=lambda k: (round(out_schemes[k]["portfolio"].get("sharpe") or -1e9, 2),
+                                                  out_schemes[k]["portfolio"].get("cagr", -1e9)))
     return {"schemes": out_schemes, "default": best_scheme,
             "bench_100eq": perf(bench) if bench is not None else {},
             "bench_6040": perf(bench_6040) if bench_6040 is not None else {},
