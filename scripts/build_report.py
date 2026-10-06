@@ -468,12 +468,12 @@ def build_html(D, gen: datetime) -> str:
                  f'<td class="r" style="color:{POS if i["z"] - i["z_prev"] >= 0 else NEG}">{num(i["z"] - i["z_prev"], 2, True)}</td></tr>' for i in movers)
     pages.append(f'''
 <section class="page">{header(D, "Qué está empujando cada eje", 4, tag)}
-  <p class="lead">Cada serie entra como z-score robusto frente a su propia historia reciente. El número tras el nombre es su peso dentro del bloque (suman 100%); la raya discontinua marca el valor del dato anterior.</p>
+  <p class="lead">Cada serie entra como z-score robusto frente a su propia historia reciente. El número tras el nombre es su peso dentro del bloque (suman 100%); la raya discontinua marca dónde estaba esa misma serie hace 12 meses.</p>
   <div class="two">{block("growth", "Crecimiento")}{block("inflation", "Inflación")}</div>
   <div class="two">{block("leading", "Bloque adelantado")}
-    <figure class="card"><figcaption>Mayores cambios desde el dato anterior</figcaption>
-      <table class="mini"><thead><tr><th>Serie</th><th class="r">Antes</th><th class="r">Ahora</th><th class="r">Δ</th></tr></thead><tbody>{mv}</tbody></table>
-      <p class="cap">Los datos macro llegan con retraso de publicación; cada serie se alinea a la fecha en que de verdad estuvo disponible.</p></figure></div>
+    <figure class="card"><figcaption>Mayores cambios frente a hace 12 meses</figcaption>
+      <table class="mini"><thead><tr><th>Serie</th><th class="r">Hace 12m</th><th class="r">Ahora</th><th class="r">Δ (σ)</th></tr></thead><tbody>{mv}</tbody></table>
+      <p class="cap">z-score: cuántas desviaciones robustas (mediana y MAD de 10 años) está la variación interanual de la serie respecto a lo normal reciente. Cada serie se alinea a la fecha en que de verdad se publicó.</p></figure></div>
   {footer(4, "Fuente: FRED (Reserva Federal de St. Louis).")}
 </section>''')
 

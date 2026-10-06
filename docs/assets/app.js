@@ -715,7 +715,7 @@ function indRow(i) {
   const style = pos ? `left:50%;width:${pctW}%;background:${col}` : `right:50%;width:${pctW}%;background:${col}`;
   const delta = i.z_prev != null ? i.z - i.z_prev : null;
   const arrow = delta == null ? "" : (delta > 0.15 ? "▲" : delta < -0.15 ? "▼" : "▬");
-  const tip = [i.note, `retraso de publicación: ${i.lag_m} ${i.lag_m === 1 ? "mes" : "meses"} — el dato de un mes concreto no entra en la clasificación hasta que de verdad se publicó, no en tiempo real`,
+  const tip = [i.note, `valor: z-score robusto de la variación interanual (mediana y MAD de 10 años); la flecha compara con hace 12 meses (▲ más alto, ▼ más bajo, ▬ similar)`, `retraso de publicación: ${i.lag_m} ${i.lag_m === 1 ? "mes" : "meses"} — el dato de un mes concreto no entra en la clasificación hasta que de verdad se publicó, no en tiempo real`,
     i.invert ? "signo invertido: sube el indicador cuando la serie original baja, para que todo el bloque lea en la misma dirección" : null,
     share != null ? `peso ${fmtNum(share * 100, 0)}%: parte de la influencia total del bloque que corresponde a esta serie (los pesos de un bloque suman 100%). Sale del primer componente principal, no de una importancia fijada a mano` : null,
   ].filter(Boolean).join(" · ");
