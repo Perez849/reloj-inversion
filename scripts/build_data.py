@@ -3035,7 +3035,8 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
              include_6040: bool = True,
              phase_sleeve_override: dict | None = None,
              level_weight: float = 0.0,
-             level_sleeves: frozenset = frozenset({"Renta variable"})) -> dict:
+             level_sleeves: frozenset = frozenset({"Renta variable"}),
+             holdings_log: list | None = None) -> dict:
     """Cartera solo larga, siempre invertida al 100 %, sin apalancar ni cortos.
     La fase decide qué activos ocupan cada bloque y cuánto pesa cada bloque dentro
     de sus bandas. Se calculan los cuatro esquemas de reparto en paralelo sobre
@@ -3207,6 +3208,14 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
                 mu, vol, raw_phase, avail, classes, cls_map, n_min, n_max, mu_rank=mr)
         if not any(picks.values()):
             continue
+
+        if holdings_log is not None:
+            holdings_log.append({
+                "d": t.strftime("%Y-%m"), "sig": sig,
+                "picks": {name: [{"c": c, "mu": round(float(mu.get(c, float("nan"))), 3),
+                                   "vol": round(float(vol.get(c, float("nan"))), 3)} for c in top]
+                          for name, top in picks.items() if top},
+            })
 
         for sch in SCHEMES:
             inner = {name: _weights(top, vol, sch).to_dict()
