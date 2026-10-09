@@ -2039,8 +2039,7 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
              bench_name: str = "Renta variable EE.UU. (mercado)",
              bd_name: str = "Treasury 10 años",
              include_6040: bool = True,
-             phase_sleeve_override: dict | None = None,
-             similarity_bandwidth: float | None = None) -> dict:
+             phase_sleeve_override: dict | None = None) -> dict:
     """Cartera solo larga, siempre invertida al 100 %, sin apalancar ni cortos.
     La fase decide qué activos ocupan cada bloque y cuánto pesa cada bloque dentro
     de sus bandas. Se calculan los cuatro esquemas de reparto en paralelo sobre
@@ -2079,21 +2078,6 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
     def _wmean(frame, w):
         ww = frame.notna().mul(w, axis=0)
         return frame.mul(w, axis=0).sum() / ww.sum().replace(0, np.nan)
-
-    def _ew_sim(frame, ref_date):
-        """TEMPORAL - como _ew, pero además pondera cada mes histórico por lo
-        parecida que fue su lectura (growth, inflación) a la de ref_date,
-        con un núcleo gaussiano de ancho `similarity_bandwidth`. Solo se usa
-        en el cálculo de means()/raw_phase, nunca en grand ni en ew_vol."""
-        w = _ew(frame, ref_date)
-        if similarity_bandwidth is None or F is None or ref_date not in F.index:
-            return w
-        g_t, i_t = F.loc[ref_date, "growth"], F.loc[ref_date, "inflation"]
-        g_s = F["growth"].reindex(frame.index)
-        i_s = F["inflation"].reindex(frame.index)
-        dist2 = (g_s - g_t) ** 2 + (i_s - i_t) ** 2
-        sim = np.exp(-dist2 / (2 * similarity_bandwidth ** 2)).fillna(1.0)
-        return w * sim
 
     def centroid(hph, phase, upto):
         """Punto medio del plano (crecimiento, inflación) en el que vive la fase."""
@@ -2151,7 +2135,7 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
             sub = hist[hph == p]
             if sub.empty:
                 continue
-            mu_p[p] = _wmean(sub, _ew_sim(sub, ref))
+            mu_p[p] = _wmean(sub, _ew(sub, ref))
             n = sub.notna().sum()
             n_p[p] = n
             se_p[p] = sub.std() / np.sqrt(n.clip(lower=1))
@@ -2195,7 +2179,7 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
         hist, hph = X.iloc[:k], ph.iloc[:k]
         vol = ew_vol(hist)
         sub_sig = hist[hph == sig]
-        raw_phase = (_wmean(sub_sig, _ew_sim(sub_sig, hist.index[-1])) if not sub_sig.empty
+        raw_phase = (_wmean(sub_sig, _ew(sub_sig, hist.index[-1])) if not sub_sig.empty
                      else _wmean(hist, _ew(hist, hist.index[-1])))
         if probs is not None and t in probs.index:
             # Mezcla por probabilidad: cuando la clasificación es dudosa —y ahora
@@ -2291,7 +2275,7 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
         for phase in PHASES:
             mu = means(X, ph, phase)
             sub_p = X[ph == phase]
-            raw_phase = (_wmean(sub_p, _ew_sim(sub_p, X.index[-1])) if not sub_p.empty
+            raw_phase = (_wmean(sub_p, _ew(sub_p, X.index[-1])) if not sub_p.empty
                          else _wmean(X, _ew(X, X.index[-1])))
             # Ken French publica con un mes de retraso: exigir dato en el último
             # mes dejaba fuera todos los sectores y el bloque salía vacío.
