@@ -12,7 +12,7 @@ warnings.filterwarnings("ignore")
 
 from build_data import (
     fetch_macro, fetch_assets, fetch_candidates, select_candidates,
-    choose_pca_variant, _factor_model, fetch_extended, universe_test,
+    choose_pca_variant, _factor_model,
     rotation, SERIES, ESTANFLACION_OVERRIDE,
 )
 
@@ -37,11 +37,9 @@ if model is None:
 Z, ind_info, F, pca = model["Z"], model["ind_info"], model["F"], model["pca"]
 phases, sg, si, probs_df = model["phases"], model["sg"], model["si"], model["probs_df"]
 
-Xe, emeta, elog = fetch_extended()
-try:
-    X, ameta, universe = universe_test(X, ameta, Xe, emeta, phases, probs_df, F)
-except Exception as exc:
-    print("test del universo omitido:", exc)
+# fetch_extended/universe_test se omiten a propósito: el propio manual (Capítulo 6)
+# confirma que esa ampliación nunca se adopta (adopted=[] en los datos reales), así
+# que el universo de activos queda idéntico al de producción, solo más rápido.
 cls_map = {k: v.get("class", "Otros") for k, v in ameta.items()}
 
 log = []
