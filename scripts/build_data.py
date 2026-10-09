@@ -2826,8 +2826,7 @@ def _weights(names, vol, scheme: str) -> pd.Series:
     return (0.5 * eq + 0.5 * (iv / iv.sum()))
 
 
-def _sleeve_pick(mu, vol, raw_phase, avail, classes, cls_map, n_min, n_max, mu_rank=None,
-                  require_positive_raw=False):
+def _sleeve_pick(mu, vol, raw_phase, avail, classes, cls_map, n_min, n_max, mu_rank=None):
     """Selecciona los del bloque que de verdad convienen en esta fase y
     devuelve su orden y su puntuación. El número elegido no es fijo: se
     queda con los que puntúan **positivo** (ventaja de fase > 0) más los
@@ -2897,16 +2896,7 @@ def _sleeve_pick(mu, vol, raw_phase, avail, classes, cls_map, n_min, n_max, mu_r
         return [], 0.0
     raw = (raw_phase.reindex(ir.index) / vc.reindex(ir.index)).replace([np.inf, -np.inf], np.nan)
     raw_bar = raw.median()
-    if require_positive_raw:
-        # EXPERIMENTAL: además de la ventaja contraída (ir>0, relativa a la propia
-        # media del activo), exige que el activo gane dinero DE VERDAD en esta fase
-        # (raw>0, su rendimiento real sin contraer). Sin esto, un activo que pierde
-        # en todas las fases puede "ganar" la fase donde pierde menos -- ver el caso
-        # real de TLT en Estanflación: ir=+0.03 (positivo, parece favorable) pero
-        # raw<0 (sigue perdiendo dinero). Probado contra producción, ver resultados.
-        ok = ((ir > 0) & (raw > 0)) | ((ir >= 0) & (raw >= raw_bar))
-    else:
-        ok = (ir > 0) | ((ir >= 0) & (raw >= raw_bar))
+    ok = (ir > 0) | ((ir >= 0) & (raw >= raw_bar))
     combo = pd.DataFrame({"ir": ir, "raw": raw, "ok": ok})
     combo = pd.concat([
         combo[combo["ok"]].sort_values(["ir", "raw"], ascending=[False, False]),
@@ -3045,8 +3035,7 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
              include_6040: bool = True,
              phase_sleeve_override: dict | None = None,
              level_weight: float = 0.0,
-             level_sleeves: frozenset = frozenset({"Renta variable"}),
-             require_positive_raw: bool = False) -> dict:
+             level_sleeves: frozenset = frozenset({"Renta variable"})) -> dict:
     """Cartera solo larga, siempre invertida al 100 %, sin apalancar ni cortos.
     La fase decide qué activos ocupan cada bloque y cuánto pesa cada bloque dentro
     de sus bandas. Se calculan los cuatro esquemas de reparto en paralelo sobre
@@ -3215,8 +3204,7 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
             if level_weight and name in level_sleeves:
                 mr = mu + level_weight * grand_t
             picks[name], scores[name] = _sleeve_pick(
-                mu, vol, raw_phase, avail, classes, cls_map, n_min, n_max, mu_rank=mr,
-                require_positive_raw=require_positive_raw)
+                mu, vol, raw_phase, avail, classes, cls_map, n_min, n_max, mu_rank=mr)
         if not any(picks.values()):
             continue
 
@@ -3297,8 +3285,7 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
                 if phase_sleeve_override and (phase, sl) in phase_sleeve_override:
                     n_min, n_max = phase_sleeve_override[(phase, sl)]
                 picks[sl], scores[sl] = _sleeve_pick(
-                    mu, vol_all, raw_phase, avail, classes, cls_map, n_min, n_max,
-                    require_positive_raw=require_positive_raw)
+                    mu, vol_all, raw_phase, avail, classes, cls_map, n_min, n_max)
             inner_pb = {sl: _weights(top, vol_all, sch).to_dict()
                         for sl, top in picks.items() if top}
             budgets = _sleeve_weights(scores, sleeves)

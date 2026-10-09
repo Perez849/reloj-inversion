@@ -6,11 +6,6 @@ on:
     # de datos macro en EE.UU. (8:30 ET).
     - cron: "10 13 * * 1-5"
   workflow_dispatch:
-    inputs:
-      debug_script:
-        description: "Ruta de script de depuración a ejecutar en vez del flujo normal (vacío = flujo normal)"
-        required: false
-        default: ""
   push:
     branches: [main]
     paths:
@@ -45,23 +40,14 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Autotest sin red
-        if: ${{ github.event.inputs.debug_script == '' }}
         run: python -u scripts/_selftest.py
 
       - name: Generar data.json
-        if: ${{ github.event.inputs.debug_script == '' }}
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
         run: python -u scripts/build_data.py
 
-      - name: Ejecutar script de depuración
-        if: ${{ github.event.inputs.debug_script != '' }}
-        env:
-          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
-        run: python -u "${{ github.event.inputs.debug_script }}"
-
       - name: Comprobar que el fichero es válido
-        if: ${{ github.event.inputs.debug_script == '' }}
         run: |
           python - <<'PY'
           import json, sys
@@ -76,13 +62,11 @@ jobs:
           PY
 
       - name: Comprobar que la página no se rompe
-        if: ${{ github.event.inputs.debug_script == '' }}
         run: |
           node --check docs/assets/app.js
           node scripts/check_page.js
 
       - name: Informe mensual PDF
-        if: ${{ github.event.inputs.debug_script == '' }}
         continue-on-error: true
         run: |
           pip install playwright
@@ -90,7 +74,6 @@ jobs:
           python scripts/build_report.py
 
       - name: Publicar
-        if: ${{ github.event.inputs.debug_script == '' }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
