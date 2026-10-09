@@ -837,3 +837,56 @@ reloj gira al revés; solo muy por encima se puede hablar de un ciclo con direcc
   la fase. El panel publica el Sharpe y la caída máxima frente al S&P 500 al
   lado del CAGR precisamente para que ese coste no quede escondido detrás de
   una rentabilidad más alta.
+
+## 12. Auditoría de octubre de 2026: borde irregular, fiabilidad y familia extendida
+
+**Borde irregular.** Las series macro se publican con retrasos distintos. El factor se calculaba
+como media ponderada de las series *disponibles*, de modo que en un mes con una sola serie viva
+(nóminas, 9% del peso) el factor era esa serie: el crecimiento saltó a −1,06. Ahora se arrastra
+el último z de cada serie hasta 2 meses (`TAIL_FILL_M`), se exige ≥80% del peso de cobertura en
+crecimiento e inflación (`MIN_TAIL_COVERAGE`) y se descartan los meses finales que no lleguen. Si
+menos del 90% del peso tiene dato nuevo, `current.edge.nowcast = true` y la web lo marca como
+estimación provisional. Series con última observación a más de 6 meses del final del panel (p. ej.
+USSLIND, último dato 2020-02) se excluyen del PCA con aviso.
+
+**Fiabilidad por casilla** (`reliability_label`): *Fuerte* = nota ++/+++, FDR q ≤ 0,10, mismo signo del
+exceso en las dos mitades de la muestra, mismo signo usando la fase con un mes de retraso, y ≥ 60 meses
+de esa fase. *Moderada* = nota ++/+++, estable en las dos mitades, ≥ 36 meses y (FDR o retraso).
+*Débil* = tiene nota pero falla alguna comprobación. *Sin señal* = nota 0. No se puede "forzar" una señal
+a Fuerte: solo más historia o más activos independientes la sostienen.
+
+**Fuerza de la fase actual** (`current.call_strength`): margen ≥ 0,6 Fuerte; 0,3–0,6 Moderada; < 0,3 Débil.
+
+**Familia extendida** (`extended`): Japón, Europa, Asia-Pacífico ex Japón y Norteamérica (Ken French),
+small caps (cartera Lo 20), y ETF IBB, XBI, MCHI, FXI, EWJ. Familia de contrastes propia, fuera del
+backtest, la rotación, el laboratorio y el consenso. Los nombres de archivo de French no se han podido
+verificar desde el entorno de desarrollo; si fallan, se anotan en `extended.meta.log`.
+
+**Contraste «ahora»** (`now_edge`): exceso mensual ~ constante + probabilidades de fase del mes anterior (una fase omitida), covarianza HAC. Se contrasta p_hoy − p̄ (un solo contraste por activo, BH entre activos). Validación fuera de muestra con ventana creciente desde 180 meses: R² OOS frente a la media creciente y Clark-West. Fuerte exige |t| ≥ 1,96, q ≤ 0,10, R² OOS > 0 y CW t ≥ 1,28.
+
+**Ampliación del PCA** (`select_candidates`): 31 series FRED candidatas (empleo privado, paro, pedidos, consumo, componentes del IPC, M2, préstamos, estrés financiero…). Selección hacia delante por varianza explicada del PC1 de cada bloque, con |r| ≥ 0,30 frente al factor existente (se invierte si r < 0), ≥ 360 meses de historia y mejora ≥ 0,5 pp; máximo 8 por bloque. Es selección sobre el ajuste del factor, no sobre rentabilidades. El informe (`pca_research`) lista añadidas y rechazadas con el motivo.
+
+**Test del universo** (`universe_test`): cada grupo de activos nuevos (biotecnología, small caps, regiones French, China, Japón ETF) se suma al bloque de renta variable de la rotación walk-forward y se compara con la base en los cuatro esquemas. Se incorpora si mejora el Sharpe ≥ 0,01 en ≥ 3 de 4 esquemas sin bajar el CAGR; la unión de los adoptados se vuelve a comprobar. Selección en muestra: mejora observada, no garantía.
+
+## Auditoría de unidades y limpieza (oct 2026)
+- Las cifras de rentabilidad que se muestran ("Anual") son retorno total (exceso + tipo libre de riesgo). Sharpe y volatilidad siguen calculándose sobre el exceso sobre letras. El payload guarda `cagr` (exceso) y `cagr_tot`.
+- `meta.bridge.check` contrasta Ken French "Chips" con el ETF SMH en los meses solapados (correlación y CAGR).
+- Retirados de la web (los datos siguen en `data.json`): bloque PCA-research, universo, satélite no adoptado y contraste «ahora». Retirada la lista "Mejor evitar".
+
+## Compañías con criterio (Claude + búsqueda web)
+Botón «✦ compañías» en cada subsector que supera a su sector en la fase actual. La web llama a un Worker de Cloudflare (`worker/`) que guarda la clave de la API, pide a Claude 3-5 compañías con búsqueda web y descarta todo dato cuya URL no aparezca en los resultados reales de la búsqueda (y toda compañía sin ningún dato verificable). Es una idea para investigar, no una predicción ni asesoramiento. Sin Worker, el botón copia una pregunta ya redactada y abre Claude (suscripción normal, sin coste extra, sin filtro automático de fuentes).
+
+## Informe mensual PDF
+
+`scripts/build_report.py` genera `docs/reports/market-pulse.pdf` (11 páginas) solo a partir de `docs/data/data.json`; no recalcula nada. Se regenera si cambia el mes o la fase, o si el último tiene más de 7 días. Se publica desde el mismo workflow (paso con `continue-on-error`) y el botón de la cabecera enlaza al último.
+
+### Recesión: dos preguntas distintas
+«El 75% de las recesiones cae en Estanflación» es P(fase | recesión). Lo relevante hoy es P(recesión | fase) = P(fase | recesión) × P(recesión) / P(fase): con Estanflación en el 33% del tiempo y la recesión en el 12,5%, solo ≈28% de los meses en Estanflación fueron recesión. Web e informe lo muestran junto al modelo logístico a 12 meses (curva de tipos + condiciones financieras), que mide otra cosa.
+
+### Estructura del informe PDF
+Páginas comunes (portada, resumen, ciclo, indicadores), bloque de renta variable (qué comprar, subsectores, qué ha pagado cada activo, backtest), bloque de renta fija (qué comprar, qué ha pagado cada activo, backtest) y cierre (riesgos, metodología). Las carteras de renta variable y renta fija nunca se mezclan. Los candidatos tácticos de la tabla de renta variable no incluyen las regiones de Ken French (Europa, Norteamérica, Japón).
+
+### Renta fija: solo invertible, con historia prolongada
+La cartera de renta fija solo puede recomendar ETF reales (SHY, IEF, TLT, LQD, HYG, ICSH, EMB, TIP, MUB, MBB) y liquidez en letras. Los ETF tienen 10-20 años de vida, muy poco para estimar cómo rinde cada activo en cada fase, así que antes de su lanzamiento su historia se prolonga con el rendimiento FRED equivalente convertido a retorno por duración y convexidad (SHY←Treasury 2a, IEF←Treasury 10a, TLT←Treasury 30a, MBB←tipo hipotecario 30a, LQD←Moody's Baa). Se compra siempre el ETF; el proxy solo aporta evidencia. Contraste en el solape (`meta.bridge.fi_proxy`): correlación 0,5-0,8, aproximación gruesa, no exacta.
+
+Prueba con datos reales (exceso sobre letras, 4 repartos, desde 2003, agregado de bonos Sharpe 0,27): solo ETF sin prolongar, Sharpe 0,23-0,32 (empata con el mercado); prolongando Treasuries solo, 0,29-0,31; prolongando Treasuries+LQD+MBB, 0,61-0,70. Estable al quitar cada ETF (0,51-0,71) y por periodos (2003-12, 2013-19, 2020-26 por encima del agregado en tres repartos de cuatro; Inverso de la volatilidad solo en los dos últimos). Límite: es una mejora observada en la misma muestra con una prolongación que sale de datos propios, no una garantía.

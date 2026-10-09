@@ -103,6 +103,9 @@ const ETF_MAP = {
   "Plata": [["SLV","iShares Silver Trust"]],
   "Cobre": [["CPER","US Copper Index Fund (aprox.)"]],
   "Materias primas (índice)": [["GSG","iShares S&P GSCI Commodity-Indexed Trust"]],
+  "Treasury 1-3 años (SHY)": [["SHY","iShares 1-3 Year Treasury Bond"]],
+  "Treasury 7-10 años (IEF)": [["IEF","iShares 7-10 Year Treasury Bond"]],
+  "Treasury 20+ años (TLT)": [["TLT","iShares 20+ Year Treasury Bond"]],
   "Treasury 2 años": [["SHY","iShares 1-3 Year Treasury Bond"]],
   "Treasury 10 años": [["IEF","iShares 7-10 Year Treasury Bond"]],
   "Treasury 30 años": [["TLT","iShares 20+ Year Treasury Bond"]],
@@ -152,6 +155,7 @@ const txt = (tag, attrs, content, parent) => {
 };
 const fmtPct = (v, d = 0) => v === null || v === undefined || Number.isNaN(v)
   ? "—" : `${(v * 100).toFixed(d)}%`;
+const tc = o => (o && (o.cagr_tot ?? o.cagr));
 const fmtNum = (v, d = 2) => v === null || v === undefined || Number.isNaN(v)
   ? "—" : Number(v).toFixed(d);
 const signed = (v, d = 1) => v === null || v === undefined || Number.isNaN(v)
@@ -210,6 +214,7 @@ function render() {
   renderMatrix();
   renderRobustness();
   renderConsensus();
+  renderTactical();
   renderRotation();
   renderLab();
   renderValidation();
@@ -238,8 +243,9 @@ function phaseWhyText(c) {
   const mg = c.momentum?.growth_3m, mi = c.momentum?.inflation_3m;
   const mgTxt = mg == null ? "" : (mg >= 0.10 ? ", acelerando" : mg <= -0.10 ? ", perdiendo fuerza" : ", estable");
   const miTxt = mi == null ? "" : (mi >= 0.10 ? ", subiendo" : mi <= -0.10 ? ", cediendo" : ", estable");
-  return `El crecimiento está <b>${fmtNum(Math.abs(c.growth), 2)}σ ${gDir}</b> de su tendencia de los
-    últimos diez años${mgTxt}; la inflación, <b>${fmtNum(Math.abs(c.inflation), 2)}σ ${iDir}</b> de la
+  const lvl = (v, dir) => Math.abs(v) < 0.05 ? "<b>en su tendencia</b> (≈0σ, justo en la frontera)" : `<b>${fmtNum(Math.abs(v), 2)}σ ${dir}</b> de su tendencia`;
+  return `El crecimiento está ${lvl(c.growth, gDir)} de los
+    últimos diez años${mgTxt}; la inflación, ${lvl(c.inflation, iDir)} de la
     suya${miTxt} — <span class="small-cap">σ</span> son desviaciones estándar: cuántas veces la variación
     típica de la última década se aleja el dato de hoy de lo normal reciente, la misma vara de medir para
     crecimiento e inflación aunque una se mida en % interanual y la otra en puntos de otra escala, así que
@@ -276,10 +282,10 @@ function renderHero() {
   // tenía 4,4 puntos de margen). El aviso va pegado al titular, no perdido
   // más abajo entre las estadísticas.
   $("#phaseTie").innerHTML = c.confidence < 0.3
-    ? `⚠ Margen de solo <b>${fmtPct(c.confidence)}</b> sobre ${probs[1][0]} (${fmtPct(probs[0][1], 1)} vs ${fmtPct(probs[1][1], 1)}) — casi un empate`
+    ? `⚠ Margen de solo <b>${fmtNum(c.confidence * 100, 1)} puntos</b> sobre ${probs[1][0]} (${fmtPct(probs[0][1], 1)} vs ${fmtPct(probs[1][1], 1)}) — casi un empate`
     : "";
   $("#phaseWindow").textContent =
-    `${n} ${n === 1 ? "mes" : "meses"} seguidos en esta fase · ${PHASE_HINT[c.phase]} · dato de ${label(c.date)}`;
+    `${n} ${n === 1 ? "mes seguido" : "meses seguidos"} en esta fase · ${PHASE_HINT[c.phase]} · último mes completo: ${label(c.edge?.last_full_month || c.date)}`;
   $("#phaseWhy").innerHTML = phaseWhyText(c);
 
   $("#confBlock").innerHTML = probs.map(([p, v], i) => `
@@ -288,7 +294,11 @@ function renderHero() {
       <span class="conf-bar"><i style="width:${(v * 100).toFixed(1)}%;background:${PHASE_COLOR[p]}"></i></span>
       <span class="conf-val">${fmtPct(v, 1)}</span>
     </div>`).join("");
-  $("#confNote").innerHTML = `<b>${fmtPct(c.confidence)}</b> de margen sobre ${c.alt_phase}. ${confidenceText(c)}`;
+  const edge = c.edge || {};
+  const edgeNote = edge.nowcast
+    ? ` <br><small>Estimación provisional: el último mes tiene solo ${fmtPct(Math.min(...Object.values(edge.fresh || {0: 0})), 0)} del peso con dato nuevo y el resto se arrastra del mes anterior (último mes completo: ${edge.last_full_month ? label(edge.last_full_month) : "—"}).</small>`
+    : "";
+  $("#confNote").innerHTML = `Señal de fase: <b>${c.call_strength || "—"}</b> · <b>${fmtNum(c.confidence * 100, 1)} puntos</b> de margen sobre ${c.alt_phase}. ${confidenceText(c)}${edgeNote}`;
 
   $("#heroStats").innerHTML = [
     ["Impulso crecimiento 3m", signed(c.momentum?.growth_3m, 2) + " σ"],
@@ -321,6 +331,17 @@ function mostLikelyNext() {
   return { ...best, stay };
 }
 
+/* P(recesión | fase) = %recesión-en-fase × %meses-recesión / %tiempo-en-fase (Bayes, con los datos de validación) */
+function recByPhase() {
+  const v = D.validation || {}, n = v.nber, sh = v.share;
+  if (!n || !sh || n.share_recession_months == null) return null;
+  const out = {};
+  for (const p of D.phases) out[p] = sh[p] > 0 ? (n.phase_mix_in_recession[p] || 0) * n.share_recession_months / sh[p] : null;
+  const probs = D.current.probs || {};
+  out._now = D.phases.reduce((a, p) => a + (probs[p] || 0) * (out[p] || 0), 0);
+  return out;
+}
+
 function renderOutlook() {
   const c = D.current, rec = c.recession || {};
   const lead = c.leading, lead6 = c.leading_6m;
@@ -329,7 +350,7 @@ function renderOutlook() {
   $("#outlookBand").innerHTML = `
     <div class="item"><dt>Bloque adelantado</dt>
       <dd style="color:${lead >= 0 ? POS : NEG}">${signed(lead, 2)} σ</dd>
-      <small>Curva, condiciones financieras, permisos, horas y diferenciales. ${
+      <small>Condiciones financieras, diferenciales de crédito, permisos de construcción, horas trabajadas y volatilidad (VIX). ${
         dir == null ? "" : dir >= 0 ? "Mejorando frente a hace 6 meses." : "Deteriorándose frente a hace 6 meses."}</small></div>
     <div class="item"><dt>Si la fase cambia, va hacia</dt>
       <dd style="color:${PHASE_COLOR[next.phase]}">${next.phase}</dd>
@@ -347,7 +368,8 @@ function renderOutlook() {
         probabilidad de un suceso de sí/no — entrenada con la curva de tipos y las condiciones
         financieras. Ajuste: AUC ${fmtNum(rec.auc, 2)} en ${rec.n_obs} meses — el "área bajo la curva ROC"
         mide qué tan bien distingue el modelo entre meses que acabaron en recesión y los que no; 0,50 es
-        adivinar a cara o cruz, 1,00 es perfecto, y ${fmtNum(rec.auc, 2)} está ${rec.auc >= 0.8 ? "cerca del extremo bueno" : rec.auc >= 0.65 ? "claramente por encima del azar, sin ser perfecto" : "solo algo por encima del azar"}.` : "No disponible."}</small></div>`;
+        adivinar a cara o cruz, 1,00 es perfecto, y ${fmtNum(rec.auc, 2)} está ${rec.auc >= 0.8 ? "cerca del extremo bueno" : rec.auc >= 0.65 ? "claramente por encima del azar, sin ser perfecto" : "solo algo por encima del azar"}.` : "No disponible."}
+      ${(() => { const r = recByPhase(); return r ? `<br><b>¿Cuadra con la fase?</b> Son dos preguntas distintas. El reloj mide actividad e inflación <i>hoy</i>: con las probabilidades de fase actuales implica un ≈${fmtPct(r._now, 0)} de que este mes sea de recesión (Estanflación: ${fmtPct(r["Estanflación"], 0)} de sus meses fueron recesión; Reflación: ${fmtPct(r["Reflación"], 0)}). El modelo de recesión mira a 12 meses y solo usa curva de tipos y condiciones financieras, que ahora no dan alarma. Que el 75% de las recesiones caiga en Estanflación no significa que Estanflación sea recesión: esa fase ocupa el ${fmtPct(D.validation.share["Estanflación"], 0)} del tiempo y la recesión solo el ${fmtPct(D.validation.nber.share_recession_months, 0)}.` : ""; })()}</small></div>`;
 }
 
 /* ------------------------- reloj: renta variable / renta fija ------------------------- */
@@ -440,6 +462,7 @@ function wireClockToggle() {
       seg.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
       renderBuy();
       renderConsensus();
+      renderTactical();
       renderRotation();
       renderLab();
     };
@@ -489,7 +512,7 @@ function renderBuy() {
     <b>${phase}</b>, dentro de bandas fijadas de antemano (${bandsTxt}).
     Fuente: rotación walk-forward desde ${(scheme_.portfolio?.from || "").slice(0, 4) || "—"},
     sección «El backtest» más abajo.
-    ${lowConf ? ` Con solo <b>${fmtPct(c.confidence)}</b> de margen sobre ${c.alt_phase}, conviene mirar
+    ${lowConf ? ` Con solo <b>${fmtNum(c.confidence * 100, 1)} puntos</b> de margen sobre ${c.alt_phase}, conviene mirar
       también el bloque de «solapamiento» — lo que ha pagado en las dos fases candidatas a la vez.` : ""}`;
 }
 
@@ -639,7 +662,53 @@ function renderIndicators() {
   }
 }
 
+function renderTactical() {
+  const host = $("#tacticalBody");
+  const ext = D.extended?.assets || [];
+  if (!host) return;
+  const sec = $("#tactical");
+  if (sec) sec.hidden = clockMode !== "eq";   // son activos de renta variable: no aplica al reloj de renta fija
+  if (clockMode !== "eq") return;
+  const c = D.current;
+  const top2 = [c.phase, c.alt_phase];
+  host.innerHTML = D.phases.map(p => {
+    const pos = [];
+    for (const a of ext) {
+      const d = a.phases[p];
+      if (!d || d.rel == null || !["Fuerte", "Moderada"].includes(d.reliability)) continue;
+      if (d.rel > 0) pos.push({name: a.name, rel: d.rel, rel_l: d.reliability, n: d.n});
+    }
+    pos.sort((x, y) => y.rel - x.rel);
+    const line = (r, good) => `<li><b>${r.name}</b> <span class="rel rel-${r.rel_l}">${r.rel_l[0]}</span>
+      <span style="color:${good ? POS : NEG}">${signed(r.rel, 1)} pp</span> <small>(${r.n} meses)</small></li>`;
+    const now = top2.includes(p);
+    return `<div class="tac-card ${now ? "now" : ""}"><h3>${p}${p === c.phase ? " · fase actual" : p === c.alt_phase ? " · segunda fase" : ""}</h3>
+      ${pos.length ? `<div class="tac-h">Candidatos</div><ul>${pos.map(r => line(r, true)).join("")}</ul>` : ""}
+      ${!pos.length ? `<p class="small-cap">Ningún activo nuevo con evidencia moderada o fuerte en esta fase.</p>` : ""}</div>`;
+  }).join("");
+}
+
+function buyHoldHTML() {
+  const b = D.buy_hold;
+  if (!b || !b.assets?.length) return "";
+  const p = b.portfolio || {};
+  const hasTot = p.cagr_tot != null;
+  const better = b.assets.filter(x => tc(x) > tc(p)).slice(0, 3).map(x => x.name);
+  const rows = [{name: `<b>Cartera rotada (${(b.label || "").toLowerCase()})</b>`, ...p, me: true}, ...b.assets];
+  return `<h3 style="font-family:var(--serif);font-size:17px;margin-bottom:4px">Cartera frente a comprar y mantener cada sector</h3>
+    <p class="cap" style="margin-bottom:10px">Mismo periodo para todos (desde ${(b.from || "").slice(0, 4)}), ${hasTot ? "rentabilidad anual compuesta" : "exceso anual sobre letras del Tesoro (los datos se actualizan en la próxima ejecución)"}.
+      ${better.length ? `Mirando atrás, ${better.join(", ")} ha${better.length > 1 ? "n" : ""} rendido más que la cartera, pero con más riesgo; ` : "Ningún sector suelto ha rendido más que la cartera en el periodo completo; "}el modelo decide cada mes sin saber cuál será. La columna «10 años» muestra solo la última década.${(() => { const k = D.meta?.bridge?.check?.["Semiconductores"]; return k ? `
+      Control de la fuente: semiconductores (Ken French) frente al ETF ${k.etf} desde ${k.from}: correlación ${fmtNum(k.corr, 2)}, ${fmtNum(k.cagr_french, 1)}% vs ${fmtNum(k.cagr_etf, 1)}% anual.` : ""; })()}</p>
+    <p class="scroll-hint">← desliza la tabla →</p><div class="matrix-holder"><table class="matrix"><thead><tr><th>Activo</th><th>Anual %</th><th>10 años %</th><th>Volatilidad %</th><th>Sharpe</th><th>Caída máx. %</th></tr></thead><tbody>
+    ${rows.map(r => `<tr style="${r.me ? "background:var(--paper-deep)" : ""}"><td class="asset">${r.name}</td><td>${fmtNum(tc(r), 1)}</td><td>${r.tot10 != null ? fmtNum(r.tot10, 1) : "—"}</td><td>${fmtNum(r.vol, 1)}</td><td>${fmtNum(r.sharpe, 2)}</td><td>${fmtNum(r.maxdd, 1)}</td></tr>`).join("")}
+    </tbody></table></div><div style="margin-bottom:28px"></div>`;
+}
+
 function indRow(i) {
+  // Peso relativo: |carga| / suma de |cargas| del bloque, para que los pesos sumen 100%.
+  const blockTot = D.indicators.filter(x => x.block === i.block && x.loading != null)
+    .reduce((a, x) => a + Math.abs(x.loading), 0);
+  const share = (i.loading != null && blockTot > 0) ? Math.abs(i.loading) / blockTot : null;
   const scale = 3;
   const pctW = Math.min(50, Math.abs(i.z) / scale * 50);
   const pos = i.z >= 0;
@@ -649,15 +718,15 @@ function indRow(i) {
   const style = pos ? `left:50%;width:${pctW}%;background:${col}` : `right:50%;width:${pctW}%;background:${col}`;
   const delta = i.z_prev != null ? i.z - i.z_prev : null;
   const arrow = delta == null ? "" : (delta > 0.15 ? "▲" : delta < -0.15 ? "▼" : "▬");
-  const tip = [i.note, `retraso de publicación: ${i.lag_m} ${i.lag_m === 1 ? "mes" : "meses"} — el dato de un mes concreto no entra en la clasificación hasta que de verdad se publicó, no en tiempo real`,
+  const tip = [i.note, `valor: z-score robusto de la variación interanual (mediana y MAD de 10 años); la flecha compara con el mes anterior (▲ más alto, ▼ más bajo, ▬ similar)`, `retraso de publicación: ${i.lag_m} ${i.lag_m === 1 ? "mes" : "meses"} — el dato de un mes concreto no entra en la clasificación hasta que de verdad se publicó, no en tiempo real`,
     i.invert ? "signo invertido: sube el indicador cuando la serie original baja, para que todo el bloque lea en la misma dirección" : null,
-    i.loading != null ? `peso ${fmtNum(i.loading, 2)}: su carga dentro del primer componente principal del bloque — cuánto arrastra al índice conjunto cuando esta serie se mueve, no una importancia fijada a mano` : null,
+    share != null ? `peso ${fmtNum(share * 100, 0)}%: parte de la influencia total del bloque que corresponde a esta serie (los pesos de un bloque suman 100%). Sale del primer componente principal, no de una importancia fijada a mano` : null,
   ].filter(Boolean).join(" · ");
   return `
     <div class="ind-row" title="${tip}">
       <div class="nm">${i.name}
         <small>${i.id} · retraso ${i.lag_m}m${i.invert ? " · invertida" : ""}${
-          i.loading != null ? ` · peso ${fmtNum(i.loading, 2)}` : ""}</small>
+          share != null ? ` · peso ${fmtNum(share * 100, 0)}%` : ""}</small>
       </div>
       <div class="zbar"><span class="axis"></span><i style="${style}"></i></div>
       <div class="zval" style="color:${col}">${signed(i.z, 2)} <span style="color:${INK_FAINT};font-size:9.5px">${arrow}</span></div>
@@ -795,35 +864,68 @@ function drawMatrix() {
         const col = sig ? diverging(d.rel, 12) : "transparent";
         const txtCol = d.rel >= 0 ? POS : NEG;
         const tCell = [
-          `rentabilidad anualizada en ${p}: ${fmtNum(d.ann, 1)}%`,
+          `rentabilidad anualizada en ${p}: ${fmtNum(d.ann_tot ?? d.ann, 1)}%`,
           `exceso sobre su propia media de siempre: ${signed(d.rel, 1)} puntos`,
           d.rel_shrunk != null ? `contraído hacia cero: ${signed(d.rel_shrunk, 1)} pp — versión más prudente del exceso, encogida en proporción a lo poco fiable que es la muestra (pocos meses o mucho vaivén encogen más), para no dejarse impresionar por una racha corta` : null,
           `t=${fmtNum(d.t, 2)}: el exceso dividido por su propio margen de error — por debajo de ±2 aproximadamente, no se puede descartar que sea puro azar`,
-          d.q != null ? `q=${fmtNum(d.q, 3)}: la probabilidad de que esta casilla en concreto sea un falso positivo, YA corregida por examinar decenas de casillas a la vez (sin esa corrección, el p-valor sin ajustar sería menor y parecería más fiable de lo que es)` : null,
+          d.q != null ? `q=${fmtNum(d.q, 3)}: la probabilidad de que esta casilla en concreto sea un falso positivo, YA corregida por examinar cientos de casillas a la vez (sin esa corrección, el p-valor sin ajustar sería menor y parecería más fiable de lo que es)` : null,
+          d.reliability ? `FIABILIDAD ${String(d.reliability).toUpperCase()}${d.checks ? ` (estable en las dos mitades: ${d.checks.split ? "sí" : "no"}; funciona con la fase conocida con un mes de retraso: ${d.checks.lag ? "sí" : "no"})` : ""}` : null,
           `${d.n} meses de esta fase en la muestra · acertó signo (subió cuando "suele subir") el ${fmtPct(d.hit, 0)} de esos meses`,
         ].filter(Boolean).join(" · ");
         body += `<td class="cell ${p === cur ? "active" : ""} ${sig ? "" : "dim"}"
             style="background:${col}"
             title="${tCell}">
-            <span class="g" style="color:${sig ? txtCol : INK_FAINT}">${d.grade}</span>
+            <span class="g" style="color:${sig ? txtCol : INK_FAINT}">${d.grade}</span>${sig && d.reliability ? `<span class="rel rel-${d.reliability}" title="Fiabilidad: ${d.reliability}">${d.reliability[0]}</span>` : ""}
             <span class="r">${signed(d.rel, 1)}</span></td>`;
       }
-      body += `<td style="text-align:right;font-family:var(--mono);color:${INK_SOFT}">${fmtNum(a.uncond_ann, 1)}%</td></tr>`;
+      body += `<td style="text-align:right;font-family:var(--mono);color:${INK_SOFT}">${fmtNum(a.uncond_ann_tot ?? a.uncond_ann, 1)}%</td></tr>`;
     }
   }
 
   $("#matrix").innerHTML = head + `<tbody>${body}</tbody>`;
+  drawExtended();
   $("#matrixFoot").innerHTML = `
+    <b>Etiqueta F / M / D</b> junto a la nota = fiabilidad <b>Fuerte / Moderada / Débil</b>. Fuerte exige
+    nota ++ o +++, FDR ≤ 0,10, mismo signo en las dos mitades de la muestra, mismo signo usando la fase
+    conocida con un mes de retraso y al menos 60 meses de esa fase. Sin etiqueta: sin señal.<br>
     Cada celda: exceso anualizado en puntos porcentuales frente a la media histórica del propio activo,
     y la nota que resume su significatividad. Pasa el cursor por encima para ver el detalle completo
     (t, q, meses y tasa de acierto).<br>
     <b>+++ / ---</b> la probabilidad de que este resultado sea puro azar (el "p-valor") es menor al 1%,
-    y sigue siéndolo incluso después de corregir por examinar decenas de casillas a la vez ("FDR ≤ 0,10":
+    y sigue siéndolo incluso después de corregir por examinar cientos de casillas a la vez ("FDR ≤ 0,10":
     de las casillas marcadas así, como mucho un 10% de media serían falsos positivos, no cada una
     individualmente) &nbsp;·&nbsp; <b>++ / --</b> probabilidad de azar menor al 5%, sin esa corrección
     adicional &nbsp;·&nbsp; <b>+ / -</b> menor al 20% — indicativo, no concluyente &nbsp;·&nbsp;
     <b>0</b> no se puede distinguir de su propia media, con la muestra disponible hoy — no significa que
     "no haya efecto", significa que con estos datos no se puede afirmar que lo haya.`;
+}
+
+function drawExtended() {
+  const ext = D.extended;
+  const rows = (ext?.assets || []);
+  if (!rows.length) {
+    $("#extMatrix").innerHTML = "";
+    $("#extFoot").textContent = "Sin datos de la familia extendida en esta ejecución.";
+    return;
+  }
+  const head = `<thead><tr><th>Activo</th>${D.phases.map(p => `<th>${p}</th>`).join("")}</tr></thead>`;
+  const body = rows.map(a => `<tr><td class="asset">${a.name}<small>${a.source} · desde ${a.from.slice(0, 7)} · ${a.n} meses</small></td>` +
+    D.phases.map(p => {
+      const d = a.phases[p] || {};
+      if (d.grade == null || d.grade === "s/d") return `<td class="cell dim">—</td>`;
+      const sig = d.grade !== "0";
+      return `<td class="cell ${sig ? "" : "dim"}" style="background:${sig ? diverging(d.rel, 12) : "transparent"}"
+        title="t=${fmtNum(d.t, 2)} · q=${d.q != null ? fmtNum(d.q, 3) : "—"} · ${d.n} meses · fiabilidad ${d.reliability || "—"}">
+        <span class="g" style="color:${sig ? (d.rel >= 0 ? POS : NEG) : INK_FAINT}">${d.grade}</span>${sig && d.reliability ? `<span class="rel rel-${d.reliability}">${d.reliability[0]}</span>` : ""}
+        <span class="r">${signed(d.rel, 1)}</span></td>`;
+    }).join("") + `</tr>`).join("");
+  $("#extMatrix").innerHTML = head + `<tbody>${body}</tbody>`;
+  const m = ext.meta || {};
+  const bad = (m.log || []).filter(x => x.status !== "ok").map(x => x.name);
+  $("#extFoot").innerHTML = `Familia propia de contrastes (su propio control de falsos descubrimientos); no entra en la cartera,
+    el backtest ni el consenso. ${bad.length ? `No cargados esta vez: ${bad.join(", ")}.` : ""}
+    Los ETF (IBB, XBI, MCHI, FXI, EWJ) tienen historia corta: con menos de 60 meses (5 años) en una fase una casilla nunca
+    puede llegar a Fuerte, y eso es lo correcto, no un fallo.`;
 }
 
 /* -------------------------------- consenso ------------------------------ */
@@ -924,6 +1026,8 @@ function renderRobustness() {
 // memoria. Son las posiciones reales y actuales (nombre, ticker, peso) del propio
 // SPDR/State Street sectorial que ya aparece en ETF_MAP — ver holdings.meta.source
 // y fetch_holdings() en build_data.py. Nunca cambian ningún número de la cartera.
+const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+
 function holdingsExamples(list) {
   if (!list || !list.length) return "";
   return list.slice(0, 3)
@@ -951,7 +1055,8 @@ function subsectorHTML(S, phase) {
   const rows = (S.playbook[phase] || []).filter(x => x.sleeve === "Renta variable");
   const cards = rows.map(x => {
     const items = sub.por_sector[x.name]?.[phase];
-    const secAnn = D.assets.find(a => a.name === x.name)?.phases?.[phase]?.ann;
+    const secCell = D.assets.find(a => a.name === x.name)?.phases?.[phase];
+    const secAnn = secCell ? (secCell.ann_tot ?? secCell.ann) : undefined;
     if (!items || !items.length) {
       // Sin historia propia que desglosar por fase: en vez de un texto explicando
       // por qué, se enseña lo que sí hay, con el mismo aspecto que las filas de
@@ -996,20 +1101,24 @@ function subsectorHTML(S, phase) {
       </div>`;
     }
     const best = items[0];
-    const delta = (secAnn != null && best.ann != null) ? best.ann - secAnn : null;
+    const bAnn = best.ann_tot ?? best.ann;
+    const delta = (secAnn != null && bAnn != null) ? bAnn - secAnn : null;
     return `<div class="cons-card">
       <span class="cls">${x.name}${secAnn != null ? ` · en conjunto ${fmtNum(secAnn, 1)}%` : ""}</span>
       ${items.map(it => {
-        const col = it.ann < 0 ? NEG : (secAnn != null && it.ann >= secAnn ? POS : "var(--ink-soft)");
+        const itAnn = it.ann_tot ?? it.ann;
+        const col = itAnn < 0 ? NEG : (secAnn != null && itAnn >= secAnn ? POS : "var(--ink-soft)");
         const sig = it.grade && it.grade !== "0" && it.grade !== "s/d";
-        const examples = holdingsExamples(hold?.por_subsector?.[it.name]);
+        const examples = holdingsExamples(hold?.por_subsector?.[it.name]) || (hold ? "ninguna empresa del ETF sectorial encaja en este subsector (son compañías pequeñas)" : "");
         return metricRow({
           label: it.name,
-          badge: sig ? ` <span class="small-cap" style="color:${it.ann >= 0 ? POS : NEG}">${it.grade}</span>` : "",
+          badge: (sig ? ` <span class="small-cap" style="color:${itAnn >= 0 ? POS : NEG}">${it.grade}</span>` : "")
+            + (secAnn != null && itAnn > secAnn && itAnn > 0
+              ? ` <button type="button" class="ia-btn" data-ia data-sector="${esc(x.name)}" data-sub="${esc(it.name)}" data-edge="${(itAnn - secAnn).toFixed(2)}" title="Pedir a Claude compañías concretas para este subsector en la fase actual">✦ compañías</button>` : ""),
           caption: examples,
-          value: `${fmtNum(it.ann, 1)}%`,
+          value: `${fmtNum(itAnn, 1)}%`,
           valueColor: col,
-          title: `anualizado ${fmtNum(it.ann, 1)}% · exceso ${signed(it.rel, 1)} pp${it.rel_shrunk != null ? ` (contraído ${signed(it.rel_shrunk, 1)})` : ""} · ${it.n} meses`,
+          title: `anualizado ${fmtNum(itAnn, 1)}% · exceso ${signed(it.rel, 1)} pp${it.rel_shrunk != null ? ` (contraído ${signed(it.rel_shrunk, 1)})` : ""} · ${it.n} meses`,
         });
       }).join("")}
       ${delta != null ? `<p class="foot" style="margin-top:8px;margin-bottom:0">
@@ -1026,9 +1135,11 @@ function subsectorHTML(S, phase) {
       arriba, que sigue decidida por sector completo. Dentro de cada sector YA elegido en <b>${phase}</b>,
       mira qué línea de negocio pagó más y cuál menos — con historia suficiente para medirlo por fase en
       la mayoría de sectores; donde no la hay, se enseñan en su lugar las mayores posiciones reales de hoy
-      del fondo que replica ese sector. Bajo cada nombre, un par de empresas reales y actuales (nombre,
-      ticker y peso) — nunca una lista elegida de memoria, ver METODOLOGIA.md.</p>
-    <div class="cons-grid" style="margin-bottom:8px">${cards.join("")}</div>`;
+      del fondo que replica ese sector. Bajo cada nombre, las mayores posiciones reales del fondo (nombre,
+      ticker y peso): son <b>contexto, no una recomendación</b>. Que el subsector rinda mejor que su sector no
+      implica que esas empresas lo hagan. Para ideas concretas, pulsa <b>✦ compañías</b> en un subsector que supere a su sector: Claude busca información reciente y propone empresas (estén o no en el fondo) con sus fuentes.</p>
+    <div class="cons-grid" style="margin-bottom:8px">${cards.join("")}</div>
+    <div id="iaOut" class="ia-out" hidden></div>`;
 }
 
 /* ------------------------------ backtest --------------------------------- */
@@ -1059,14 +1170,14 @@ function renderRotation() {
   const mkt = r.bench_100eq || {};
   const b6040 = r.bench_6040 || {};
   const p = S.portfolio;
-  const beatsMkt = p.cagr != null && mkt.cagr != null && p.cagr > mkt.cagr;
+  const beatsMkt = tc(p) != null && tc(mkt) != null && tc(p) > tc(mkt);
   const mainSleeve = Object.keys(r.bands || {})[0];
   const [cLo, cHi] = r.counts?.[mainSleeve] || [];
 
   const statRow = (name, s, extra, active) => `
     <tr style="${active ? "background:rgba(169,117,44,.07)" : ""}">
       <td class="asset" style="${active ? "color:var(--ink);font-weight:600" : ""}">${name}</td>
-      <td style="text-align:right;font-family:var(--mono)">${fmtNum(s.cagr, 1)}%</td>
+      <td style="text-align:right;font-family:var(--mono)">${fmtNum(tc(s), 1)}%</td>
       <td style="text-align:right;font-family:var(--mono)">${fmtNum(s.vol, 1)}%</td>
       <td style="text-align:right;font-family:var(--mono);font-weight:600;color:${
         s.sharpe > (mkt.sharpe ?? 0) ? POS : "var(--ink-soft)"}">${fmtNum(s.sharpe, 2)}</td>
@@ -1080,28 +1191,20 @@ function renderRotation() {
       <div class="eyebrow">El backtest · ${T.label}</div>
       <h2>${T.title} Fase a fase, desde ${(p.from || "").slice(0, 4) || "—"}</h2>
       <p class="cap">${T.intro}</p>
-      <p class="cap" style="margin-top:8px">Todos los números de esta sección son <b>exceso sobre
-        letras del Tesoro a 3 meses</b>, no el retorno total del índice — es la convención estándar
-        para que el Sharpe signifique lo que dice significar. ${T.benchShort} en términos brutos ha
-        rentado más que la cifra de abajo, aproximadamente el tipo de interés sin riesgo del
-        periodo; la comparación entre cartera y mercado es igual de válida porque a los dos se les
-        resta lo mismo. "Anual" es siempre <b>CAGR</b> (tasa de crecimiento anual compuesto): la
-        rentabilidad anual constante que, capitalizada mes a mes durante todo el periodo, habría dado
-        el mismo resultado final — no la media aritmética de los años sueltos, que sobreestima el
-        resultado real de una serie con altibajos.</p>
+      <p class="cap" style="margin-top:8px">"Anual" es la rentabilidad anual compuesta (CAGR) de lo que habría ganado quien siguiera la cartera: rentabilidad pura de los activos, sin restar nada. Solo el Sharpe se calcula descontando el tipo sin riesgo, que es su definición.</p>
     </div>
 
     <div class="outlook" style="margin-bottom:24px;border-color:${beatsMkt ? POS : PHASE_COLOR["Sobrecalentamiento"]}">
-      <div class="item"><dt>Cartera de rotación</dt><dd style="color:${beatsMkt ? POS : "var(--ink)"}">${fmtNum(p.cagr, 1)}% anual*</dd>
+      <div class="item"><dt>Cartera de rotación</dt><dd style="color:${beatsMkt ? POS : "var(--ink)"}">${fmtNum(tc(p), 1)}% anual</dd>
         <small>Sharpe ${fmtNum(p.sharpe, 2)} · caída máxima ${fmtNum(p.maxdd, 1)}%</small></div>
-      <div class="item"><dt>${T.benchDt}</dt><dd>${fmtNum(mkt.cagr, 1)}% anual*</dd>
+      <div class="item"><dt>${T.benchDt}</dt><dd>${fmtNum(tc(mkt), 1)}% anual</dd>
         <small>Sharpe ${fmtNum(mkt.sharpe, 2)} · caída máxima ${fmtNum(mkt.maxdd, 1)}%</small></div>
-      <div class="item"><dt>Diferencia</dt><dd style="color:${beatsMkt ? POS : NEG}">${signed((p.cagr ?? 0) - (mkt.cagr ?? 0), 1)} pp/año</dd>
+      <div class="item"><dt>Diferencia</dt><dd style="color:${beatsMkt ? POS : NEG}">${signed((tc(p) ?? 0) - (tc(mkt) ?? 0), 1)} pp/año</dd>
         <small>${beatsMkt ? "la rotación por fase bate al índice en rentabilidad, no solo en riesgo" : "el índice bate a la rotación en rentabilidad; mira el Sharpe y la caída máxima antes de descartarla"}</small></div>
       <div class="item" title="Fórmula: rentabilidad anualizada dividida entre la volatilidad anualizada. Compara dos series con distinto nivel de riesgo en términos justos: 8% de rentabilidad con la mitad de vaivén que otra que también da 8% es, en Sharpe, el doble de buena. Por encima de 1 se considera sólido para una cartera de solo renta variable; por debajo de 0,5, flojo."><dt>Sharpe</dt><dd style="color:${(p.sharpe ?? 0) > (mkt.sharpe ?? 0) ? POS : "var(--ink)"}">${fmtNum(p.sharpe, 2)} vs ${fmtNum(mkt.sharpe, 2)}</dd>
         <small>rentabilidad por unidad de riesgo asumido — más alto es mejor</small></div>
     </div>
-    <p class="foot" style="margin-top:-14px;margin-bottom:20px">* Exceso anualizado sobre letras del Tesoro a 3 meses (ver nota arriba), no CAGR del índice en bruto. "Caída máxima" (maxDD): la mayor pérdida que habría sufrido quien entró justo en el peor pico y vendió justo en el peor valle posterior — el susto más grande que ha dado la estrategia en todo el periodo, no una pérdida típica.</p>
+    <p class="foot" style="margin-top:-14px;margin-bottom:20px">Caída máxima: la mayor pérdida de pico a valle en todo el periodo, no una pérdida típica.${(() => { const q = D.recency_test; if (!q || !q.variants) return ""; const v = Object.entries(q.variants).map(([k, x]) => `${k} m: ${x.wins}/4`).join(", "); return ` Peso de los datos recientes: el modelo ya pondera con semivida de ${q.base_half_life} meses; se probaron otras (${v} esquemas mejorados) y ${q.adopted_half_life === q.base_half_life ? "ninguna mejora el resultado, se mantiene " + q.base_half_life : "se adopta " + q.adopted_half_life} meses.`; })()}</p>
 
     <h3 style="font-family:var(--serif);font-size:17px;margin-bottom:4px">¿Y si el reparto interno cambia?</h3>
     <p class="cap" style="margin-bottom:14px">La selección ${T.selectionWord} es idéntica en los cuatro
@@ -1111,7 +1214,7 @@ function renderRotation() {
     <ul class="cap" style="margin:0 0 14px 18px;padding:0">
       <li><b>Equiponderado</b>: mismo peso para todos los ${T.assetWordPl} elegidos (${cHi
           ? `si son ${cHi}, ${fmtNum(100 / cHi, 0)}% cada uno`
-          : "si son 4, 25% cada uno"}) — no
+          : "si son 4, 25% cada uno"}${clockMode === "eq" ? "; Estanflación es siempre 3" : ""}) — no
         apuesta por ninguno en particular dentro del grupo.</li>
       <li><b>Inverso de la volatilidad</b>: más peso al ${T.assetWord} que se mueve con menos vaivén, menos al más
         errático — para que ningún ${T.assetWord} por sí solo acapare el riesgo de la cartera.</li>
@@ -1128,7 +1231,7 @@ function renderRotation() {
       <table class="matrix">
         <thead><tr>
           <th>Esquema de reparto</th>
-          <th style="text-align:right" title="CAGR: rentabilidad anual compuesta, exceso sobre letras del Tesoro a 3 meses">Anual*</th>
+          <th style="text-align:right" title="Rentabilidad anual compuesta (CAGR), retorno total">Anual</th>
           <th style="text-align:right" title="Volatilidad anualizada: la desviación estándar de los retornos mensuales, llevada a escala de un año — cuanto mayor, más se mueve el valor de la cartera mes a mes">Vol</th>
           <th style="text-align:right" title="Rentabilidad anual dividida entre volatilidad anualizada: rentabilidad por unidad de riesgo asumido">Sharpe</th>
           <th style="text-align:right" title="Caída máxima (maxDD): la mayor pérdida de pico a valle en todo el periodo, no una pérdida típica">Caída máx.</th>
@@ -1139,14 +1242,14 @@ function renderRotation() {
           ${Object.entries(r.schemes).map(([k, v]) =>
             statRow(v.label, v.portfolio, `${v.wins_years}/${v.n_years}`, k === scheme)).join("")}
           <tr style="border-top:2px solid var(--line-strong)"><td class="asset" style="font-weight:600">${T.benchLabel}</td>
-            <td style="text-align:right;font-family:var(--mono);font-weight:600">${fmtNum(mkt.cagr, 1)}%</td>
+            <td style="text-align:right;font-family:var(--mono);font-weight:600">${fmtNum(tc(mkt), 1)}%</td>
             <td style="text-align:right;font-family:var(--mono)">${fmtNum(mkt.vol, 1)}%</td>
             <td style="text-align:right;font-family:var(--mono);font-weight:600">${fmtNum(mkt.sharpe, 2)}</td>
             <td style="text-align:right;font-family:var(--mono)">${fmtNum(mkt.maxdd, 1)}%</td>
             <td style="text-align:right;font-family:var(--mono)">${fmtNum(mkt.worst12, 1)}%</td>
             <td style="text-align:right;font-family:var(--mono);color:var(--ink-soft)">—</td></tr>
           ${T.show6040 ? `<tr><td class="asset" style="color:var(--ink-faint);font-size:12px">60/40 (referencia, sin peso en esta cartera)</td>
-            <td style="text-align:right;font-family:var(--mono);color:var(--ink-faint);font-size:12px">${fmtNum(b6040.cagr, 1)}%</td>
+            <td style="text-align:right;font-family:var(--mono);color:var(--ink-faint);font-size:12px">${fmtNum(tc(b6040), 1)}%</td>
             <td style="text-align:right;font-family:var(--mono);color:var(--ink-faint);font-size:12px">${fmtNum(b6040.vol, 1)}%</td>
             <td style="text-align:right;font-family:var(--mono);color:var(--ink-faint);font-size:12px">${fmtNum(b6040.sharpe, 2)}</td>
             <td style="text-align:right;font-family:var(--mono);color:var(--ink-faint);font-size:12px">${fmtNum(b6040.maxdd, 1)}%</td>
@@ -1194,9 +1297,11 @@ function renderRotation() {
     <p class="foot" style="margin-bottom:28px">Barras verdes: años en que la cartera batió a ${T.benchShort}.
       Ganó <b>${S.wins_years} de ${S.n_years}</b> años.</p>
 
+    ${clockMode === "eq" ? buyHoldHTML() : ""}
+
     <h3 style="font-family:var(--serif);font-size:17px;margin-bottom:4px">Dónde gana y dónde no</h3>
-    <p class="cap" style="margin-bottom:12px">Las fases con menos de 60 meses salen atenuadas: con año y
-      medio o dos de datos, la diferencia es ruido y no debe leerse como que el sistema funcione mejor o
+    <p class="cap" style="margin-bottom:12px">Las fases con menos de 60 meses salen atenuadas: con menos de
+      cinco años de datos, la diferencia es ruido y no debe leerse como que el sistema funcione mejor o
       peor ahí.</p>
     <div class="scores-grid" style="margin-bottom:28px">
       ${D.phases.filter(x => S.by_phase[x]).map(x => {
@@ -1472,6 +1577,8 @@ function renderValidation() {
         <tr title="De todos los meses que el NBER fechó como expansión (no recesión), en cuántos el eje de crecimiento marcaba positivo — el reverso de la fila de arriba, a esto se le llama 'especificidad': si fuera bajo, el modelo vería recesión por todas partes, incluso en expansión clara"><td>Meses de expansión con crecimiento positivo</td><td>${fmtPct(nber.specificity, 0)}</td></tr>
         <tr title="De los meses que el NBER fechó como recesión, qué fracción cayó en la fase Reflación — la más fría de las cuatro, y la que cabría esperar que coincidiera más con una recesión real"><td>Recesiones repartidas en Reflación</td><td>${fmtPct(nber.phase_mix_in_recession["Reflación"], 0)}</td></tr>
         <tr title="El resto de meses de recesión que no cayeron en Reflación: caen aquí, en la fase de crecimiento débil con inflación aún alta — coherente con una recesión con inflación pegajosa, no con un fallo del modelo"><td>Recesiones repartidas en Estanflación</td><td>${fmtPct(nber.phase_mix_in_recession["Estanflación"], 0)}</td></tr>
+        <tr title="Al revés: de todos los meses clasificados en Estanflación, qué fracción fue recesión según el NBER. Es la cifra que importa si hoy la fase es Estanflación"><td>Meses en Estanflación que fueron recesión</td><td>${fmtPct(recByPhase()?.["Estanflación"], 0)}</td></tr>
+        <tr title="Al revés: de todos los meses clasificados en Reflación, qué fracción fue recesión según el NBER"><td>Meses en Reflación que fueron recesión</td><td>${fmtPct(recByPhase()?.["Reflación"], 0)}</td></tr>
       </table>
       <p class="cap" style="margin-top:10px;font-size:12px">El fechado del NBER (la autoridad oficial en
       EE.UU. sobre cuándo empieza y termina una recesión, que decide con meses de retraso y usando datos
@@ -1483,7 +1590,7 @@ function renderValidation() {
       <table>
         ${D.phases.map(p => `<tr><td><span style="color:${PHASE_COLOR[p]}">■</span> ${p}</td>
           <td>${fmtPct(v.share?.[p], 0)} · ${fmtNum(v.duration_months?.[p], 1)} m</td></tr>`).join("")}
-        <tr title="Cuánto se parecen entre sí, en la práctica, el eje de crecimiento y el de inflación desde 1959. Si estuvieran muy correlacionados (cerca de ±1), no serían dos historias independientes sino la misma contada dos veces, y el reloj de cuatro fases perdería sentido — cerca de 0 confirma que aportan información distinta."><td>Correlación entre los dos ejes</td><td>${fmtNum(v.factor_corr, 2)}</td></tr>
+        <tr title="Cuánto se parecen entre sí, en la práctica, el eje de crecimiento y el de inflación en todo el histórico (desde 1970). Si estuvieran muy correlacionados (cerca de ±1), no serían dos historias independientes sino la misma contada dos veces, y el reloj de cuatro fases perdería sentido — cerca de 0 confirma que aportan información distinta."><td>Correlación entre los dos ejes</td><td>${fmtNum(v.factor_corr, 2)}</td></tr>
         ${v.rotation ? `<tr title="De todas las veces que la fase ha cambiado en el histórico, en qué fracción el cambio siguió el orden del reloj clásico (Recuperación → Sobrecalentamiento → Estanflación → Reflación → Recuperación) en vez de saltar a una fase no contigua. Por encima del 50% es más orden que azar (hay 3 destinos posibles al cambiar, así que el azar puro daría ~33%)."><td>Transiciones en el sentido del reloj</td>
           <td style="color:${v.rotation.clockwise_share < 0.4 ? NEG : "var(--ink)"}">${fmtPct(v.rotation.clockwise_share, 0)} de ${v.rotation.n_transitions}</td></tr>` : ""}
       </table>
@@ -1543,9 +1650,9 @@ function renderDiagnostics() {
 /* ------------------------------ metodología ----------------------------- */
 function renderMethod() {
   const rules = [
-    ["Un eje, muchas series", `Crecimiento e inflación se miden con ${D.indicators.filter(i => i.block !== "leading").length}
-      series de FRED, no con una: una sola serie puede tener un mes raro por ruido propio; que once
-      series distintas se muevan juntas es una señal mucho más difícil de fabricar por azar. Cada una
+    ["Un eje, muchas series", `Crecimiento e inflación se miden con ${D.indicators.filter(i => i.block === "growth" || i.block === "inflation").length}
+      series de FRED, no con una: una sola serie puede tener un mes raro por ruido propio; que una decena
+      de series distintas se muevan juntas es una señal mucho más difícil de fabricar por azar. Cada una
       entra como <em>z-score robusto</em> — cuántas "medianas de desviación absoluta" (MAD: la versión de
       la desviación estándar que usa la mediana en vez de la media, y que un solo dato extremo no puede
       disparar) se aleja del valor típico de esa misma serie — calculado con una <em>ventana móvil de
@@ -1582,8 +1689,8 @@ function renderMethod() {
       real" hacia arriba en proporción a cuántas pruebas se hacen a la vez — porque se testan cientos de
       casillas de golpe, y con tantas, algunas "señales" saldrían significativas por puro azar si no se
       corrigiera nada.`],
-    ["El histórico es largo a propósito", `Los sectores usan las carteras de Ken French, que llegan a
-      1926 — casi un siglo, con varios ciclos completos de negocio dentro. Con solo ETFs cotizados desde
+    ["El histórico es largo a propósito", `Los sectores usan las carteras de Ken French, que dan
+      varias décadas, con varios ciclos completos de negocio dentro. Con solo ETFs cotizados desde
       1999 apenas hay dos ciclos completos y cualquier resultado sería, en el mejor de los casos,
       anecdótico: no se puede separar una ventaja real de haber tenido suerte con el periodo elegido. Los
       tickers junto a cada activo son la forma real de ejecutarlo hoy, aunque el histórico que respalda
@@ -1683,4 +1790,73 @@ function wireControls() {
 }
 
 boot();
+
+
+/* ------------------- compañías con criterio (Claude + búsqueda web) ------------------- */
+function renderIA(out, data) {
+  const conf = {alta: POS, media: "var(--ink-soft)", baja: NEG};
+  const safe = u => /^https:\/\//.test(u || "") ? esc(u) : "#";
+  const cos = (data.companias || []).map(c => `
+    <div class="ia-co">
+      <h4>${esc(c.nombre)} <span class="small-cap mono">${esc(c.ticker)}${c.bolsa ? " · " + esc(c.bolsa) : ""}</span>
+        <span class="small-cap" style="color:${conf[c.confianza] || "inherit"}">evidencia ${esc(c.confianza)}</span></h4>
+      <p>${esc(c.tesis)}</p>
+      <ul>${c.por_que_ahora.map(d => `<li>${esc(d.dato)} <small><a href="${safe(d.fuente_url)}" target="_blank" rel="noopener noreferrer">${esc(d.fuente_titulo || "fuente")}</a>${d.fecha ? " · " + esc(d.fecha) : ""}</small></li>`).join("")}</ul>
+      ${c.riesgos?.length ? `<p class="small-cap"><b>Riesgos:</b> ${c.riesgos.map(esc).join(" · ")}</p>` : ""}
+    </div>`).join("");
+  out.innerHTML = `
+    ${data.resumen ? `<p class="cap">${esc(data.resumen)}</p>` : ""}
+    ${cos || `<p class="buy-empty">Claude no ha encontrado evidencia suficiente para recomendar compañías con fuentes fiables.</p>`}
+    ${data.limites ? `<p class="foot">${esc(data.limites)}</p>` : ""}
+    <p class="foot">Generado por Claude (${esc(data.modelo || "")}) el ${esc((data.generado || "").slice(0, 10))} con búsqueda web.
+      Solo se muestran datos con una fuente que la búsqueda encontró de verdad${data.descartados_sin_fuente ? ` (descartados sin fuente: ${data.descartados_sin_fuente})` : ""}.
+      Es una idea para investigar, no asesoramiento ni una predicción; verifica las fuentes antes de operar.</p>`;
+}
+
+document.addEventListener("click", async ev => {
+  const btn = ev.target.closest?.("[data-ia]");
+  if (!btn) return;
+  const out = $("#iaOut");
+  if (!out) return;
+  out.hidden = false;
+  out.scrollIntoView({behavior: "smooth", block: "nearest"});
+  const url = window.RELOJ_IA_URL;
+  if (!url) {
+    // Sin Worker: se copia un prompt ya redactado y se abre Claude, para usar la suscripción normal (sin coste extra).
+    const c0 = D.current;
+    const names = (D.holdings?.por_sector?.[btn.dataset.sector] || []).slice(0, 8).map(h => h.name).join(", ");
+    const prompt = `Actúa como un analista de renta variable prudente. Fase actual del ciclo económico (reloj de inversión): ${c0.phase} (segunda fase: ${c0.alt_phase}). `
+      + `Sector: ${btn.dataset.sector}. Subsector: ${btn.dataset.sub}, que históricamente rinde ${btn.dataset.edge} pp/año más que su sector en esta fase (dato pasado, no predicción). `
+      + (names ? `Mayores posiciones del ETF sectorial (solo contexto, no te limites a ellas): ${names}. ` : "")
+      + `Hoy es ${new Date().toISOString().slice(0, 10)}. Usa la búsqueda web y propón de 3 a 5 compañías cotizadas reales (EE.UU. o Europa, con liquidez) con mejores argumentos para este entorno. `
+      + `Reglas: cada argumento debe ser un hecho concreto y reciente con su enlace de fuente; no inventes cifras, tickers ni noticias; sin precio objetivo; incluye al menos un riesgo por compañía; `
+      + `indica el nivel de evidencia (alta/media/baja); si la evidencia no basta, da menos compañías y dilo. Explica por qué encajan con la fase macro, no solo con el sector. Responde en español.`;
+    let copied = false;
+    try { await navigator.clipboard.writeText(prompt); copied = true; } catch (_) {}
+    out.innerHTML = `<p class="cap">${copied ? "He copiado la pregunta ya redactada." : "Copia esta pregunta:"} Pégala en Claude (se abre en otra pestaña) y usa tu suscripción normal, sin coste extra.</p>
+      <textarea readonly rows="7" style="width:100%;font:inherit;font-size:12px;padding:8px;border:1px solid var(--line-soft);border-radius:8px;background:var(--paper)">${esc(prompt)}</textarea>
+      <p class="foot">Esta vía no filtra fuentes automáticamente: comprueba tú los enlaces que te dé.</p>`;
+    window.open("https://claude.ai/new", "_blank", "noopener");
+    return;
+  }
+  const c = D.current;
+  const hold = D.holdings?.por_sector?.[btn.dataset.sector] || [];
+  out.innerHTML = `<p class="cap">Claude está buscando información reciente sobre <b>${esc(btn.dataset.sub)}</b>… (20-60 s)</p>`;
+  btn.disabled = true;
+  try {
+    const r = await fetch(url, {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({phase: c.phase, alt_phase: c.alt_phase, date: c.date, sector: btn.dataset.sector,
+        subsector: btn.dataset.sub, edge_pp: Number(btn.dataset.edge), etf_names: hold.slice(0, 8).map(h => h.name)})});
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+    out.innerHTML = `<h3 style="font-family:var(--serif);font-size:17px;margin:0 0 6px">${esc(btn.dataset.sub)} · ${esc(c.phase)}: compañías según Claude</h3>`;
+    const body = document.createElement("div");
+    out.appendChild(body);
+    renderIA(body, data);
+  } catch (e) {
+    out.innerHTML = `<p class="buy-empty">No se pudo obtener la respuesta: ${esc(e.message)}</p>`;
+  } finally {
+    btn.disabled = false;
+  }
+});
 })();

@@ -22,7 +22,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
         with:
@@ -66,27 +66,40 @@ jobs:
           node --check docs/assets/app.js
           node scripts/check_page.js
 
+      - name: Informe mensual PDF
+        continue-on-error: true
+        run: |
+          pip install playwright
+          python -m playwright install --with-deps chromium
+          python scripts/build_report.py
+
       - name: Publicar
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/data/data.json
-          if git diff --staged --quiet; then
-            echo "Sin cambios en los datos."
-            exit 0
-          fi
-          git commit -m "datos: $(date -u +'%Y-%m-%d %H:%M UTC')"
-          # Si mientras corría la build alguien ha subido algo por la web, el push
-          # se rechaza. Se reintenta rebasando sobre lo que haya llegado: este
-          # commit solo toca ficheros de datos, así que nunca choca con edición
-          # manual de código.
+          # Copia de lo generado: si el remoto avanzó mientras corría la build, se
+          # reparte sobre lo último en vez de rebasar (los PDF y data.json son
+          # ficheros generados: siempre gana la versión recién calculada).
+          rm -rf /tmp/pub && mkdir -p /tmp/pub/data /tmp/pub/reports
+          cp docs/data/data.json /tmp/pub/data/
+          cp -r docs/reports/. /tmp/pub/reports/ 2>/dev/null || true
+          mkdir -p /tmp/pub/lab && cp -r lab/. /tmp/pub/lab/ 2>/dev/null || true
           for intento in 1 2 3 4 5; do
+            git add docs/data/data.json docs/reports lab
+            if git diff --staged --quiet; then
+              echo "Sin cambios en los datos."
+              exit 0
+            fi
+            git commit -m "datos: $(date -u +'%Y-%m-%d %H:%M UTC')"
             if git push; then
               echo "Publicado en el intento $intento."
               exit 0
             fi
-            echo "Push rechazado, rebasando sobre el remoto (intento $intento)…"
-            git pull --rebase --autostash origin main || exit 1
+            echo "Push rechazado; actualizando sobre el remoto (intento $intento)…"
+            git fetch origin main
+            git reset --hard origin/main
+            cp /tmp/pub/data/data.json docs/data/data.json
+            mkdir -p docs/reports lab && cp -r /tmp/pub/reports/. docs/reports/ && cp -r /tmp/pub/lab/. lab/ 2>/dev/null || true
             sleep $((intento * 5))
           done
           echo "No se pudo publicar tras 5 intentos."

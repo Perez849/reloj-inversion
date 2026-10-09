@@ -1,0 +1,8 @@
+name = "reloj-ia"
+main = "index.js"
+compatibility_date = "2025-01-01"
+
+[vars]
+ALLOWED_ORIGIN = "https://perez849.github.io"
+MODEL = "claude-sonnet-5-5"
+MAX_PER_HOUR = "12"

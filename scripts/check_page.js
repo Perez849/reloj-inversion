@@ -35,14 +35,12 @@ if (huerfanos.length) {
 }
 
 // 2. El <script> que carga la página tiene que ser el fichero comprobado.
-const src = (html.match(/<script\s+src\s*=\s*["']([^"']+)["']/) || [])[1];
-if (!src) {
+const srcs = [...html.matchAll(/<script\s+src\s*=\s*["']([^"']+)["']/g)].map(m => m[1]);
+const src = srcs.map(x => path.normalize(path.join(path.dirname(HTML), x.split("?")[0]))).find(x => x === path.normalize(APP));
+if (!srcs.length) {
   fallos.push("index.html no carga ningún script.");
-} else {
-  const real = path.normalize(path.join(path.dirname(HTML), src));
-  if (real !== path.normalize(APP)) {
-    fallos.push(`index.html carga ${real}, pero el fichero comprobado es ${APP}.`);
-  }
+} else if (!src) {
+  fallos.push(`index.html carga ${srcs.join(", ")}, pero ninguno es el fichero comprobado ${APP}.`);
 }
 
 // 3. Copias sueltas de app.js fuera de su sitio: son la causa del despiste.
