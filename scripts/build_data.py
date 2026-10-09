@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import io
 import json
-from pathlib import Path
 import math
 import os
 import time
@@ -55,13 +54,11 @@ MIN_MONTHS = 60
 T_START = time.time()
 WARNINGS: list[str] = []
 ASSET_LOG: list[dict] = []
-DEBUG_TAILS: dict = {}
 
 
 def warn(msg: str) -> None:
     print(f"  ! {msg}")
-    if msg not in WARNINGS:
-        WARNINGS.append(msg)
+    WARNINGS.append(msg)
 
 
 def http_get(url: str, tries: int = RETRIES, expect: str | None = None,
@@ -314,240 +311,14 @@ def rolling_z(s: pd.Series, window: int = ROLL_WINDOW_M) -> pd.Series:
     return ((s - med) / scale).clip(-4, 4)
 
 
-# Una serie cuya última observación queda a más de seis meses del final del panel
-# está descontinuada o rota (caso real: USSLIND, último dato en febrero de 2020).
-# Dejarla dentro del PCA hace que la definición del factor cambie en silencio en el
-# punto en que desaparece, y le da carga al factor con un valor que ya no existe.
-STALE_MAX_M = 6
-
-# Borde irregular. Las series macro se publican con retrasos distintos, así que en
-# el último mes del panel suelen estar al día solo unas pocas. El factor se calcula
-# como media ponderada de las series DISPONIBLES, de modo que con una sola serie
-# viva (octubre de 2026: solo las nóminas, 9% del peso de crecimiento) el último
-# punto es esa serie y nada más: el crecimiento saltó de -0,04 a -1,06 en un mes sin
-# que ningún otro dato cambiara. Se hace lo estándar en nowcasting: arrastrar el
-# último z conocido de cada serie hasta TAIL_FILL_M meses y exigir que, tras eso,
-# la cobertura de peso del bloque sea al menos MIN_TAIL_COVERAGE. Las filas finales
-# que no lleguen se descartan y la lectura "actual" retrocede al último mes fiable.
-TAIL_FILL_M = 2
-MIN_TAIL_COVERAGE = 0.80
-FULL_FRESH_COVERAGE = 0.90   # "mes completo": casi todo el peso con dato nuevo
-
-
-def fill_tail(X: pd.DataFrame, limit: int = TAIL_FILL_M) -> pd.DataFrame:
-    """Arrastra el último valor SOLO por el final de cada columna, hasta `limit`
-    meses. No toca huecos interiores ni alarga series que terminaron hace tiempo."""
-    out = X.copy()
-    for c in out.columns:
-        last = out[c].last_valid_index()
-        if last is None:
-            continue
-        pos = out.index.get_loc(last)
-        tail = out.index[pos + 1: pos + 1 + limit]
-        if len(tail):
-            out.loc[tail, c] = out.at[last, c]
-    return out
-
-
-# ======================================================================================
-# 3b. Ampliación del panel: más series candidatas para el PCA
-# ======================================================================================
-# Pregunta: ¿cuánta de la variación conjunta de cada bloque recoge su primer
-# componente, y mejora con más series? Se descargan candidatas con historia larga y
-# se eligen por selección hacia delante: entra la que más sube la varianza explicada
-# del primer componente del bloque, siempre que (a) tenga signo y correlación
-# coherentes con el factor ya existente (|r| >= 0,30; si r < 0 se invierte) y (b) la
-# mejora sea de al menos MIN_GAIN. Es selección sobre una MEDIDA DE AJUSTE DEL
-# FACTOR, no sobre rentabilidades de activos, así que no mete sesgo de anticipación
-# en las carteras; sí es selección con la misma muestra, y se declara en el payload.
-CAND_MIN_OBS = 360
-CAND_MIN_ABS_R = 0.30
-CAND_MIN_GAIN = 0.005
-CAND_MAX_PER_BLOCK = 8
-
-CANDIDATES: list[Series] = [
-    # crecimiento
-    Series("USPRIV", "Nóminas privadas", "growth", "ratio_yoy", 1),
-    Series("UNRATE", "Tasa de paro", "growth", "d12", 1, invert=True),
-    Series("CCSA", "Peticiones continuadas", "growth", "yoy", 0, invert=True),
-    Series("DSPIC96", "Renta disponible real", "growth", "yoy", 1),
-    Series("PCEC96", "Consumo real", "growth", "yoy", 2),
-    Series("TOTALSA", "Ventas de vehículos", "growth", "yoy", 1),
-    Series("DGORDER", "Pedidos de bienes duraderos", "growth", "yoy", 2),
-    Series("AMTMNO", "Pedidos nuevos manufactura", "growth", "yoy", 2),
-    Series("CUMFNS", "Capacidad en manufactura", "growth", "d12", 1),
-    Series("MANEMP", "Empleo en manufactura", "growth", "yoy", 1),
-    Series("USCONS", "Empleo en construcción", "growth", "yoy", 1),
-    Series("IPMAN", "Producción manufacturera", "growth", "yoy", 1),
-    Series("IPCONGD", "Producción de bienes de consumo", "growth", "yoy", 1),
-    Series("RSAFS", "Ventas minoristas nominales", "growth", "yoy", 1),
-    Series("CE16OV", "Empleo (encuesta de hogares)", "growth", "yoy", 1),
-    # inflación
-    Series("PCEPI", "PCE general", "inflation", "yoy", 2),
-    Series("CPIUFDSL", "IPC alimentos", "inflation", "yoy", 1),
-    Series("CUSR0000SAS", "IPC servicios", "inflation", "yoy", 1),
-    Series("CUSR0000SAH1", "IPC vivienda", "inflation", "yoy", 1),
-    Series("CPIENGSL", "IPC energía", "inflation", "yoy", 1),
-    Series("CPIMEDSL", "IPC sanidad", "inflation", "yoy", 1),
-    Series("MICH", "Expectativas de inflación (Michigan)", "inflation", "lvl", 0),
-    Series("GASREGW", "Gasolina", "inflation", "yoy_log", 0),
-    Series("IR", "Precios de importación", "inflation", "yoy", 1),
-    Series("WPSFD49207", "Precios de producción, demanda final", "inflation", "yoy", 1),
-    # adelantados
-    Series("M2SL", "Dinero M2", "leading", "yoy", 1),
-    Series("BUSLOANS", "Préstamos comerciales", "leading", "yoy", 1),
-    Series("STLFSI4", "Estrés financiero (St. Louis)", "leading", "lvl", 0, invert=True),
-    Series("NEWORDER", "Pedidos de bienes de capital", "leading", "yoy", 2),
-    Series("T10Y3M", "Curva 10a-3m (como adelantado)", "leading", "lvl", 0),
-    Series("MORTGAGE30US", "Hipoteca a 30 años", "leading", "d12", 0, invert=True),
-    Series("AWOTMAN", "Horas extra manufactura", "leading", "lvl", 1),
-]
-
-
-def fetch_candidates(df: pd.DataFrame):
-    """Descarga las candidatas que aún no están en el panel. Si una falla, se avisa y
-    se sigue (nombres de series no verificables desde el entorno de desarrollo)."""
-    print("1b. Descargando series candidatas para ampliar el PCA…")
-    add, meta = {}, {}
-    for spec in CANDIDATES:
-        sid = spec.fred_id
-        if sid in df.columns:
-            continue
-        s, err = fred_series(sid)
-        if s is None:
-            warn(f"candidata {sid}: {str(err)[:80]}")
-            continue
-        m = to_monthly(s)
-        m.index = m.index.to_period("M").to_timestamp("M")
-        add[sid] = m
-        meta[sid] = {"last_obs": str(s.index[-1].date())}
-    if add:
-        df = df.join(pd.DataFrame(add), how="outer")
-    print(f"  ✓ {len(add)} candidatas descargadas")
-    return df, meta
-
-
-def _patch_recent_holes(raw: pd.Series, transform_kind: str) -> pd.Series:
-    """Interpola huecos interiores de hasta 2 meses SOLO en los últimos 36 meses
-    (cierre del Gobierno de otoño de 2025). En la historia lejana no se toca: hay
-    series trimestrales o irregulares antiguas (p. ej. UMCSENT antes de 1978) y
-    rellenarlas cambiaría las fases pasadas y, con ellas, el backtest."""
-    if transform_kind == "lvl":
-        return raw
-    cut = raw.index[-1] - pd.DateOffset(months=36)
-    filled = raw.interpolate(limit=2, limit_area="inside")
-    return raw.where(raw.index <= cut, filled)
-
-
-def _z_spec(spec: Series, raw: pd.Series) -> pd.Series:
-    raw = _patch_recent_holes(raw, spec.transform)
-    x = transform(raw, spec.transform)
-    if spec.invert:
-        x = -x
-    return rolling_z(x).shift(spec.lag_m)
-
-
-def select_candidates(df: pd.DataFrame):
-    """Devuelve (informe, {bloque: [Series elegidas]}). NO toca SERIES: la decisión de
-    adoptarlas se toma después con el backtest (ver choose_pca_variant)."""
-    print("2a. Selección de series candidatas (varianza explicada del PC1)…")
-    report = {"blocks": {}, "params": {"min_abs_r": CAND_MIN_ABS_R, "min_gain": CAND_MIN_GAIN,
-                                       "min_obs": CAND_MIN_OBS, "max_per_block": CAND_MAX_PER_BLOCK}}
-    panel_end = df.index[-1]
-    base_specs = [sp for sp in SERIES if sp.fred_id in df.columns]
-    picks_by_block: dict[str, list] = {}
-    for block in ("growth", "inflation", "leading"):
-        base = [sp for sp in base_specs if sp.block == block]
-        zb = {}
-        for sp in base:
-            lv = df[sp.fred_id].last_valid_index()
-            if lv is not None and ((panel_end.year - lv.year) * 12 + panel_end.month - lv.month) > STALE_MAX_M:
-                continue
-            zb[sp.fred_id] = _z_spec(sp, df[sp.fred_id])
-        if len(zb) < 3:
-            continue
-        Zb = pd.DataFrame(zb)
-        f0, d0, _, _ = first_pc(Zb)
-        var0 = d0["explained_var"]
-        pool = {}
-        rejected = []
-        for sp in [c for c in CANDIDATES if c.block == block and c.fred_id in df.columns]:
-            lv = df[sp.fred_id].last_valid_index()
-            if lv is None or ((panel_end.year - lv.year) * 12 + panel_end.month - lv.month) > STALE_MAX_M:
-                rejected.append({"id": sp.fred_id, "why": "sin dato reciente"})
-                continue
-            z = _z_spec(sp, df[sp.fred_id])
-            if int(z.notna().sum()) < CAND_MIN_OBS:
-                rejected.append({"id": sp.fred_id, "why": f"historia corta ({int(z.notna().sum())} meses)"})
-                continue
-            r = z.corr(f0.reindex(z.index))
-            if r != r or abs(r) < CAND_MIN_ABS_R:
-                rejected.append({"id": sp.fred_id, "why": f"correlación baja con el factor ({r:+.2f})"})
-                continue
-            if r < 0:
-                sp = Series(sp.fred_id, sp.name, sp.block, sp.transform, sp.lag_m,
-                            not sp.invert, sp.note)
-                z = -z
-            pool[sp.fred_id] = (sp, z, float(abs(r)))
-        cur = Zb.copy()
-        cur_var = var0
-        picked = []
-        while pool and len(picked) < CAND_MAX_PER_BLOCK:
-            best = None
-            for sid, (sp, z, r) in pool.items():
-                try:
-                    _, dd, _, _ = first_pc(pd.concat([cur, z.rename(sid)], axis=1))
-                except Exception:
-                    continue
-                v = dd["explained_var"]
-                if best is None or v > best[1]:
-                    best = (sid, v)
-            if best is None or best[1] - cur_var < CAND_MIN_GAIN:
-                break
-            sid = best[0]
-            sp, z, r = pool.pop(sid)
-            cur = pd.concat([cur, z.rename(sid)], axis=1)
-            picked.append({"id": sid, "name": sp.name, "gain_pp": round((best[1] - cur_var) * 100, 1),
-                           "r": round(r, 2), "invert": sp.invert})
-            picks_by_block.setdefault(block, []).append(sp)
-            cur_var = best[1]
-        for sid, (sp, z, r) in pool.items():
-            rejected.append({"id": sid, "why": "no mejora la varianza explicada"})
-        report["blocks"][block] = {
-            "n_base": len(zb), "var_base": round(var0, 3), "var_final": round(cur_var, 3),
-            "added": picked, "rejected": rejected,
-        }
-        print(f"  ✓ {block:<10} {var0:.1%} → {cur_var:.1%} con {len(picked)} series nuevas")
-    return report, picks_by_block
-
-
 def build_blocks(df: pd.DataFrame):
     print("2. Transformando y estandarizando…")
     zs, info = {}, {}
-    panel_end = df.index[-1]
     for spec in SERIES:
         if spec.fred_id not in df.columns:
             warn(f"serie ausente del panel: {spec.fred_id} ({spec.name})")
             continue
-        lv = df[spec.fred_id].last_valid_index()
-        if lv is not None:
-            gap = (panel_end.year - lv.year) * 12 + (panel_end.month - lv.month)
-            if gap > STALE_MAX_M:
-                warn(f"{spec.fred_id} ({spec.name}) excluida del PCA: última observación "
-                     f"{lv.strftime('%Y-%m')}, {gap} meses antes del final del panel")
-                continue
-        raw = df[spec.fred_id]
-        # Huecos interiores de publicación (p. ej. el IPC de octubre de 2025, que no
-        # se publicó por el cierre del Gobierno): se interpolan hasta 2 meses seguidos.
-        # Sin esto, un solo mes ausente deja sin valor la transformación interanual.
-        raw = _patch_recent_holes(raw, spec.transform)
-        x = transform(raw, spec.transform)
-        if spec.fred_id in ("CPIAUCSL", "RRSFS", "CPILFESL"):
-            DEBUG_TAILS[spec.fred_id] = {
-                "raw": {d.strftime("%Y-%m-%d"): (None if v != v else round(float(v), 3))
-                        for d, v in df[spec.fred_id].iloc[-16:].items()},
-                "x": {d.strftime("%Y-%m"): (None if v != v else round(float(v), 3))
-                      for d, v in x.iloc[-16:].items()}}
+        x = transform(df[spec.fred_id], spec.transform)
         if spec.invert:
             x = -x
         z = rolling_z(x).shift(spec.lag_m)
@@ -580,14 +351,8 @@ def first_pc(Z: pd.DataFrame):
     W = pd.Series(vecs[:, 0], index=list(X.columns))
     explained = float(vals[0] / vals.sum())
 
-    # Proyección con arrastre del final (ver TAIL_FILL_M). Los pesos W salen de la
-    # muestra con datos reales; el arrastre solo afecta a cómo se evalúa el borde.
-    Xp = fill_tail(X)
-    total = float(W.abs().sum())
-    num = Xp.mul(W, axis=1).sum(axis=1, min_count=1)
-    den = Xp.notna().mul(W.abs(), axis=1).sum(axis=1)
-    cov_filled = den / total
-    cov_fresh = X.notna().mul(W.abs(), axis=1).sum(axis=1) / total
+    num = X.mul(W, axis=1).sum(axis=1, min_count=1)
+    den = X.notna().mul(W.abs(), axis=1).sum(axis=1)
     f = (num / den.replace(0, np.nan)).dropna()
 
     simple = X.mean(axis=1).reindex(f.index)
@@ -599,71 +364,25 @@ def first_pc(Z: pd.DataFrame):
         "explained_var": round(explained, 3),
         "loadings": {c: round(float(v), 3) for c, v in W.items()},
         "coherence": round(float(coh), 3),
-    }, cov_filled.reindex(f.index), cov_fresh.reindex(f.index)
+    }
 
 
 def build_factors(Z: pd.DataFrame):
     print("3. Extrayendo factores (PCA)…")
-    out, diag, cov_f, cov_r = {}, {}, {}, {}
-    tail_info = {c: (Z[c].last_valid_index().strftime("%Y-%m") if Z[c].last_valid_index() is not None else None)
-                 for c in Z.columns}
+    out, diag = {}, {}
     for block in ("growth", "inflation", "leading"):
         cols = [s.fred_id for s in SERIES if s.block == block and s.fred_id in Z.columns]
         if len(cols) < 2:
             warn(f"bloque {block} con muy pocas series")
             continue
-        f, d, cf, cr = first_pc(Z[cols])
+        f, d = first_pc(Z[cols])
         out[block], diag[block] = f, d
-        cov_f[block], cov_r[block] = cf, cr
         print(f"  ✓ {block:<10} {len(cols)} series · varianza {d['explained_var']:.0%}"
               f" · coherencia {d['coherence']:+.2f}")
         if d["explained_var"] < 0.40:
             warn(f"bloque {block}: el primer componente solo explica "
                  f"{d['explained_var']:.0%} de la varianza")
-    F = pd.DataFrame(out).dropna(how="all")
-
-    # Recorte del borde: se descartan las filas finales en que los dos ejes que
-    # deciden la fase (crecimiento e inflación) no tienen cobertura suficiente.
-    dropped = 0
-    while len(F) > 1:
-        d0 = F.index[-1]
-        cg = float(cov_f["growth"].get(d0, 0.0)) if "growth" in cov_f else 0.0
-        ci = float(cov_f["inflation"].get(d0, 0.0)) if "inflation" in cov_f else 0.0
-        if min(cg, ci) >= MIN_TAIL_COVERAGE:
-            break
-        F = F.iloc[:-1]
-        dropped += 1
-    if dropped:
-        warn(f"borde irregular: se descartaron {dropped} mes(es) finales con cobertura "
-             f"< {MIN_TAIL_COVERAGE:.0%} del peso en crecimiento o inflación")
-
-    d0 = F.index[-1]
-    fresh = {b: float(cov_r[b].get(d0, 0.0)) for b in ("growth", "inflation") if b in cov_r}
-    filled = {b: float(cov_f[b].get(d0, 0.0)) for b in ("growth", "inflation") if b in cov_f}
-    # último mes con casi todo el peso actualizado (la lectura sin arrastre)
-    last_full = None
-    for d in reversed(list(F.index)):
-        if all(float(cov_r[b].get(d, 0.0)) >= FULL_FRESH_COVERAGE for b in ("growth", "inflation")):
-            last_full = d
-            break
-    diag["_edge"] = {
-        "date": d0.strftime("%Y-%m"),
-        "fresh": {k: round(v, 3) for k, v in fresh.items()},
-        "coverage": {k: round(v, 3) for k, v in filled.items()},
-        "nowcast": bool(min(fresh.values()) < FULL_FRESH_COVERAGE) if fresh else False,
-        "last_full_month": last_full.strftime("%Y-%m") if last_full is not None else None,
-        "rows_dropped": dropped,
-        "z_last_valid": tail_info,
-        "panel_end": Z.index[-1].strftime("%Y-%m"),
-        "coverage_by_month": {d.strftime("%Y-%m"): [round(float(cov_f["growth"].get(d, 0)), 2),
-                                                   round(float(cov_f["inflation"].get(d, 0)), 2)]
-                              for d in cov_f["growth"].index[-14:]},
-    }
-    e = diag["_edge"]
-    print(f"  ✓ lectura de {e['date']} · peso con dato nuevo {e['fresh']} · "
-          f"cobertura con arrastre {e['coverage']}"
-          + (f" · último mes completo {e['last_full_month']}" if e["nowcast"] else ""))
-    return F, diag
+    return pd.DataFrame(out).dropna(how="all"), diag
 
 
 # ======================================================================================
@@ -879,23 +598,14 @@ FRED_PX = {
                                   "índice de precios, no invertible"),
 }
 
-# ETF invertible -> serie sintética FRED que prolonga su historia hacia atrás (ver fetch_assets).
-FI_PROXY = {
-    "Treasury 1-3 años (SHY)": "Treasury 2 años",
-    "Treasury 7-10 años (IEF)": "Treasury 10 años",
-    "Treasury 20+ años (TLT)": "Treasury 30 años",
-    "Titulizaciones hipotecarias (MBB)": "Hipotecario 30 años (aprox.)",
-    "Crédito Investment Grade (LQD)": "Crédito Baa (aprox.)",
-}
-
 FRED_YIELD = {
-    "MORTGAGE30US": (5.5, 40.0, "Hipotecario 30 años (aprox.)", "Referencia"),
-    "DGS2": (1.9, 4.5, "Treasury 2 años", "Referencia"),
-    "DGS10": (8.2, 80.0, "Treasury 10 años", "Referencia"),
-    "DGS30": (18.5, 450.0, "Treasury 30 años", "Referencia"),
-    "BAA": (7.5, 70.0, "Crédito Baa (aprox.)", "Referencia"),
-    "AAA": (8.0, 80.0, "Crédito Aaa (aprox.)", "Referencia"),
-    "DFII10": (8.5, 85.0, "TIPS 10 años (aprox.)", "Referencia"),
+    "MORTGAGE30US": (5.5, 40.0, "Hipotecario 30 años (aprox.)", "Renta fija"),
+    "DGS2": (1.9, 4.5, "Treasury 2 años", "Renta fija"),
+    "DGS10": (8.2, 80.0, "Treasury 10 años", "Renta fija"),
+    "DGS30": (18.5, 450.0, "Treasury 30 años", "Renta fija"),
+    "BAA": (7.5, 70.0, "Crédito Baa (aprox.)", "Renta fija"),
+    "AAA": (8.0, 80.0, "Crédito Aaa (aprox.)", "Renta fija"),
+    "DFII10": (8.5, 85.0, "TIPS 10 años (aprox.)", "Renta fija"),
 }
 
 # Fuentes de mercado. Yahoo primero (los runners de GitHub llegan bien), Stooq de
@@ -909,12 +619,6 @@ MARKET = {
 
     "Cobre": ("Real / alternativos", "HG=F", "hg.f", ""),
 
-    # Treasuries invertibles (ETF reales, desde 2002). Sustituyen en la cartera a las series
-    # sintéticas de FRED_YIELD, que quedan solo como referencia: la cartera solo puede
-    # recomendar lo que se puede comprar.
-    "Treasury 1-3 años (SHY)": ("Renta fija", "SHY", "shy.us", "retorno total real, desde 2002"),
-    "Treasury 7-10 años (IEF)": ("Renta fija", "IEF", "ief.us", "retorno total real, desde 2002"),
-    "Treasury 20+ años (TLT)": ("Renta fija", "TLT", "tlt.us", "retorno total real, desde 2002"),
     "Crédito Investment Grade (LQD)": ("Renta fija", "LQD", "lqd.us",
                                        "retorno total real, desde 2002"),
     "Crédito High Yield (HYG)": ("Renta fija", "HYG", "hyg.us",
@@ -1052,79 +756,6 @@ def yield_to_return(y_pct: pd.Series, dur: float, cvx: float) -> pd.Series:
     return ((y.shift(1) / 12.0 - dur * dy + 0.5 * cvx * dy ** 2) * 100.0).dropna()
 
 
-# Ken French publica los rendimientos por industria con 1-2 meses de retraso, mientras
-# los ETF y los rendimientos de FRED llegan al mes en curso. Sin tratarlo, el último
-# mes de la cartera se calcula con un puñado de activos sueltos (p. ej. solo el oro) y
-# el gráfico comparativo se corta en el último mes de French. Se hace dos cosas:
-#  1) se descarta el mes en curso (incompleto: Yahoo da el mes a fecha de hoy);
-#  2) los sectores de French sin dato de los últimos meses COMPLETOS se continúan con
-#     el ETF sectorial equivalente (SPDR), marcado en meta.bridge. Composición algo
-#     distinta, así que es un puente de uno o dos meses, no una serie nueva.
-BRIDGE_ETFS = {
-    "Tecnología": "XLK", "Energía": "XLE", "Financiero": "XLF", "Consumo básico": "XLP",
-    "Consumo discrecional": "XLY", "Salud": "XLV", "Industria": "XLI",
-    "Materiales / Químicas": "XLB", "Utilities": "XLU", "Comunicaciones": "XLC",
-    "Semiconductores": "SMH", "Renta variable EE.UU. (mercado)": "SPY",
-}
-BRIDGE_INFO: dict = {}
-
-
-def _bridge_and_trim(R: pd.DataFrame) -> pd.DataFrame:
-    if R.empty:
-        return R
-    today = pd.Timestamp.today()
-    cur_start = pd.Timestamp(today.year, today.month, 1)
-    R = R[R.index < cur_start]                      # fuera el mes en curso
-    last_complete = R.index.max()
-    bridged = {}
-    for col, sym in BRIDGE_ETFS.items():
-        if col not in R.columns:
-            continue
-        lv = R[col].last_valid_index()
-        if lv is None:
-            continue
-        r, _ = yahoo_monthly(sym)
-        if r is None:
-            r, _ = stooq_monthly(sym.lower() + ".us")
-        if r is None:
-            continue
-        r = r.copy()
-        r.index = r.index.to_period("M").to_timestamp("M")
-        # Contraste de la fuente: ¿Ken French recoge bien este sector? Se compara con el
-        # ETF en los meses en que ambos existen (retorno total mensual, en %).
-        both = pd.concat([R[col].loc[:lv], r], axis=1, join="inner").dropna()
-        if len(both) >= 36:
-            a, b = both.iloc[:, 0] / 100, both.iloc[:, 1] / 100
-            ga = float((1 + a).prod() ** (12 / len(a)) - 1) * 100
-            gb = float((1 + b).prod() ** (12 / len(b)) - 1) * 100
-            BRIDGE_INFO.setdefault("check", {})[col] = {
-                "etf": sym, "months": int(len(both)), "from": str(both.index[0].date())[:7],
-                "corr": round(float(a.corr(b)), 3),
-                "cagr_french": round(ga, 1), "cagr_etf": round(gb, 1)}
-        if lv >= last_complete:
-            continue
-        gap = r[(r.index > lv) & (r.index <= last_complete)].dropna()
-        if gap.empty:
-            continue
-        R.loc[gap.index, col] = gap.values
-        bridged[col] = {"etf": sym, "months": [d.strftime("%Y-%m") for d in gap.index]}
-    # recorte del borde: filas finales con poca cobertura de activos
-    cov = R.notna().mean(axis=1)
-    ref = cov.iloc[-24:].max()
-    keep_to = R.index[-1]
-    for d in reversed(list(R.index)):
-        if cov[d] >= 0.7 * ref:
-            keep_to = d
-            break
-    trimmed = int((R.index > keep_to).sum())
-    R = R[R.index <= keep_to]
-    BRIDGE_INFO.update({"bridged": bridged, "last_month": R.index[-1].strftime("%Y-%m"),
-                        "trimmed_months": trimmed})
-    if bridged:
-        print(f"  ✓ puente con ETF sectoriales en {len(bridged)} series hasta {R.index[-1].strftime('%Y-%m')}")
-    return R
-
-
 def fetch_assets(df: pd.DataFrame):
     print("4. Construyendo el universo de activos…")
     rets: dict[str, pd.Series] = {}
@@ -1175,8 +806,6 @@ def fetch_assets(df: pd.DataFrame):
     rf = None
     if ff is not None and "RF" in ff.columns:
         rf = ff["RF"]
-        global RF_M
-        RF_M = rf.copy()
         add("Renta variable EE.UU. (mercado)", ff["Mkt-RF"] + rf, "Índice regional",
             "Ken French", "índice agregado: referencia, no posición")
         add("Prima Value (HML)", ff["HML"], "Prima (largo-corto)", "Ken French",
@@ -1239,7 +868,7 @@ def fetch_assets(df: pd.DataFrame):
             add(lab, None, cls, f"FRED / {sid}", err="no descargado")
         else:
             add(lab, yield_to_return(df[sid], dur, cvx), cls, f"FRED / {sid}",
-                f"aproximación por duración {dur} y convexidad {cvx} · referencia sintética, no invertible")
+                f"aproximación por duración {dur} y convexidad {cvx}")
 
     if "TB3MS" in df.columns:
         add("Liquidez (letras 3m)", (df["TB3MS"] / 12.0).dropna(), "Liquidez",
@@ -1278,33 +907,6 @@ def fetch_assets(df: pd.DataFrame):
                 err=f"yahoo: {e1} | stooq: {e2}"[:200])
 
     R = pd.DataFrame(rets)
-    # Prolongar el histórico de los ETF de renta fija con el rendimiento FRED equivalente
-    # ANTES de su lanzamiento. La cartera sigue comprando solo el ETF (invertible); lo único
-    # que cambia es que la evidencia por fase se estima con décadas, no con los ~20 años de
-    # vida del ETF. Mismo criterio que el puente de Ken French en renta variable, y con su
-    # propio contraste de fuente en BRIDGE_INFO["fi_proxy"].
-    for etf, prox in FI_PROXY.items():
-        if etf not in R.columns or prox not in R.columns:
-            continue
-        t0 = R[etf].first_valid_index()
-        if t0 is None:
-            continue
-        both = pd.concat([R[etf], R[prox]], axis=1, join="inner").dropna()
-        if len(both) >= 36:
-            a_, b_ = both.iloc[:, 0] / 100, both.iloc[:, 1] / 100
-            BRIDGE_INFO.setdefault("fi_proxy", {})[etf] = {
-                "proxy": prox, "months": int(len(both)), "from": str(both.index[0].date())[:7],
-                "corr": round(float(a_.corr(b_)), 2),
-                "cagr_etf": round(float(((1 + a_).prod() ** (12 / len(a_)) - 1) * 100), 1),
-                "cagr_proxy": round(float(((1 + b_).prod() ** (12 / len(b_)) - 1) * 100), 1)}
-        pre = R[prox].dropna()
-        pre = pre[pre.index < t0]
-        R[etf] = R[etf].combine_first(pre)
-        if etf in meta:
-            meta[etf]["from"] = str(R[etf].first_valid_index().date())
-            meta[etf]["note"] = ((meta[etf].get("note") or "") + (" · " if meta[etf].get("note") else "")
-                                 + f"antes de {t0:%Y-%m}, rendimiento FRED convertido a retorno (aprox.); desde entonces, ETF real")
-    R = _bridge_and_trim(R)
     if rf is None:
         rf = (df["TB3MS"] / 12.0) if "TB3MS" in df.columns else pd.Series(0.0, index=R.index)
     rf = rf.reindex(R.index).ffill().fillna(0.0)
@@ -1316,94 +918,6 @@ def fetch_assets(df: pd.DataFrame):
         if a["status"] != "ok":
             print(f"    – {a['name']}: {a['status']} ({a['detail']})")
     return X, meta
-
-
-# Familia EXTENDIDA: más activos para aclarar Japón, China, biotech y small caps.
-# Es una familia de contrastes aparte (su propio control de falsos descubrimientos) y
-# NO entra en backtest, rotación, laboratorio ni consenso: así el historial publicado
-# no cambia y un fallo de descarga aquí no puede tocar la cartera. Las descargas son
-# opcionales: si una falla se anota en meta.extended_log y se sigue.
-EXT_FRENCH_REGIONS = {
-    "Japón (French)": "Japan_3_Factors_CSV.zip",
-    "Europa (French)": "Europe_3_Factors_CSV.zip",
-    "Asia-Pacífico ex Japón (French)": "Asia_Pacific_ex_Japan_3_Factors_CSV.zip",
-    "Norteamérica (French)": "North_America_3_Factors_CSV.zip",
-}
-EXT_ETFS = {  # etiqueta: (símbolo Yahoo, ticker Stooq, clase, nota)
-    "Biotecnología (IBB)": ("IBB", "ibb.us", "Biotecnología", "ETF; historia desde 2001"),
-    "Biotecnología equiponderada (XBI)": ("XBI", "xbi.us", "Biotecnología", "ETF; desde 2006"),
-    "China (MCHI)": ("MCHI", "mchi.us", "China", "ETF; desde 2011: muestra corta"),
-    "China large caps (FXI)": ("FXI", "fxi.us", "China", "ETF; desde 2004"),
-    "Japón (EWJ)": ("EWJ", "ewj.us", "Japón", "ETF; desde 1996"),
-}
-
-
-def fetch_extended():
-    """Devuelve (X, meta, log) con excesos mensuales sobre el tipo libre de riesgo."""
-    log, rets, meta = [], {}, {}
-    ff, _ = french_zip(FRENCH_BASE + "F-F_Research_Data_Factors_CSV.zip", "factores (ext)")
-    rf = ff["RF"] if ff is not None and "RF" in ff.columns else None
-
-    def ok(name, ser, cls, src, note=""):
-        s = ser.dropna() if ser is not None else None
-        if s is None or s.size < MIN_MONTHS:
-            log.append({"name": name, "source": src, "status": "descartado",
-                        "detail": "sin datos suficientes" if s is None else f"{s.size} meses"})
-            return
-        if float(s.abs().max()) > 150 or float(s.mean()) > 8:
-            log.append({"name": name, "source": src, "status": "descartado",
-                        "detail": "retornos implausibles"})
-            return
-        rets[name] = s
-        meta[name] = {"class": cls, "source": src, "note": note}
-        log.append({"name": name, "source": src, "status": "ok", "detail": f"{s.size} meses"})
-
-    for lab, fname in EXT_FRENCH_REGIONS.items():
-        d, e = french_zip(FRENCH_BASE + fname, lab)
-        if d is None:
-            log.append({"name": lab, "source": "Ken French (regional)", "status": "fallo",
-                        "detail": str(e)[:160]})
-            continue
-        col = next((c for c in d.columns if "Mkt" in c), None)
-        ok(lab, d[col] if col else None, "Región (ext.)", "Ken French (regional)",
-           "exceso de mercado, 3 factores")
-    me, e = french_zip(FRENCH_BASE + "Portfolios_Formed_on_ME_CSV.zip", "small caps (ext)")
-    if me is None or rf is None:
-        log.append({"name": "Small caps EE.UU. (20% menores)", "source": "Ken French (tamaño)",
-                    "status": "fallo", "detail": str(e)[:160] if me is None else "sin RF"})
-    else:
-        c20 = next((c for c in me.columns if c.strip() == "Lo 20"), None)
-        ok("Small caps EE.UU. (20% menores)",
-           (me[c20] - rf.reindex(me.index).ffill()) if c20 else None,
-           "Tamaño (ext.)", "Ken French (tamaño)", "cartera Lo 20 ponderada por valor")
-    t0 = time.time()
-    for lab, (ysym, stick, cls, note) in EXT_ETFS.items():
-        if time.time() - t0 > OPTIONAL_BUDGET_S:
-            log.append({"name": lab, "source": "mercado", "status": "omitido",
-                        "detail": "presupuesto de tiempo agotado"})
-            continue
-        r, e1 = yahoo_monthly(ysym)
-        src = f"Yahoo / {ysym}"
-        if r is None:
-            r, e2 = stooq_monthly(stick)
-            src = f"Stooq / {stick}"
-            if r is None:
-                log.append({"name": lab, "source": src, "status": "fallo",
-                            "detail": f"yahoo: {e1} | stooq: {e2}"[:200]})
-                continue
-        if rf is not None:
-            r = r - rf.reindex(r.index).ffill().fillna(0.0)
-        ok(lab, r, cls, src, note)
-    return (pd.DataFrame(rets) if rets else pd.DataFrame()), meta, log
-
-
-def extended_analysis(phases: pd.Series, fetched=None):
-    X, meta, log = fetched if fetched is not None else fetch_extended()
-    if X.empty:
-        return {"assets": [], "meta": {"log": log, "cells": 0}}
-    rows, stats = conditional_stats(
-        X, phases, meta, label="5c. Familia extendida (aparte, no altera la cartera)…")
-    return {"assets": rows, "meta": {"log": log, **stats}}
 
 
 def fetch_subsectors():
@@ -1486,7 +1000,6 @@ SECTOR_HOLDINGS_TICKERS = {
 # una fuente más que gestionar, y con los nombres que de verdad importan hoy.
 CHIP_TICKERS = {
     "NVDA", "AMD", "AVGO", "MU", "INTC", "LRCX", "AMAT", "TXN", "KLAC", "MRVL", "SNDK",
-    "ADI", "QCOM", "NXPI", "MCHP", "ON", "MPWR", "SWKS", "QRVO", "FSLR",
 }
 
 # Subsectores con su propio ETF de sub-industria en la misma familia SPDR. Se probó
@@ -1646,84 +1159,7 @@ HOLDINGS_GROUPS = {
     },
 }
 
-# ---- Ampliación (oct 2026): el fichero de cada SPDR trae el fondo COMPLETO, no solo el top-20,
-# así que se clasifican más empresas. Misma regla: código SIC real (criterio de Ken French);
-# lo dudoso se deja fuera. Berkshire Hathaway sale de Seguros: es un conglomerado (seguros,
-# ferrocarril, energía, industria, participaciones), aunque su SIC formal sea 6331.
-for _t in ("BRK.B", "BRK.A", "PEP"):
-    TICKER_SUBSECTOR.pop(_t, None)
-TICKER_SUBSECTOR.update({
-    # Consumo básico. Mondelez (SIC 2000) y Hershey (2060) son "Food" en Ken French, no refrescos.
-    "MDLZ": "Alimentación", "HSY": "Alimentación", "GIS": "Alimentación", "KHC": "Alimentación",
-    "K": "Alimentación", "KLG": "Alimentación", "HRL": "Alimentación", "TSN": "Alimentación",
-    "CAG": "Alimentación", "SJM": "Alimentación", "CPB": "Alimentación", "LW": "Alimentación",
-    "MKC": "Alimentación", "SFM": "Minoristas",
-    "STZ": "Cerveza y licores", "TAP": "Cerveza y licores", "BF.B": "Cerveza y licores",
-    "CELH": "Golosinas y refrescos",
-    "BG": "Agricultura",
-    # Distribución y comercio (SIC 52xx-59xx y 50xx-51xx): minoristas y mayoristas de Ken French.
-    "WMT": "Minoristas", "COST": "Minoristas", "TGT": "Minoristas", "KR": "Minoristas",
-    "DG": "Minoristas", "DLTR": "Minoristas", "CASY": "Minoristas", "BJ": "Minoristas",
-    "SYY": "Mayoristas", "USFD": "Mayoristas", "PFGC": "Mayoristas",
-    "MCK": "Mayoristas", "COR": "Mayoristas", "CAH": "Mayoristas",
-    "HD": "Minoristas", "LOW": "Minoristas", "TJX": "Minoristas", "ROST": "Minoristas",
-    "ORLY": "Minoristas", "AZO": "Minoristas", "TSCO": "Minoristas", "ULTA": "Minoristas",
-    "BBY": "Minoristas", "WSM": "Minoristas", "KMX": "Minoristas", "DKS": "Minoristas",
-    "AMZN": "Minoristas",
-    # Constructores de vivienda (SIC 1531): "Construcción" de Ken French.
-    "DHI": "Construcción", "LEN": "Construcción", "PHM": "Construcción", "NVR": "Construcción",
-    # Salud
-    "BSX": "Equipos médicos", "BDX": "Equipos médicos", "EW": "Equipos médicos",
-    "ZBH": "Equipos médicos", "RMD": "Equipos médicos", "DXCM": "Equipos médicos",
-    "BAX": "Equipos médicos", "PODD": "Equipos médicos", "ALGN": "Equipos médicos",
-    "HOLX": "Equipos médicos", "STE": "Equipos médicos", "COO": "Equipos médicos",
-    "ZTS": "Farmacéuticas", "BIIB": "Farmacéuticas", "INCY": "Farmacéuticas",
-    "VTRS": "Farmacéuticas",
-    "HCA": "Servicios de salud", "UHS": "Servicios de salud", "DVA": "Servicios de salud",
-    "DGX": "Servicios de salud", "LH": "Servicios de salud",
-    # Energía
-    "HES": "Petróleo y gas", "CTRA": "Petróleo y gas", "APA": "Petróleo y gas",
-    # Industria
-    "CMI": "Maquinaria", "IR": "Maquinaria", "ITW": "Maquinaria", "DOV": "Maquinaria",
-    "XYL": "Maquinaria", "TDG": "Aeronáutica", "TXT": "Aeronáutica",
-    "HII": "Naval y ferroviario", "WAB": "Naval y ferroviario",
-    "NUE": "Acero", "STLD": "Acero",
-    # Tecnología (SIC 357x = Hardware; 7372 = Software)
-    "CSCO": "Hardware", "ANET": "Hardware", "DELL": "Hardware", "HPQ": "Hardware",
-    "HPE": "Hardware", "STX": "Hardware", "WDC": "Hardware", "NTAP": "Hardware",
-    "SMCI": "Hardware",
-    "CRM": "Software", "ADBE": "Software", "NOW": "Software", "INTU": "Software",
-    "ADSK": "Software", "SNPS": "Software", "CDNS": "Software", "WDAY": "Software",
-    "FTNT": "Software", "DDOG": "Software", "TEAM": "Software", "ROP": "Software",
-    # Financiero
-    "PNC": "Banca", "TFC": "Banca", "FITB": "Banca", "HBAN": "Banca", "RF": "Banca",
-    "KEY": "Banca", "CFG": "Banca", "MTB": "Banca",
-    "BX": "Bróker y gestión de activos", "KKR": "Bróker y gestión de activos",
-    "APO": "Bróker y gestión de activos", "ARES": "Bróker y gestión de activos",
-    "IBKR": "Bróker y gestión de activos", "RJF": "Bróker y gestión de activos",
-    "TROW": "Bróker y gestión de activos", "BEN": "Bróker y gestión de activos",
-    "IVZ": "Bróker y gestión de activos", "NTRS": "Bróker y gestión de activos",
-    "STT": "Bróker y gestión de activos", "AMP": "Bróker y gestión de activos",
-    "TRV": "Seguros", "AIG": "Seguros", "MET": "Seguros", "PRU": "Seguros", "ALL": "Seguros",
-    "AFL": "Seguros", "HIG": "Seguros", "CINF": "Seguros", "MMC": "Seguros", "AON": "Seguros",
-    "AJG": "Seguros", "WTW": "Seguros", "L": "Seguros", "ACGL": "Seguros", "WRB": "Seguros",
-    "EG": "Seguros", "PFG": "Seguros", "BRO": "Seguros",
-})
-for _sec, _add in {
-    "Comunicaciones": {"Medios interactivos y redes": {"MTCH", "PINS"},
-                       "Telecomunicaciones": {"LUMN"}, "Videojuegos": {"EA"},
-                       "Publicidad y editorial": {"OMC", "IPG", "NWSA", "NWS"}},
-    "Utilities": {"Eléctricas reguladas": {"EIX", "FE", "ES", "PNW", "LNT", "EVRG"},
-                  "Multiservicios (electricidad y gas)": {"CNP", "CMS", "NI"},
-                  "Generación independiente": {"NRG", "AES"}},
-    "Materiales / Químicas": {"Química": {"LYB", "DD", "ALB", "EMN", "MOS", "FMC", "CE"},
-                              "Envases y embalaje": {"BALL", "AVY"}},
-}.items():
-    for _g, _ts in _add.items():
-        HOLDINGS_GROUPS[_sec].setdefault(_g, set()).update(_ts)
-
-
-N_HOLDINGS = 200   # fondo completo: la clasificación por subsector necesita más allá del top-20
+N_HOLDINGS = 20
 
 
 def _fetch_spdr_xlsx(ticker: str):
@@ -1857,7 +1293,6 @@ def fetch_holdings():
                     warn(f"Holdings: {m['ticker']} aparece en dos grupos de "
                          f"{sector} a la vez ({prev} y {row['grupo']})")
                 seen_g[m["ticker"]] = row["grupo"]
-    por_sector = {k: v[:20] for k, v in por_sector.items()}   # la web enseña el top-20 de cada sector
     return {"por_sector": por_sector, "por_subsector": por_subsector, "grupos": grupos,
             "meta": {"as_of": as_of, "source": "SPDR / State Street (holdings diarios)"}}
 
@@ -1934,55 +1369,6 @@ def shrink(mu: dict, se: dict, grand: float) -> dict:
     return out
 
 
-RELIAB_MIN_N_STRONG = 60
-RELIAB_MIN_N = 36
-
-
-def _cell_checks(s: pd.Series, ph: pd.Series, phase: str, grand: float,
-                 rel_full: float) -> dict:
-    """Tres comprobaciones independientes del contraste principal.
-    - split: el signo del exceso sobre la media se repite en las dos mitades del
-      tiempo (no depende de una sola época).
-    - lag: con la fase desplazada un mes (lo que realmente se sabría) el signo se
-      mantiene. Si solo funciona con la fase contemporánea, no es accionable.
-    - n: observaciones suficientes."""
-    sub = s[ph == phase]
-    sg = np.sign(rel_full)
-    out = {"n": int(sub.size)}
-    if sub.size >= 8:
-        h = sub.size // 2
-        a, b = sub.iloc[:h].mean() - grand, sub.iloc[h:].mean() - grand
-        out["split"] = bool(np.sign(a) == sg and np.sign(b) == sg)
-    else:
-        out["split"] = False
-    lagged = ph.shift(1).reindex(s.index)
-    sl = s[lagged == phase]
-    out["lag"] = bool(sl.size >= 12 and np.sign(sl.mean() - grand) == sg)
-    return out
-
-
-def reliability_label(d: dict) -> str:
-    """Fuerte / Moderada / Débil / Sin señal. Es una etiqueta de fiabilidad
-    ESTADÍSTICA de la casilla, no una predicción: Fuerte exige t robusta, control
-    de falsos descubrimientos, estabilidad temporal, utilidad con la fase conocida
-    con retraso y muestra amplia."""
-    g = str(d.get("grade", "0"))
-    if g in ("0", "s/d") or not g:
-        return "Sin señal"
-    c = d.get("checks") or {}
-    q = d.get("q")
-    fdr = q is not None and q <= 0.10
-    if d.get("rel_shrunk") is not None and abs(d["rel_shrunk"]) < 0.05:
-        return "Débil"   # la estimación prudente (James-Stein) la deja en cero
-    if (len(g) >= 2 and fdr and c.get("split") and c.get("lag")
-            and c.get("n", 0) >= RELIAB_MIN_N_STRONG):
-        return "Fuerte"
-    if (len(g) >= 2 and c.get("split") and c.get("n", 0) >= RELIAB_MIN_N
-            and (fdr or c.get("lag"))):
-        return "Moderada"
-    return "Débil"
-
-
 def conditional_stats(X: pd.DataFrame, phases: pd.Series, meta: dict,
                        label: str = "5. Estimando retornos condicionales…"):
     print(label)
@@ -2001,8 +1387,6 @@ def conditional_stats(X: pd.DataFrame, phases: pd.Series, meta: dict,
             "note": meta.get(col, {}).get("note", ""),
             "from": str(s.index[0].date()), "to": str(s.index[-1].date()),
             "n": int(s.size), "uncond_ann": round(float(grand * 12), 2),
-            "uncond_ann_tot": (round(float(grand * 12 + RF_M.reindex(s.index).mean() * 12), 2)
-                               if RF_M is not None and RF_M.reindex(s.index).notna().mean() > 0.8 else None),
             "phases": {},
         }
         mu_d, se_d = {}, {}
@@ -2016,14 +1400,11 @@ def conditional_stats(X: pd.DataFrame, phases: pd.Series, meta: dict,
             mu_d[phase], se_d[phase] = mu, se
             entry["phases"][phase] = {
                 "ann": round(float(mu * 12), 2),
-                "ann_tot": (round(float(mu * 12 + RF_M.reindex(sub.index).mean() * 12), 2)
-                            if RF_M is not None and RF_M.reindex(sub.index).notna().mean() > 0.8 else None),
                 "rel": round(float((mu - grand) * 12), 2),
                 "t": round(float(t), 2) if t == t else None,
                 "hit": round(float((sub.values > 0).mean()), 3),
                 "n": int(sub.size),
                 "vol": round(float(sub.std() * math.sqrt(12)), 2),
-                "checks": _cell_checks(s, ph, phase, grand, float(mu - grand)),
             }
             cells.append((col, phase, two_sided_p(t)))
         sh = shrink(mu_d, se_d, grand)
@@ -2043,365 +1424,14 @@ def conditional_stats(X: pd.DataFrame, phases: pd.Series, meta: dict,
             q = qmap.get((e["id"], phase), float("nan"))
             d["q"] = round(q, 3) if q == q else None
             d["grade"] = grade_from_t(d["t"], q)
-            d["reliability"] = reliability_label(d)
 
-    for e in rows:
-        for d in e["phases"].values():
-            d.setdefault("reliability", "Sin señal")
     graded = sum(1 for e in rows for d in e["phases"].values()
                  if d.get("grade") not in (None, "0", "s/d"))
     fdr = sum(1 for e in rows for d in e["phases"].values()
               if d.get("q") is not None and d["q"] <= 0.10)
     print(f"  ✓ {len(rows)} activos · {len(cells)} casillas · {graded} con nota · "
           f"{fdr} robustas al control de falsos descubrimientos")
-    rel_counts = {k: sum(1 for e in rows for d in e["phases"].values()
-                        if d.get("reliability") == k)
-                  for k in ("Fuerte", "Moderada", "Débil", "Sin señal")}
-    print(f"  ✓ fiabilidad por casilla: {rel_counts}")
-    return rows, {"cells": len(cells), "graded": graded, "fdr_survivors": fdr,
-                  "reliability": rel_counts}
-
-
-# ======================================================================================
-# 6b. Contraste "ahora": regresión sobre las probabilidades de fase
-# ======================================================================================
-# La matriz de evidencia clasifica cada mes en UNA fase y promedia, tirando la
-# información de cuánto de cada fase hay. Aquí se regresa el exceso de retorno del
-# mes t sobre las probabilidades de fase conocidas en t-1 (la misma `probs_df`
-# desplazada que usa la rotación) y se contrasta una sola cosa: ¿la predicción de HOY,
-# p_hoy, difiere de la media histórica p̄? Es un contraste único por activo con toda la
-# muestra, bastante más potente que 4 medias condicionadas con ~100 meses cada una.
-# Validación fuera de muestra: ventana creciente desde NOW_MIN_TRAIN meses, R² OOS frente
-# a la media creciente y estadístico de Clark-West (modelos anidados).
-NOW_MIN_TRAIN = 180
-
-
-def _hac_cov(Xm: np.ndarray, e: np.ndarray, lags: int = 3) -> np.ndarray:
-    n, k = Xm.shape
-    XtXi = np.linalg.pinv(Xm.T @ Xm)
-    u = Xm * e[:, None]
-    S = u.T @ u
-    for l in range(1, min(lags, n - 1) + 1):
-        w = 1 - l / (lags + 1)
-        G = u[l:].T @ u[:-l]
-        S += w * (G + G.T)
-    return XtXi @ S @ XtXi
-
-
-def now_edge(X: pd.DataFrame, probs_df: pd.DataFrame, p_now: dict, meta: dict):
-    print("5d. Contraste «ahora» (regresión sobre probabilidades de fase)…")
-    P = probs_df[PHASES].dropna()
-    keep = PHASES[1:]          # se omite la primera fase para evitar colinealidad
-    pbar = P.mean()
-    c = np.array([p_now[k] - pbar[k] for k in keep])
-    rows, pv = [], []
-    for col in X.columns:
-        y = X[col].dropna()
-        idx = y.index.intersection(P.index)
-        if len(idx) < max(MIN_MONTHS, 96):
-            continue
-        y, Pm = y.loc[idx].values, P.loc[idx, keep].values
-        Xm = np.column_stack([np.ones(len(idx)), Pm])
-        beta = np.linalg.lstsq(Xm, y, rcond=None)[0]
-        e = y - Xm @ beta
-        V = _hac_cov(Xm, e)
-        cc = np.concatenate([[0.0], c])
-        est = float(cc @ beta)
-        se = float(math.sqrt(max(cc @ V @ cc, 1e-12)))
-        t = est / se
-        # fuera de muestra
-        oos = {"r2": None, "cw_t": None, "hit": None, "n": 0}
-        n = len(y)
-        if n > NOW_MIN_TRAIN + 36:
-            f_m, f_b, act = [], [], []
-            for i in range(NOW_MIN_TRAIN, n):
-                b = np.linalg.lstsq(Xm[:i], y[:i], rcond=None)[0]
-                f_m.append(float(Xm[i] @ b))
-                f_b.append(float(y[:i].mean()))
-                act.append(float(y[i]))
-            f_m, f_b, act = map(np.array, (f_m, f_b, act))
-            sse_m, sse_b = ((act - f_m) ** 2).sum(), ((act - f_b) ** 2).sum()
-            adj = (act - f_b) * (f_m - f_b)       # Clark-West
-            _, _, cw_t = newey_west(adj)
-            dev_m, dev_b = f_m - f_b, act - f_b
-            oos = {"r2": round(float(1 - sse_m / sse_b), 4) if sse_b > 0 else None,
-                   "cw_t": round(float(cw_t), 2) if cw_t == cw_t else None,
-                   "hit": round(float((np.sign(dev_m) == np.sign(dev_b)).mean()), 3),
-                   "n": int(len(act))}
-        rows.append({"name": col, "class": meta.get(col, {}).get("class", "Otros"),
-                     "now_ann": round(est * 12, 2), "se_ann": round(se * 12, 2),
-                     "t": round(float(t), 2), "n": int(n), "oos": oos})
-        pv.append(two_sided_p(t))
-    qs = benjamini_hochberg(pv)
-    for r, q in zip(rows, qs):
-        r["q"] = round(q, 3) if q == q else None
-        o = r["oos"]
-        oos_ok = (o["r2"] is not None and o["r2"] > 0 and o["cw_t"] is not None
-                  and o["cw_t"] >= 1.28)
-        t_ok = abs(r["t"]) >= 1.96
-        fdr = r["q"] is not None and r["q"] <= 0.10
-        if t_ok and fdr and oos_ok:
-            r["reliability"] = "Fuerte"
-        elif t_ok and (fdr or oos_ok):
-            r["reliability"] = "Moderada"
-        elif abs(r["t"]) >= 1.28:
-            r["reliability"] = "Débil"
-        else:
-            r["reliability"] = "Sin señal"
-    rows.sort(key=lambda r: -r["now_ann"])
-    cnt = {k: sum(1 for r in rows if r["reliability"] == k)
-           for k in ("Fuerte", "Moderada", "Débil", "Sin señal")}
-    print(f"  ✓ {len(rows)} activos · fiabilidad {cnt}")
-    return {"assets": rows, "meta": {"p_now": {k: round(float(v), 3) for k, v in p_now.items()},
-                                     "p_mean": {k: round(float(v), 3) for k, v in pbar.items()},
-                                     "min_train": NOW_MIN_TRAIN, "counts": cnt}}
-
-
-
-# ======================================================================================
-# 7b. Test del universo: ¿mejoran la cartera los activos nuevos?
-# ======================================================================================
-UNI_GROUPS = {
-    "Biotecnología": lambda m: [n for n, v in m.items() if v["class"] == "Biotecnología"],
-    "Small caps (20% menores)": lambda m: [n for n in m if n.startswith("Small caps")],
-    "Regiones (French)": lambda m: [n for n, v in m.items() if v["class"] == "Región (ext.)"],
-    "China": lambda m: [n for n, v in m.items() if v["class"] == "China"],
-    "Japón (ETF)": lambda m: [n for n, v in m.items() if v["class"] == "Japón"],
-}
-UNI_MIN_DSHARPE = 0.01
-UNI_MIN_SCHEMES = 3
-
-
-def _scheme_metrics(rot: dict) -> dict:
-    out = {}
-    for sch, d in (rot.get("schemes") or {}).items():
-        pf = d.get("portfolio") or {}
-        out[sch] = {k: pf.get(k) for k in ("cagr", "sharpe", "maxdd")}
-    return out
-
-
-def universe_test(X, ameta, Xe, emeta, phases, probs_df, F):
-    """Cada grupo de activos nuevos se prueba solo, sumado al bloque de renta variable
-    de la cartera walk-forward, y se compara con la cartera base en los cuatro
-    esquemas de reparto. Se adopta el grupo si mejora el Sharpe en al menos
-    UNI_MIN_SCHEMES de 4 esquemas (>= UNI_MIN_DSHARPE) SIN bajar el CAGR en esos
-    mismos esquemas. Después se comprueba la unión de los adoptados contra la base;
-    si no mejora igual, no se adopta ninguno. Es selección con la misma muestra del
-    backtest (se declara): mejora observada, no garantía fuera de muestra."""
-    print("5e. Test del universo ampliado (cartera con y sin los activos nuevos)…")
-    res = {"groups": {}, "adopted": [], "final_check": None}
-    if Xe is None or Xe.empty:
-        return X, ameta, res
-    cls_map = {k: v.get("class", "Otros") for k, v in ameta.items()}
-    base = _scheme_metrics(rotation(X, phases, cls_map, probs_df, F,
-                                    phase_sleeve_override=ESTANFLACION_OVERRIDE))
-    res["base"] = base
-    if not base:
-        return X, ameta, res
-
-    def better(var):
-        wins = 0
-        for sch, b in base.items():
-            v = var.get(sch) or {}
-            if None in (b.get("sharpe"), v.get("sharpe"), b.get("cagr"), v.get("cagr")):
-                continue
-            if v["sharpe"] - b["sharpe"] >= UNI_MIN_DSHARPE and v["cagr"] >= b["cagr"] - 0.02:
-                wins += 1
-        return wins
-
-    def run(cols):
-        X2 = X.join(Xe[cols], how="outer")
-        c2 = {**cls_map, **{c: "Renta variable" for c in cols}}
-        return _scheme_metrics(rotation(X2, phases, c2, probs_df, F,
-                                        phase_sleeve_override=ESTANFLACION_OVERRIDE))
-
-    adopt = []
-    for g, pick in UNI_GROUPS.items():
-        cols = [c for c in pick(emeta) if c in Xe.columns]
-        if not cols:
-            continue
-        var = run(cols)
-        w = better(var)
-        res["groups"][g] = {"cols": cols, "wins": w, "schemes": var,
-                            "adopted": w >= UNI_MIN_SCHEMES}
-        print(f"  · {g:<26} mejora en {w}/4 esquemas")
-        if w >= UNI_MIN_SCHEMES:
-            adopt += cols
-    if adopt:
-        var = run(adopt)
-        w = better(var)
-        res["final_check"] = {"cols": adopt, "wins": w, "schemes": var}
-        if w < UNI_MIN_SCHEMES:
-            print("  · la unión no mejora a la base: no se adopta ninguno")
-            adopt = []
-    res["adopted"] = adopt
-    if adopt:
-        X = X.join(Xe[adopt], how="outer")
-        ameta = {**ameta, **{c: {**emeta[c], "class": "Renta variable"} for c in adopt}}
-        for a, b in (("Biotecnología equiponderada (XBI)", "Biotecnología (IBB)"),
-                     ("Biotecnología (IBB)", "Salud")):
-            ASSET_OVERLAP.setdefault(a, b)
-        print(f"  ✓ adoptados en la cartera: {adopt}")
-    return X, ameta, res
-
-
-
-# Satélite táctico: un bloque más de la rotación, con banda propia, para los activos
-# nuevos con evidencia por fase. Se usa el MISMO motor walk-forward (misma selección
-# por ventaja de fase contraída, mismos esquemas de reparto), así que las cifras son
-# comparables con la cartera base. Banda 0-15% y 0-2 nombres: nunca obligatorio.
-SAT_MIN_SCHEMES = 3
-SAT_CLASSES = {"Biotecnología", "Tamaño (ext.)", "Región (ext.)", "China", "Japón"}
-
-
-def satellite_test(X, Xe, emeta, ameta, phases, probs_df, F, rot_base, level_weight=0.0):
-    """Compara la cartera base con la cartera con satélite. Devuelve (rot_final, info).
-    Se adopta (rot_final = con satélite) si mejora el Sharpe >= UNI_MIN_DSHARPE en al
-    menos UNI_MIN_SCHEMES de 4 esquemas sin bajar el CAGR más de 0,05 puntos. Si no,
-    rot_final = base y el satélite se publica como opcional con sus cifras."""
-    print("7c. Satélite táctico (bloque de activos nuevos con banda 0-15%)…")
-    info = {"adopted": False, "bands": "0-15%", "assets": []}
-    if Xe is None or Xe.empty:
-        return rot_base, info
-    cols = [c for c in Xe.columns if c not in X.columns and emeta[c]["class"] in SAT_CLASSES]
-    if not cols:
-        return rot_base, info
-    X2 = X.join(Xe[cols], how="outer")
-    cls2 = {k: v.get("class", "Otros") for k, v in ameta.items()}
-    cls2.update({c: emeta[c]["class"] for c in cols})
-    sleeves_sat = {**SLEEVES, "Satélite táctico": (SAT_CLASSES, 0.00, 0.15, 0, 2)}
-    rot_sat = rotation(X2, phases, cls2, probs_df, F, sleeves=sleeves_sat,
-                       phase_sleeve_override=ESTANFLACION_OVERRIDE, level_weight=level_weight)
-    if not rot_sat.get("schemes"):
-        return rot_base, info
-    mb, ms = _scheme_metrics(rot_base), _scheme_metrics(rot_sat)
-    wins = 0
-    for sch, b in mb.items():
-        v = ms.get(sch) or {}
-        if None in (b.get("sharpe"), v.get("sharpe"), b.get("cagr"), v.get("cagr")):
-            continue
-        if v["sharpe"] - b["sharpe"] >= UNI_MIN_DSHARPE and v["cagr"] >= b["cagr"] - 0.05:
-            wins += 1
-    info.update({"assets": cols, "wins": wins, "base": mb, "with_satellite": ms,
-                 "adopted": wins >= SAT_MIN_SCHEMES, "playbook_default": rot_sat.get("default")})
-    # el playbook del satélite se publica siempre, para poder mostrarlo como opción
-    keep = ("label", "portfolio", "by_phase", "playbook", "sleeve_mix")
-    info["rotation"] = {"default": rot_sat.get("default"), "bands": rot_sat.get("bands"),
-                        "schemes": {k: {kk: v.get(kk) for kk in keep}
-                                    for k, v in rot_sat["schemes"].items()}}
-    print(f"  ✓ satélite: mejora en {wins}/4 esquemas → "
-          f"{'incorporado a «Qué comprar»' if info['adopted'] else 'queda como opción'}")
-    return (rot_sat if info["adopted"] else rot_base), info
-
-
-
-
-def buy_hold_table(X: pd.DataFrame, rot: dict, cls_map: dict) -> dict:
-    """Cartera rotada frente a comprar y mantener cada activo de renta variable y el
-    oro durante EL MISMO periodo (el de la rotación walk-forward). Con retornos en
-    exceso sobre el tipo libre de riesgo, igual que las cifras de la cartera."""
-    try:
-        sch = rot["schemes"][rot["default"]]
-        start = pd.Timestamp(sch["portfolio"]["from"])
-    except Exception:
-        return {}
-    rows = []
-    for c in X.columns:
-        if cls_map.get(c) not in ("Renta variable", "Oro") and c != "Renta variable EE.UU. (mercado)":
-            continue
-        s = X[c].loc[start:]
-        if s.notna().sum() < max(60, int(0.8 * len(X.loc[start:]))):
-            continue
-        p = perf(s)
-        if p:
-            p10 = perf(s.dropna().iloc[-120:])
-            rows.append({"name": c, **{k: p[k] for k in ("cagr", "cagr_tot", "vol", "sharpe", "maxdd")},
-                         "tot10": p10.get("cagr_tot", p10.get("cagr"))})
-    rows.sort(key=lambda r: -r["cagr"])
-    port = {k: sch["portfolio"].get(k) for k in ("cagr", "cagr_tot", "vol", "sharpe", "maxdd")}
-    try:
-        cs = pd.Series({pd.Timestamp(x["d"] + "-01") + pd.offsets.MonthEnd(0): x["s"] for x in sch["curve"]})
-        p10 = perf(cs.iloc[-120:])
-        port["tot10"] = p10.get("cagr_tot", p10.get("cagr"))
-    except Exception:
-        port["tot10"] = None
-    return {"from": str(start.date()), "portfolio": port,
-            "label": sch.get("label"), "assets": rows}
-
-
-LEVEL_WEIGHTS = (0.5, 1.0)
-
-
-def level_test(X, ameta, phases, probs_df, F, rot_base):
-    """Pregunta de usuario: ¿por qué un sector con rentabilidad absoluta altísima en
-    varias fases (semiconductores) casi no sale? Porque el motor puntúa la ventaja de
-    la fase FRENTE A LA PROPIA MEDIA del activo, no su nivel absoluto. Aquí se prueba
-    sumar al criterio de ordenación DENTRO del bloque de renta variable una fracción
-    (level_weight) de su media histórica. El bloque frente a los demás se sigue
-    puntuando con la ventaja pura. Se adopta si mejora el Sharpe >= UNI_MIN_DSHARPE en
-    al menos 3 de 4 esquemas sin bajar el CAGR más de 0,05 puntos."""
-    print("7d. Test de criterio de nivel absoluto dentro de renta variable…")
-    cls_map = {k: v.get("class", "Otros") for k, v in ameta.items()}
-    mb = _scheme_metrics(rot_base)
-    info = {"base": mb, "variants": {}, "adopted_weight": 0.0}
-    best, best_key, best_rot = 0.0, None, rot_base
-    for lw in LEVEL_WEIGHTS:
-        r = rotation(X, phases, cls_map, probs_df, F,
-                     phase_sleeve_override=ESTANFLACION_OVERRIDE, level_weight=lw)
-        m = _scheme_metrics(r)
-        wins = 0
-        for sch, b in mb.items():
-            v = m.get(sch) or {}
-            if None in (b.get("sharpe"), v.get("sharpe"), b.get("cagr"), v.get("cagr")):
-                continue
-            if v["sharpe"] - b["sharpe"] >= UNI_MIN_DSHARPE and v["cagr"] >= b["cagr"] - 0.05:
-                wins += 1
-        msh = float(np.mean([v["sharpe"] for v in m.values() if v.get("sharpe") is not None] or [0]))
-        info["variants"][str(lw)] = {"wins": wins, "schemes": m}
-        if wins >= UNI_MIN_SCHEMES and (best_key is None or (wins, msh) > best_key):
-            best, best_key, best_rot = lw, (wins, msh), r
-    info["adopted_weight"] = best
-    print(f"  ✓ peso del nivel absoluto adoptado: {best} "
-          + ", ".join("%s: %s/4" % (k, v["wins"]) for k, v in info["variants"].items()))
-    return best_rot, info
-
-
-def recency_test(X, ameta, phases, probs_df, F, rot_base):
-    """¿Dar más (o menos) peso a los datos recientes mejora la cartera? El motor ya
-    pondera exponencialmente por antigüedad (HALF_LIFE_M, base 60 meses). Se prueban
-    otras semividas, incluida una ventana efectiva de ~15-20 años (semivida 120-180) y
-    la historia casi plana (360). Mismo criterio de adopción que los demás tests
-    (Sharpe +0,01 en >= 3 de 4 esquemas sin bajar el CAGR más de 0,05 pp); se elige
-    sobre la misma muestra, así que es mejora observada, no garantía."""
-    global HALF_LIFE_M
-    print("7c. Test de peso de los datos recientes (semivida)…")
-    cls_map = {k: v.get("class", "Otros") for k, v in ameta.items()}
-    base_hl = HALF_LIFE_M
-    mb = _scheme_metrics(rot_base)
-    info = {"base_half_life": base_hl, "base": mb, "variants": {}, "adopted_half_life": base_hl}
-    best_key, best_rot, best_hl = None, rot_base, base_hl
-    try:
-        for hl in (36, 120, 180, 360):
-            HALF_LIFE_M = hl
-            r = rotation(X, phases, cls_map, probs_df, F, phase_sleeve_override=ESTANFLACION_OVERRIDE)
-            m = _scheme_metrics(r)
-            wins = 0
-            for sch, b in mb.items():
-                v = m.get(sch) or {}
-                if None in (b.get("sharpe"), v.get("sharpe"), b.get("cagr"), v.get("cagr")):
-                    continue
-                if v["sharpe"] - b["sharpe"] >= UNI_MIN_DSHARPE and v["cagr"] >= b["cagr"] - 0.05:
-                    wins += 1
-            msh = float(np.mean([v["sharpe"] for v in m.values() if v.get("sharpe") is not None] or [0]))
-            info["variants"][str(hl)] = {"wins": wins, "mean_sharpe": round(msh, 3), "schemes": m}
-            if wins >= UNI_MIN_SCHEMES and (best_key is None or (wins, msh) > best_key):
-                best_key, best_rot, best_hl = (wins, msh), r, hl
-    finally:
-        HALF_LIFE_M = best_hl
-    info["adopted_half_life"] = best_hl
-    print("  ✓ semivida adoptada: %s (base %s) · " % (best_hl, base_hl)
-          + ", ".join("%s: %s/4" % (k, v["wins"]) for k, v in info["variants"].items()))
-    return best_rot, info
+    return rows, {"cells": len(cells), "graded": graded, "fdr_survivors": fdr}
 
 
 def subsector_analysis(phases: pd.Series):
@@ -2432,7 +1462,7 @@ def subsector_analysis(phases: pd.Series):
             if not d or "ann" not in d:
                 continue
             by_sector.setdefault(parent, {}).setdefault(phase, []).append({
-                "name": row["name"], "ann": d["ann"], "ann_tot": d.get("ann_tot"), "rel": d.get("rel"),
+                "name": row["name"], "ann": d["ann"], "rel": d.get("rel"),
                 "rel_shrunk": d.get("rel_shrunk"), "grade": d.get("grade"),
                 "n": d["n"],
             })
@@ -2454,9 +1484,6 @@ def subsector_analysis(phases: pd.Series):
 # 7. Backtest
 # ======================================================================================
 
-RF_M = None   # tipo libre de riesgo mensual (%), para pasar de exceso a retorno total
-
-
 def perf(series: pd.Series) -> dict:
     s = series.dropna() / 100.0
     if s.size < 24:
@@ -2466,13 +1493,7 @@ def perf(series: pd.Series) -> dict:
     vol = s.std() * math.sqrt(12)
     _, _, t = newey_west(s.values * 100)
     roll12 = (1 + s).rolling(12).apply(np.prod, raw=True) - 1
-    cagr_tot = None
-    if RF_M is not None:
-        rfa = RF_M.reindex(s.index)
-        if rfa.notna().mean() > 0.8:
-            tot = (1 + s + rfa.fillna(rfa.mean()) / 100.0).cumprod()
-            cagr_tot = round(float(tot.iloc[-1] ** (12 / s.size) - 1) * 100, 2)
-    return {"cagr_tot": cagr_tot, "cagr": round(float(cagr * 100), 2), "vol": round(float(vol * 100), 2),
+    return {"cagr": round(float(cagr * 100), 2), "vol": round(float(vol * 100), 2),
             "sharpe": round(float(cagr / vol), 2) if vol > 0 else None,
             "maxdd": round(float((curve / curve.cummax() - 1).min() * 100), 2),
             "worst12": round(float(roll12.min() * 100), 2) if roll12.notna().any() else None,
@@ -2826,7 +1847,7 @@ def _weights(names, vol, scheme: str) -> pd.Series:
     return (0.5 * eq + 0.5 * (iv / iv.sum()))
 
 
-def _sleeve_pick(mu, vol, raw_phase, avail, classes, cls_map, n_min, n_max, mu_rank=None):
+def _sleeve_pick(mu, vol, raw_phase, avail, classes, cls_map, n_min, n_max):
     """Selecciona los del bloque que de verdad convienen en esta fase y
     devuelve su orden y su puntuación. El número elegido no es fijo: se
     queda con los que puntúan **positivo** (ventaja de fase > 0) más los
@@ -2874,24 +1895,20 @@ def _sleeve_pick(mu, vol, raw_phase, avail, classes, cls_map, n_min, n_max, mu_r
     compitan los dos sería, en parte, contar la misma exposición dos veces, así
     que solo sigue en carrera el que muestre mejor ir — el mismo criterio que
     decide cualquier otro desempate de esta función, no una regla especial."""
-    # mu_rank: puntuación SOLO para ordenar/seleccionar dentro del bloque (puede incluir
-    # parte del nivel absoluto, ver rotation(level_weight=...)); `mu` (ventaja de fase
-    # pura) sigue mandando en la puntuación del bloque frente a los demás.
-    rmu = mu if mu_rank is None else mu_rank
     cand = [c for c in avail
             if cls_map.get(c) in classes and c not in NOT_SELECTABLE]
     if not cand:
         return [], 0.0
     for child, parent in ASSET_OVERLAP.items():
         if child in cand and parent in cand:
-            ir_child = rmu.get(child, -1e9) / max(abs(vol.get(child, 0.0)), 1e-9)
-            ir_parent = rmu.get(parent, -1e9) / max(abs(vol.get(parent, 0.0)), 1e-9)
+            ir_child = mu.get(child, -1e9) / max(abs(vol.get(child, 0.0)), 1e-9)
+            ir_parent = mu.get(parent, -1e9) / max(abs(vol.get(parent, 0.0)), 1e-9)
             cand.remove(child if ir_child <= ir_parent else parent)
     vc = vol.reindex(cand).replace(0, np.nan)
     floor = vc.quantile(VOL_FLOOR_Q) if vc.notna().sum() > 2 else None
     if floor and floor > 0:
         vc = vc.clip(lower=floor)
-    ir = (rmu.reindex(cand) / vc).replace([np.inf, -np.inf], np.nan).dropna()
+    ir = (mu.reindex(cand) / vc).replace([np.inf, -np.inf], np.nan).dropna()
     if ir.empty:
         return [], 0.0
     raw = (raw_phase.reindex(ir.index) / vc.reindex(ir.index)).replace([np.inf, -np.inf], np.nan)
@@ -2960,17 +1977,6 @@ def _sleeve_weights(scores: dict, sleeves: dict | None = None) -> dict:
     return w
 
 
-def _add_rf(series):
-    """Pasa una serie en exceso sobre letras (en %) a retorno total sumando el tipo libre
-    de riesgo mensual. Solo para lo que se MUESTRA; Sharpe y contrastes siguen en exceso."""
-    if series is None or RF_M is None:
-        return series
-    rf = RF_M.reindex(series.index)
-    if rf.notna().mean() < 0.8:
-        return series
-    return series + rf.fillna(rf.mean())
-
-
 def _annual(series: pd.Series) -> dict:
     y = (1 + series / 100.0).groupby(series.index.year).prod() - 1
     return {int(k): round(float(v * 100), 2) for k, v in y.items()}
@@ -3033,9 +2039,7 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
              bench_name: str = "Renta variable EE.UU. (mercado)",
              bd_name: str = "Treasury 10 años",
              include_6040: bool = True,
-             phase_sleeve_override: dict | None = None,
-             level_weight: float = 0.0,
-             level_sleeves: frozenset = frozenset({"Renta variable"})) -> dict:
+             phase_sleeve_override: dict | None = None) -> dict:
     """Cartera solo larga, siempre invertida al 100 %, sin apalancar ni cortos.
     La fase decide qué activos ocupan cada bloque y cuánto pesa cada bloque dentro
     de sus bandas. Se calculan los cuatro esquemas de reparto en paralelo sobre
@@ -3195,16 +2199,12 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
         else:
             mu = means(hist, hph, sig)
         avail = list(X.loc[t].dropna().index)
-        grand_t = _wmean(hist, _ew(hist, hist.index[-1]))
         picks, scores = {}, {}
         for name, (classes, lo, hi, n_min, n_max) in sleeves.items():
             if phase_sleeve_override and (sig, name) in phase_sleeve_override:
                 n_min, n_max = phase_sleeve_override[(sig, name)]
-            mr = None
-            if level_weight and name in level_sleeves:
-                mr = mu + level_weight * grand_t
             picks[name], scores[name] = _sleeve_pick(
-                mu, vol, raw_phase, avail, classes, cls_map, n_min, n_max, mu_rank=mr)
+                mu, vol, raw_phase, avail, classes, cls_map, n_min, n_max)
         if not any(picks.values()):
             continue
 
@@ -3280,24 +2280,6 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
             # Ken French publica con un mes de retraso: exigir dato en el último
             # mes dejaba fuera todos los sectores y el bloque salía vacío.
             avail = list(X.columns[X.tail(4).notna().any()])
-            if phase == "Estanflación" and sch == "rank" and "Renta fija" in sleeves:
-                grand_dbg = _wmean(X, _ew(X, X.index[-1]))
-                cand_dbg = [c for c in avail
-                            if cls_map.get(c) in {"Renta fija", "Liquidez"}
-                            and c not in NOT_SELECTABLE]
-                n_dbg = int((ph == phase).sum())
-                print(f"=== DEBUG playbook Estanflación / Renta fija+Liquidez (n={n_dbg} meses de fase, half_life={HALF_LIFE_M}) ===")
-                rows_dbg = []
-                for c in cand_dbg:
-                    m = float(mu.get(c, float("nan")))
-                    v = float(vol_all.get(c, float("nan")))
-                    r = float(raw_phase.get(c, float("nan")))
-                    g = float(grand_dbg.get(c, float("nan")))
-                    ir = m / v if v else float("nan")
-                    rows_dbg.append((ir, c, m, v, r, g))
-                for ir, c, m, v, r, g in sorted(rows_dbg, reverse=True):
-                    print(f"  {c:38s} IR={ir:+.3f}  mu(ventaja contraída)={m:+.3f}  "
-                          f"vol={v:.3f}  raw_phase_mean={r:+.3f}  grand(media propia)={g:+.3f}")
             picks, scores = {}, {}
             for sl, (classes, lo, hi, n_min, n_max) in sleeves.items():
                 if phase_sleeve_override and (phase, sl) in phase_sleeve_override:
@@ -3316,10 +2298,7 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
             playbook[phase] = [r for r in rows if r["weight"] >= 0.3]
             mix[phase] = {k: round(v * 100, 1) for k, v in budgets.items()}
 
-        ann_ex = _annual(R)
-        R_tot = _add_rf(R)
-        bench_tot = _add_rf(bench) if bench is not None else None
-        ann = _annual(_add_rf(R))
+        ann = _annual(R)
         realized = float(R.std() * math.sqrt(12))
         bench_v = float(bench.dropna().std() * math.sqrt(12)) if bench is not None else None
         out_schemes[sch] = {
@@ -3335,28 +2314,28 @@ def rotation(X: pd.DataFrame, phases: pd.Series, cls_map: dict,
             "sleeve_mix": mix,
             "annual": ann,
             "turnover": round(float(turn_s.mean() * 100), 1),
-            "wins_years": sum(1 for y, v in ann_ex.items()
+            "wins_years": sum(1 for y, v in ann.items()
                               if y in bench_annual and v > bench_annual[y]),
-            "n_years": len([y for y in ann_ex if y in bench_annual]),
-            "curve": [{"d": d.strftime("%Y-%m"), "s": round(float(R_tot.loc[d]), 4),
-                       "b": (round(float(bench_tot.loc[d]), 4)
+            "n_years": len([y for y in ann if y in bench_annual]),
+            "curve": [{"d": d.strftime("%Y-%m"), "s": round(float(R.loc[d]), 4),
+                       "b": (round(float(bench.loc[d]), 4)
                              if bench is not None and d in bench.index
                              and bench.loc[d] == bench.loc[d] else None)}
-                      for d in R.index],
+                      for d in R.index][-560:],
         }
 
     print("  ✓ " + " · ".join(
         f"{SCHEMES[k]}: Sharpe {out_schemes[k]['portfolio'].get('sharpe')}"
         for k in out_schemes))
-    # El esquema por defecto es el de mayor Sharpe realizado en el propio walk-forward
-    # (el mismo criterio con el que se aceptan o rechazan el resto de variantes), con el
-    # CAGR como desempate. La web deja elegir los cuatro.
-    best_scheme = max(out_schemes, key=lambda k: (round(out_schemes[k]["portfolio"].get("sharpe") or -1e9, 2),
-                                                  out_schemes[k]["portfolio"].get("cagr", -1e9)))
+    # El esquema por defecto es el de mayor CAGR realizado en el propio
+    # walk-forward, no uno fijado a mano: la web deja elegir los cuatro,
+    # pero lo que se muestra sin tocar nada tiene que ser el que de verdad
+    # ha rentado más, no una preferencia de diseño.
+    best_scheme = max(out_schemes, key=lambda k: out_schemes[k]["portfolio"].get("cagr", -1e9))
     return {"schemes": out_schemes, "default": best_scheme,
             "bench_100eq": perf(bench) if bench is not None else {},
             "bench_6040": perf(bench_6040) if bench_6040 is not None else {},
-            "bench_annual": (_annual(_add_rf(bench_valid)) if bench_valid is not None else {}),
+            "bench_annual": bench_annual,
             "bands": {k: [round(v[1] * 100), round(v[2] * 100)]
                       for k, v in sleeves.items()},
             # Suelo/techo REAL de cada bloque (n_min, n_max de SLEEVES), para que el
@@ -3569,147 +2548,34 @@ def validation(df, F, phases):
 # 9. Ensamblado
 # ======================================================================================
 
-def _factor_model(df: pd.DataFrame) -> dict:
+def main() -> None:
+    t0 = time.time()
+    df, raw_meta = fetch_macro()
     Z, ind_info = build_blocks(df)
     F, pca = build_factors(Z)
     F = F.dropna(subset=["growth", "inflation"])
+
     phases = pd.Series([classify(a, b) for a, b in zip(F["growth"], F["inflation"])],
                        index=F.index, name="phase")
     sg = float(F["growth"].diff(HORIZON_M).std())
     si = float(F["inflation"].diff(HORIZON_M).std())
-    # Probabilidad de cada fase en cada mes; se desplaza un mes: en t solo se conoce t-1.
-    prob_rows = {d: phase_probs(float(a), float(b), sg, si)
-                 for d, a, b in zip(F.index, F["growth"], F["inflation"])}
-    probs_df = pd.DataFrame(prob_rows).T.shift(1)
-    return {"Z": Z, "ind_info": ind_info, "F": F, "pca": pca, "phases": phases,
-            "sg": sg, "si": si, "probs_df": probs_df}
-
-
-def choose_pca_variant(df, X, ameta, picks_by_block: dict, report: dict):
-    """Más series explican más varianza, pero eso NO garantiza un reloj más útil. Se
-    prueban las combinaciones (base, +crecimiento, +inflación, +ambas) con la cartera
-    walk-forward y se adopta la que mejora el Sharpe >= UNI_MIN_DSHARPE en al menos
-    3 de 4 esquemas sin bajar el CAGR más de 0,05 puntos; si ninguna, se queda la base.
-    Los bloques «leading» no alimentan la fase y se adoptan si mejoran su varianza."""
-    base_series = list(SERIES)
-    cls_map = {k: v.get("class", "Otros") for k, v in ameta.items()}
-    variants = {"base": []}
-    g, i = picks_by_block.get("growth", []), picks_by_block.get("inflation", [])
-    if g:
-        variants["crecimiento"] = g
-    if i:
-        variants["inflación"] = i
-    if g and i:
-        variants["ambas"] = g + i
-    results, models = {}, {}
-    for name, extra in variants.items():
-        SERIES[:] = base_series + extra
-        m = _factor_model(df)
-        models[name] = m
-        results[name] = _scheme_metrics(rotation(
-            X, m["phases"], cls_map, m["probs_df"], m["F"],
-            phase_sleeve_override=ESTANFLACION_OVERRIDE))
-    base = results["base"]
-    best, best_key = "base", None
-    for name, res in results.items():
-        if name == "base":
-            continue
-        wins = 0
-        for sch, b in base.items():
-            v = res.get(sch) or {}
-            if None in (b.get("sharpe"), v.get("sharpe"), b.get("cagr"), v.get("cagr")):
-                continue
-            if v["sharpe"] - b["sharpe"] >= UNI_MIN_DSHARPE and v["cagr"] >= b["cagr"] - 0.05:
-                wins += 1
-        mean_sh = float(np.mean([v["sharpe"] for v in res.values() if v.get("sharpe") is not None] or [0]))
-        report.setdefault("variants", {})[name] = {"wins": wins, "schemes": res}
-        if wins >= UNI_MIN_SCHEMES and (best_key is None or (wins, mean_sh) > best_key):
-            best, best_key = name, (wins, mean_sh)
-    report.setdefault("variants", {})["base"] = {"schemes": base}
-    report["adopted_variant"] = best
-    # leading: no afecta a la fase; se adopta si sube la varianza (informativo)
-    SERIES[:] = base_series + variants[best]
-    m = models[best]
-    if best == "base" and picks_by_block.get("leading"):
-        SERIES.extend(picks_by_block["leading"])
-        m = _factor_model(df)
-        report["leading_adopted"] = [sp.fred_id for sp in picks_by_block["leading"]]
-    resumen = ", ".join("%s: %s/4" % (k, v.get("wins", "-")) for k, v in report["variants"].items())
-    print(f"  ✓ variante de PCA adoptada: {best} ({resumen})")
-    return m
-
-
-def main() -> None:
-    t0 = time.time()
-    df, raw_meta = fetch_macro()
-    X, ameta = fetch_assets(df)
-    pca_research, picks = {"error": "no ejecutado"}, {}
-    try:
-        df, cand_meta = fetch_candidates(df)
-        raw_meta.update(cand_meta)
-        pca_research, picks = select_candidates(df)
-    except Exception as exc:  # la ampliación es opcional: nunca debe tumbar el modelo
-        warn(f"ampliación del PCA omitida: {exc}")
-        pca_research = {"error": str(exc)}
-    model = None
-    base_series_snapshot = list(SERIES)
-    if picks:
-        try:
-            model = choose_pca_variant(df, X, ameta, picks, pca_research)
-        except Exception as exc:
-            warn(f"elección de variante de PCA omitida: {exc}")
-            pca_research["error"] = str(exc)
-            SERIES[:] = base_series_snapshot
-    if model is None:
-        model = _factor_model(df)
-    Z, ind_info, F, pca = model["Z"], model["ind_info"], model["F"], model["pca"]
-    phases, sg, si, probs_df = model["phases"], model["sg"], model["si"], model["probs_df"]
     g, i = float(F["growth"].iloc[-1]), float(F["inflation"].iloc[-1])
     probs = phase_probs(g, i, sg, si)
     rank = sorted(probs.items(), key=lambda kv: kv[1], reverse=True)
     conf = rank[0][1] - rank[1][1]
 
-    # Activos nuevos: se prueban y, si mejoran la cartera, se incorporan al universo.
-    Xe, emeta, elog = fetch_extended()
-    try:
-        X, ameta, universe = universe_test(X, ameta, Xe, emeta, phases, probs_df, F)
-    except Exception as exc:
-        warn(f"test del universo omitido: {exc}")
-        universe = {"error": str(exc), "adopted": []}
+    X, ameta = fetch_assets(df)
     assets, astats = conditional_stats(X, phases, ameta)
     bt = backtest(X, phases)
     cls_map = {k: v.get("class", "Otros") for k, v in ameta.items()}
+    # Probabilidad de cada fase en cada mes, con la misma fórmula que el panel usa
+    # para el mes actual. Se desplaza un mes: en t solo se conoce la de t-1.
+    prob_rows = {}
+    for d, gg, ii in zip(F.index, F["growth"], F["inflation"]):
+        prob_rows[d] = phase_probs(float(gg), float(ii), sg, si)
+    probs_df = pd.DataFrame(prob_rows).T.shift(1)
     rot = rotation(X, phases, cls_map, probs_df, F,
                    phase_sleeve_override=ESTANFLACION_OVERRIDE)
-    try:
-        rot, recency_info = recency_test(X, ameta, phases, probs_df, F, rot)
-    except Exception as exc:
-        warn(f"test de semivida omitido: {exc}")
-        recency_info = {"error": str(exc)}
-    buy_hold = buy_hold_table(X, rot, cls_map)
-    try:
-        rot, level_info = level_test(X, ameta, phases, probs_df, F, rot)
-    except Exception as exc:
-        warn(f"test de nivel absoluto omitido: {exc}")
-        level_info = {"error": str(exc), "adopted_weight": 0.0}
-    try:
-        rot, satellite = satellite_test(X, Xe, emeta, ameta, phases, probs_df, F, rot,
-                                        level_info.get("adopted_weight", 0.0))
-    except Exception as exc:
-        warn(f"satélite táctico omitido: {exc}")
-        satellite = {"error": str(exc), "adopted": False}
-    # Volcado de los insumos de la rotación (rendimientos mensuales, fases, probabilidades,
-    # factores) para poder reproducir y probar variantes localmente sin red. No se publica.
-    try:
-        _lab = Path(__file__).resolve().parent.parent / "lab"
-        _lab.mkdir(exist_ok=True)
-        X.to_csv(_lab / "X.csv")
-        phases.to_csv(_lab / "phases.csv", header=True)
-        probs_df.to_csv(_lab / "probs.csv")
-        F.to_csv(_lab / "F.csv")
-        (_lab / "cls_map.json").write_text(json.dumps(cls_map, ensure_ascii=False))
-    except Exception as exc:
-        warn(f"volcado lab omitido: {exc}")
     lab = laboratory(X, phases, cls_map)
     # Reloj de renta fija: mismo motor, otro conjunto de bloques (ver SLEEVES_FI) y
     # otro benchmark (el agregado de bonos, no el S&P 500). include_6040=False: un
@@ -3723,8 +2589,6 @@ def main() -> None:
     rec = recession_model(df, F.index)
     subsectors = subsector_analysis(phases)
     holdings = fetch_holdings()
-    extended = extended_analysis(phases, (Xe, emeta, elog))
-    now = now_edge(X, probs_df, probs, ameta)
 
     p1, p2 = rank[0][0], rank[1][0]
 
@@ -3748,12 +2612,6 @@ def main() -> None:
     consensus = consensus_for(SLEEVES)
     consensus_fi = consensus_for(SLEEVES_FI)
 
-    def _z_at_lag(z, months):
-        """Valor del z-score exactamente `months` meses antes del último (por fecha, no por posición)."""
-        t = (z.index[-1].to_period("M") - months).to_timestamp("M")
-        v = z.get(t)
-        return None if v is None or v != v else round(float(v), 2)
-
     indicators = []
     for spec in SERIES:
         if spec.fred_id not in Z.columns:
@@ -3764,7 +2622,7 @@ def main() -> None:
         indicators.append({
             **ind_info[spec.fred_id],
             "z": round(float(z.iloc[-1]), 2),
-            "z_prev": _z_at_lag(z, 1),
+            "z_prev": round(float(z.iloc[-13]), 2) if z.size > 13 else None,
             "loading": pca.get(spec.block, {}).get("loadings", {}).get(spec.fred_id),
             "last_obs": raw_meta.get(spec.fred_id, {}).get("last_obs"),
         })
@@ -3776,9 +2634,6 @@ def main() -> None:
                 "i": round(float(b), 3), "p": p}
                for d, a, b, p in zip(F.index, F["growth"], F["inflation"], phases)]
 
-    # Convención de `nber`: cada par es [primer mes de recesión, PRIMER mes ya fuera de
-    # recesión] (fin exclusivo, así el sombreado del gráfico acaba donde empieza la
-    # expansión). Quien sume meses con el fin inclusivo cuenta uno de más por episodio.
     nber = []
     if "USREC" in df.columns:
         r = df["USREC"].reindex(F.index).fillna(0)
@@ -3800,7 +2655,7 @@ def main() -> None:
             "assets_ok": sum(1 for a in ASSET_LOG if a["status"] == "ok"),
             "assets_tried": len(ASSET_LOG),
             "history_from": history[0]["d"],
-            "warnings": WARNINGS, "asset_log": ASSET_LOG, "bridge": BRIDGE_INFO, "debug_tails": DEBUG_TAILS,
+            "warnings": WARNINGS, "asset_log": ASSET_LOG,
             "build_seconds": round(time.time() - t0, 1),
         },
         "current": {
@@ -3814,9 +2669,6 @@ def main() -> None:
             "sigma_g": round(sg, 3), "sigma_i": round(si, 3), "horizon_m": HORIZON_M,
             "probs": {k: round(v, 4) for k, v in probs.items()},
             "confidence": round(conf, 4),
-            # Fuerza de la lectura de fase: Fuerte >= 0,6; Moderada 0,3-0,6; Débil < 0,3.
-            "call_strength": ("Fuerte" if conf >= 0.6 else "Moderada" if conf >= 0.3 else "Débil"),
-            "edge": pca.get("_edge"),
             "momentum": {
                 "growth_3m": round(float(F["growth"].iloc[-1] - F["growth"].iloc[-4]), 3)
                              if len(F) > 4 else None,
@@ -3831,7 +2683,6 @@ def main() -> None:
         "backtest": bt, "rotation": rot, "lab": lab,
         "rotation_fi": rot_fi, "lab_fi": lab_fi,
         "validation": val, "subsectors": subsectors, "holdings": holdings,
-        "extended": extended, "universe": universe, "satellite": satellite, "level_test": level_info, "recency_test": recency_info, "buy_hold": buy_hold, "now_edge": now, "pca_research": pca_research,
         "phases": PHASES, "phase_long": PHASE_LONG,
     }
 
