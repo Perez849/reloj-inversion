@@ -1587,9 +1587,10 @@ TICKER_SUBSECTOR = {
     "ADM": "Agricultura",
 }
 
-# Para Comunicaciones, Utilities y Materiales/Químicas Ken French no ofrece ningún
-# desglose (su única industria de las 49 que cae limpia es idéntica al sector
-# entero, ver SUBSECTOR_MAP). A petición expresa del usuario, en vez de enseñar
+# Para Comunicaciones, Utilities, Materiales/Químicas y Semiconductores Ken French no
+# ofrece ningún desglose (su única industria de las 49 que cae limpia es idéntica al
+# sector entero, ver SUBSECTOR_MAP; en Semiconductores, "Chips" es el sector entero).
+# A petición expresa del usuario, en vez de enseñar
 # solo la lista plana de posiciones, se deducen sub-grupos reales -- mismo
 # tratamiento visual que Salud o Financiero, pero el número ya no es rentabilidad
 # por fase (no hay historia que medir para un grupo inventado) sino el peso real
@@ -1598,6 +1599,31 @@ TICKER_SUBSECTOR = {
 # pública y verificable -- nunca a ojo. Una empresa del top-20 que no encaje con
 # confianza en ningún grupo se deja fuera, igual que en TICKER_SUBSECTOR.
 HOLDINGS_GROUPS = {
+    # Semiconductores: el peso de cada grupo es la suma de los pesos de sus miembros
+    # DENTRO DE XLK (no hay un fondo de semiconductores propio, ver CHIP_TICKERS), así
+    # que no suma 100: son los chips que pesan hoy dentro del ETF de Tecnología.
+    "Semiconductores": {
+        # Nvidia y AMD (GPU/CPU y aceleradores de IA), Broadcom (chips de red y
+        # aceleradores a medida), Intel (CPU), Qualcomm (procesadores y módems móviles)
+        # y Marvell (chips de red y centros de datos): lógica y comunicaciones. Intel,
+        # a diferencia del resto, además fabrica sus propios chips, pero su negocio
+        # sigue siendo el procesador.
+        "Procesadores, IA y comunicaciones": {"NVDA", "AMD", "AVGO", "INTC", "QCOM", "MRVL"},
+        # Micron (DRAM y NAND) y SanDisk (memoria flash NAND).
+        "Memoria": {"MU", "SNDK"},
+        # Applied Materials, Lam Research y KLA fabrican los equipos con los que otros
+        # fabrican los chips -- "Semiconductor Materials & Equipment" en GICS, SIC 3559.
+        "Equipos de fabricación": {"AMAT", "LRCX", "KLAC"},
+        # Texas Instruments y Analog Devices (analógicos), Microchip (microcontroladores),
+        # onsemi y Monolithic Power (potencia), NXP (automoción y señal mixta) y
+        # Skyworks/Qorvo (radiofrecuencia): chips que no son lógica ni memoria.
+        "Analógicos, potencia y microcontroladores": {
+            "TXN", "ADI", "MCHP", "ON", "MPWR", "NXPI", "SWKS", "QRVO",
+        },
+        # First Solar fabrica módulos fotovoltaicos de capa fina (SIC 3674, el mismo
+        # que "Chips" en Ken French): por eso está en CHIP_TICKERS, pero es otro negocio.
+        "Energía solar": {"FSLR"},
+    },
     "Comunicaciones": {
         # Meta/Alphabet (publicidad + plataforma), AppLovin (publicidad in-app) y
         # Reddit son "Interactive Media & Services". Omnicom (agencia de

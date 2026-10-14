@@ -1064,6 +1064,11 @@ function subsectorHTML(S, phase) {
       // ETF (Comunicaciones/Utilities/Materiales); si no hay grupos para este
       // sector, se cae a la lista plana de posiciones reales.
       const grupos = hold?.grupos?.[x.name];
+      // Semiconductores no tiene fondo propio fiable (ver METODOLOGIA.md): sus
+      // posiciones y sus grupos vienen del propio ETF de Tecnología, que es donde estas
+      // empresas pesan de verdad — el pie lo deja claro para no dar a entender
+      // que existe un fondo de semiconductores detrás de este número.
+      const esSemis = x.name === "Semiconductores";
       if (grupos && grupos.length) {
         return `<div class="cons-card">
           <span class="cls">${x.name}${secAnn != null ? ` · en conjunto ${fmtNum(secAnn, 1)}%` : ""}</span>
@@ -1072,21 +1077,15 @@ function subsectorHTML(S, phase) {
             caption: holdingsExamples(g.empresas),
             value: `${fmtNum(g.peso, 1)}%`,
             valueColor: "var(--ink-soft)",
-            title: `peso agregado real de hoy en el fondo que replica ${x.name}${asOf ? `, a ${asOf}` : ""}`,
+            title: `peso agregado real de hoy en ${esSemis ? "el ETF de Tecnología (XLK)" : `el fondo que replica ${x.name}`}${asOf ? `, a ${asOf}` : ""}`,
           })).join("")}
-          <p class="foot" style="margin-top:8px;margin-bottom:0">Peso real de hoy por línea de
-            negocio dentro del fondo que replica este sector — no hay historia propia para
-            desglosarlo por fase como al resto, así que se enseña la composición actual en su
-            lugar.</p>
+          <p class="foot" style="margin-top:8px;margin-bottom:0">${esSemis
+            ? "Peso real de hoy de cada línea de negocio dentro del ETF de Tecnología (XLK), filtrado a los fabricantes de semiconductores: no hay un fondo de semiconductores fiable ni historia propia para desglosarlo por fase. No suma 100 % porque es la parte de XLK que ocupa cada línea."
+            : "Peso real de hoy por línea de negocio dentro del fondo que replica este sector — no hay historia propia para desglosarlo por fase como al resto, así que se enseña la composición actual en su lugar."}</p>
         </div>`;
       }
       const secHold = hold?.por_sector?.[x.name] || [];
       if (!secHold.length) return null;
-      // Semiconductores no tiene fondo propio fiable (ver METODOLOGIA.md): sus
-      // posiciones vienen del propio ETF de Tecnología, que es donde estas
-      // empresas pesan de verdad — el pie lo deja claro para no dar a entender
-      // que existe un fondo de semiconductores detrás de este número.
-      const esSemis = x.name === "Semiconductores";
       return `<div class="cons-card">
         <span class="cls">${x.name}${secAnn != null ? ` · en conjunto ${fmtNum(secAnn, 1)}%` : ""}</span>
         ${secHold.map(h => metricRow({

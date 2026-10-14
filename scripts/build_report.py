@@ -518,32 +518,75 @@ def build_html(D, gen: datetime) -> str:
 </section>''')
 
     # ---------------------------------------------------------------- 6 subsectores
+    # Se enseña CADA sector de renta variable que recomienda la fase, no solo los que tienen
+    # historia propia por subsector: igual que la web (subsectorHTML en app.js), hay tres
+    # casos y ninguno se descarta en silencio.
+    #  1) subsectores con rentabilidad por fase (49 industrias de Ken French);
+    #  2) sin esa historia (Utilities, Comunicaciones, Materiales: su industria de las 49
+    #     es idéntica al sector entero) -> líneas de negocio con su peso real de hoy en el ETF;
+    #  3) sin grupos tampoco (Semiconductores, que no tiene fondo propio) -> mayores
+    #     posiciones reales, tomadas del ETF de Tecnología.
     sub = D.get("subsectors", {}).get("por_sector", {})
-    hold = D.get("holdings", {}).get("por_subsector", {})
+    hold_d = D.get("holdings", {}) or {}
+    hold = hold_d.get("por_subsector", {})
+    grupos = hold_d.get("grupos", {})
+    pos_sector = hold_d.get("por_sector", {})
+    as_of = (hold_d.get("meta") or {}).get("as_of")
+    as_of_txt = f" (a {e(as_of)})" if as_of else ""
     cards = []
     for r in [x for x in sch["playbook"].get(ph, []) if x["sleeve"] == "Renta variable"]:
-        items = (sub.get(r["name"]) or {}).get(ph) or []
-        if not items:
-            continue
-        a = next((x for x in D["assets"] if x["name"] == r["name"]), None)
+        name = r["name"]
+        a = next((x for x in D["assets"] if x["name"] == name), None)
         sec = (a["phases"].get(ph) or {}) if a else {}
         secv = sec.get("ann_tot") if sec.get("ann_tot") is not None else sec.get("ann")
-        trs = []
-        for it in items[:6]:
-            v = it.get("ann_tot") if it.get("ann_tot") is not None else it.get("ann")
-            d = (v - secv) if (v is not None and secv is not None) else None
-            comp = hold.get(it["name"]) or []
-            ctx = ", ".join(c["ticker"] for c in comp[:3])
-            trs.append(f'<tr><td>{e(it["name"])}<small>{e(ctx)}</small></td><td class="r">{num(v, 1)}%</td>'
-                       f'<td class="r" style="color:{POS if (d or 0) >= 0 else NEG}">{num(d, 1, True) if d is not None else "—"}</td></tr>')
-        cards.append(f'<figure class="card"><figcaption>{e(r["name"])} <small>en conjunto {num(secv, 1)}% anual en {e(ph)}</small></figcaption>'
-                     f'<table class="mini"><thead><tr><th>Subsector <small>(empresas del ETF, contexto)</small></th><th class="r">Anual</th><th class="r">vs sector</th></tr></thead><tbody>{"".join(trs)}</tbody></table></figure>')
-    cards_html = "".join(cards) or '<p class="cap">Sin desglose por subsectores en esta ejecución.</p>'
+        cap = (f'<figcaption>{e(name)} <small>en conjunto {num(secv, 1)}% anual en {e(ph)}</small></figcaption>'
+               if secv is not None else f'<figcaption>{e(name)}</figcaption>')
+        items = (sub.get(name) or {}).get(ph) or []
+        if items:
+            trs = []
+            for it in items:
+                v = it.get("ann_tot") if it.get("ann_tot") is not None else it.get("ann")
+                d = (v - secv) if (v is not None and secv is not None) else None
+                comp = hold.get(it["name"]) or []
+                ctx = ", ".join(c["ticker"] for c in comp[:3])
+                trs.append(f'<tr><td>{e(it["name"])}<small>{e(ctx)}</small></td><td class="r">{num(v, 1)}%</td>'
+                           f'<td class="r" style="color:{POS if (d or 0) >= 0 else NEG}">{num(d, 1, True) if d is not None else "—"}</td></tr>')
+            cards.append(f'<figure class="card">{cap}'
+                         f'<table class="mini"><thead><tr><th>Subsector <small>(empresas del ETF, contexto)</small></th><th class="r">Anual</th><th class="r">vs sector</th></tr></thead><tbody>{"".join(trs)}</tbody></table></figure>')
+        elif grupos.get(name):
+            trs = []
+            for g in grupos[name]:
+                ctx = ", ".join(c["ticker"] for c in g["empresas"][:3])
+                trs.append(f'<tr><td>{e(g["grupo"])}<small>{e(ctx)}</small></td><td class="r">{num(g["peso"], 1)}%</td></tr>')
+            es_semis = name == "Semiconductores"
+            col_peso = "Peso hoy en XLK" if es_semis else "Peso hoy en el ETF"
+            nota = ("Sin historia propia por fase ni fondo de semiconductores fiable: se muestra el peso real de cada línea dentro del ETF de Tecnología (XLK), filtrado a los fabricantes de chips. No suma 100 % porque es la parte de XLK que ocupa cada línea"
+                    if es_semis else
+                    "Sin historia propia por fase (en las 49 industrias de Ken French este sector es una sola industria): se muestra el peso real de cada línea de negocio en el ETF")
+            cards.append(f'<figure class="card">{cap}'
+                         f'<table class="mini"><thead><tr><th>Línea de negocio <small>(mayores empresas del ETF)</small></th><th class="r">{col_peso}</th></tr></thead><tbody>{"".join(trs)}</tbody></table>'
+                         f'<p class="cap">{nota}{as_of_txt}.</p></figure>')
+        elif pos_sector.get(name):
+            es_semis = name == "Semiconductores"
+            trs = "".join(f'<tr><td>{e(p["name"])}<small style="display:inline;margin-left:6px">{e(p["ticker"])}</small></td><td class="r">{num(p["weight"], 1)}%</td></tr>'
+                          for p in pos_sector[name][:6])
+            col_peso = "Peso en XLK" if es_semis else "Peso en el ETF"
+            nota = ("no hay un fondo de semiconductores fiable, así que se muestra su peso dentro del ETF de Tecnología (XLK), filtrado a los fabricantes de chips"
+                    if es_semis else "no hay suficiente historia propia para desglosarlo por fase; se muestra el peso real en el ETF del sector")
+            cards.append(f'<figure class="card">{cap}'
+                         f'<table class="mini"><thead><tr><th>Mayores posiciones <small>(contexto)</small></th><th class="r">{col_peso}</th></tr></thead><tbody>{trs}</tbody></table>'
+                         f'<p class="cap">Sin subsectores con rentabilidad por fase: {nota}{as_of_txt}.</p></figure>')
+        else:
+            cards.append(f'<figure class="card">{cap}<p class="cap">Sin desglose por subsectores disponible para este sector en esta ejecución.</p></figure>')
+    cards_html = "".join(cards) or '<p class="cap">Sin sectores de renta variable en la cartera de esta fase.</p>'
+    # Dos columnas cuando hay varias tarjetas: con 3-5 sectores en una sola columna no cabrían
+    # sin encoger el texto; con una sola tarjeta se queda a ancho completo.
+    stack_cls = "cols2" if len(cards) > 1 else "stack"
     pages.append(f'''
 <section class="page">{header(D, "Renta variable: qué subsector pagó mejor", 6, tag)}
-  <p class="lead">Dentro de cada sector elegido en {e(ph)}, qué línea de negocio ha rendido más en esa fase. Análisis <b>complementario</b>: no cambia la cartera. Los tickers son las mayores posiciones del ETF sectorial como contexto, <b>no una recomendación</b>: que un subsector rinda más no implica que esas empresas concretas lo hagan.</p>
-  <div class="stack">{cards_html}</div>
-  {footer(6, "Subsectores: 49 industrias de Ken French (códigos SIC). Rentabilidad anual = media mensual de la fase × 12, retorno total.")}
+  <p class="lead">Dentro de cada sector elegido en {e(ph)}, qué línea de negocio ha rendido más en esa fase. Análisis <b>complementario</b>: no cambia la cartera. Donde un sector no tiene historia propia por subsector, se enseña en su lugar la composición real de hoy del ETF. Los tickers son las mayores posiciones como contexto, <b>no una recomendación</b>: que un subsector rinda más no implica que esas empresas concretas lo hagan.</p>
+  <div class="{stack_cls}">{cards_html}</div>
+  {footer(6, "Subsectores: 49 industrias de Ken French (códigos SIC). Rentabilidad anual = media mensual de la fase × 12, retorno total. Pesos: SPDR / State Street.")}
 </section>''')
 
     # ---------------------------------------------------------------- 7 mapa de calor
@@ -796,6 +839,7 @@ h3{font:600 11pt Fraunces,Georgia,serif;margin:12px 0 4px}
 .three{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:12px}
 .one{display:block;margin-bottom:12px}
 .stack{display:grid;gap:12px}
+.cols2{column-count:2;column-gap:12px}.cols2 .card{break-inside:avoid;margin:0 0 12px}
 .card{margin:0 0 12px;background:#FBF9F3;border:1px solid rgba(27,24,16,.1);border-radius:6px;padding:11px 12px;box-shadow:0 1px 2px rgba(27,24,16,.04)}
 .two .card,.three .card{margin-bottom:0}
 .card figcaption{font:600 9.4pt Fraunces,Georgia,serif;margin:0 0 8px;color:#1B1810}
@@ -907,7 +951,11 @@ def signature(D) -> str:
     """Huella de lo que el informe recomienda: si cambia, hay que regenerarlo aunque sea el mismo mes."""
     import hashlib
     pl = {k: D[k]["schemes"][D[k]["default"]]["playbook"] for k in ("rotation", "rotation_fi") if D.get(k)}
-    raw = json.dumps([pl, D["current"]["phase"], D["current"].get("call_strength"), D["rotation"]["default"]], sort_keys=True, default=str)
+    # El propio código del informe entra en la huella: si cambia lo que se imprime (p. ej. qué
+    # subsectores se muestran), el PDF publicado se regenera en la siguiente ejecución en vez de
+    # esperar a que cambie el mes, la fase o pasen 7 días.
+    code = hashlib.md5(Path(__file__).read_bytes()).hexdigest()
+    raw = json.dumps([pl, D["current"]["phase"], D["current"].get("call_strength"), D["rotation"]["default"], code], sort_keys=True, default=str)
     return hashlib.md5(raw.encode()).hexdigest()
 
 

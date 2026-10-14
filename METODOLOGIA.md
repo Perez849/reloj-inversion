@@ -299,8 +299,9 @@ línea de negocio, nombre a la izquierda y un número en mono a la derecha. En
 los ocho con desglose estadístico ese número es la rentabilidad anualizada de
 la fase; en Materiales/Químicas, Utilities y Comunicaciones es el peso real
 agregado de hoy de un grupo de negocio deducido de la propia composición del
-ETF (ver `HOLDINGS_GROUPS` más abajo); en Semiconductores es el peso real de
-cada empresa, también de hoy — mismo formato en los once casos, dato de otra
+ETF (ver `HOLDINGS_GROUPS` más abajo); en Semiconductores también es el peso
+real de hoy de cada línea de negocio, pero medido dentro de XLK (Tecnología),
+porque no tiene fondo propio — mismo formato en los once casos, dato de otra
 naturaleza donde no hay historia que medir, nunca un hueco vacío ni un texto
 aparte explicando la ausencia.
 
@@ -384,8 +385,8 @@ proveedor, y con los nombres que de verdad pesan hoy. El peso mostrado es su
 peso dentro de XLK, no de un fondo de semiconductores propio: la página lo
 deja explícito en el pie de la tarjeta para no confundir las dos cosas.
 
-**Los grupos derivados (Comunicaciones, Utilities, Materiales/Químicas).**
-Para estos tres sectores, además de no tener desglose de retornos por
+**Los grupos derivados (Comunicaciones, Utilities, Materiales/Químicas y
+Semiconductores).** Para estos cuatro sectores, además de no tener desglose de retornos por
 subsector, tampoco tenía sentido enseñar solo una lista plana de empresas:
 se pidió expresamente el mismo tipo de vista que ya tienen Salud o
 Financiero, con líneas de negocio con nombre. Como no hay una fuente de
@@ -403,6 +404,14 @@ encaja con confianza en ningún grupo se deja fuera en vez de forzarla: por
 eso los grupos de un sector no siempre suman el 100% del top-20 (p. ej.
 Omnicom, una agencia de publicidad tradicional, o News Corp, una editorial
 por su SIC real, se quedan fuera de los grupos de Comunicaciones).
+
+En Semiconductores los grupos son «Procesadores, IA y comunicaciones»,
+«Memoria», «Equipos de fabricación», «Analógicos, potencia y
+microcontroladores» y «Energía solar» (First Solar está en `CHIP_TICKERS` por
+su SIC 3674, el mismo que "Chips" en Ken French, pero es otro negocio). Como
+las posiciones se derivan de XLK, el número de cada grupo es la parte de XLK
+que ocupa, no un porcentaje de un fondo de semiconductores: los grupos no
+suman 100 %, y la tarjeta lo dice en su pie.
 
 **La estadística es la misma que la sección 6**, aplicada a este universo
 aparte: t de Newey-West, contracción de James-Stein para la media contraída, y
