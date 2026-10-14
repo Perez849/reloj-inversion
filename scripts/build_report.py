@@ -558,9 +558,14 @@ def build_html(D, gen: datetime) -> str:
             for g in grupos[name]:
                 ctx = ", ".join(c["ticker"] for c in g["empresas"][:3])
                 trs.append(f'<tr><td>{e(g["grupo"])}<small>{e(ctx)}</small></td><td class="r">{num(g["peso"], 1)}%</td></tr>')
+            es_semis = name == "Semiconductores"
+            col_peso = "Peso hoy en XLK" if es_semis else "Peso hoy en el ETF"
+            nota = ("Sin historia propia por fase ni fondo de semiconductores fiable: se muestra el peso real de cada línea dentro del ETF de Tecnología (XLK), filtrado a los fabricantes de chips. No suma 100 % porque es la parte de XLK que ocupa cada línea"
+                    if es_semis else
+                    "Sin historia propia por fase (en las 49 industrias de Ken French este sector es una sola industria): se muestra el peso real de cada línea de negocio en el ETF")
             cards.append(f'<figure class="card">{cap}'
-                         f'<table class="mini"><thead><tr><th>Línea de negocio <small>(mayores empresas del ETF)</small></th><th class="r">Peso hoy en el ETF</th></tr></thead><tbody>{"".join(trs)}</tbody></table>'
-                         f'<p class="cap">Sin historia propia por fase (en las 49 industrias de Ken French este sector es una sola industria): se muestra el peso real de cada línea de negocio en el ETF{as_of_txt}.</p></figure>')
+                         f'<table class="mini"><thead><tr><th>Línea de negocio <small>(mayores empresas del ETF)</small></th><th class="r">{col_peso}</th></tr></thead><tbody>{"".join(trs)}</tbody></table>'
+                         f'<p class="cap">{nota}{as_of_txt}.</p></figure>')
         elif pos_sector.get(name):
             es_semis = name == "Semiconductores"
             trs = "".join(f'<tr><td>{e(p["name"])}<small style="display:inline;margin-left:6px">{e(p["ticker"])}</small></td><td class="r">{num(p["weight"], 1)}%</td></tr>'
